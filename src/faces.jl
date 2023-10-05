@@ -329,7 +329,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_shell => Face(inherit=[:red, :repl_prompt]),
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     )
-    (; default, current=ScopedValue(copy(default)))
+    (; default, current=ScopedValue(copy(default)), lock=ReentrantLock())
 end
 
 ## Adding and resetting faces ##
@@ -353,7 +353,7 @@ Face (sample)
 ```
 """
 function addface!((name, default)::Pair{Symbol, Face})
-    if !haskey(FACES.default, name)
+    @lock FACES.lock if !haskey(FACES.default, name)
         FACES.default[name] = default
         FACES.current[][name] = if haskey(FACES.current[], name)
             merge(deepcopy(default), FACES.current[][name])
@@ -369,12 +369,14 @@ end
 Reset the current global face dictionary to the default value.
 """
 function resetfaces!()
-    current = FACES.current[]
-    empty!(current)
-    for (key, val) in FACES.default
-        current[key] = val
+    @lock FACES.lock begin
+        current = FACES.current[]
+        empty!(current)
+        for (key, val) in FACES.default
+            current[key] = val
+        end
+        current
     end
-    current
 end
 
 """
@@ -387,7 +389,7 @@ In the unlikely event that the face `name` does not have a default value,
 it is deleted, a warning message is printed, and `nothing` returned.
 """
 function resetfaces!(name::Symbol)
-    if !haskey(FACES.current[], name)
+    @lock FACES.lock if !haskey(FACES.current[], name)
     elseif haskey(FACES.default, name)
         FACES.current[][name] = deepcopy(FACES.default[name])
     else # This shouldn't happen
@@ -567,7 +569,7 @@ Face (sample)
 ```
 """
 function loadfaces!((name, update)::Pair{Symbol, Face})
-    if haskey(FACES.current[], name)
+    @lock FACES.lock if haskey(FACES.current[], name)
         FACES.current[][name] = merge(FACES.current[][name], update)
     else
         FACES.current[][name] = update
