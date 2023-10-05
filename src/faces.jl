@@ -329,7 +329,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_shell => Face(inherit=[:red, :repl_prompt]),
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     )
-    (; default, current=Ref(copy(default)))
+    (; default, current=ScopedValue(copy(default)))
 end
 
 ## Adding and resetting faces ##
@@ -369,7 +369,12 @@ end
 Reset the current global face dictionary to the default value.
 """
 function resetfaces!()
-    FACES.current[] = copy(FACES.default)
+    current = FACES.current[]
+    empty!(current)
+    for (key, val) in FACES.default
+        current[key] = val
+    end
+    current
 end
 
 """
@@ -402,9 +407,6 @@ Execute `f` with `FACES``.current` temporarily modified by zero or more
 temporarily unset an face (if if has been set). When `withfaces` returns, the
 original `FACES``.current` has been restored.
 
-    !!! warning
-    Changing faces is not thread-safe.
-
 # Examples
 
 ```jldoctest; setup = :(import StyledStrings: Face, withfaces)
@@ -415,28 +417,17 @@ red and blue mixed make purple
 ```
 """
 function withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Nothing}}...)
-    old = Dict{Symbol, Union{Face, Nothing}}()
+    newfaces = copy(FACES.current[])
     for (name, face) in keyvals
-        old[name] = get(FACES.current[], name, nothing)
         if face isa Face
-            FACES.current[][name] = face
+            newfaces[name] = face
         elseif face isa Symbol
-            FACES.current[][name] =
-                @something(get(old, face, nothing), get(FACES.current[], face, Face()))
-        elseif haskey(FACES.current[], name)
-            delete!(FACES.current[], name)
+            newfaces[name] =get(FACES.current[], face, Face())
+        elseif haskey(newfaces, name)
+            delete!(newfaces, name)
         end
     end
-    try f()
-    finally
-        for (name, face) in old
-            if isnothing(face)
-                delete!(FACES.current[], name)
-            else
-                FACES.current[][name] = face
-            end
-        end
-    end
+    @with(FACES.current => newfaces, f())
 end
 
 """
@@ -444,16 +435,9 @@ end
 
 Execute `f` with `FACES``.current` temporarily swapped out with `altfaces`
 When `withfaces` returns, the original `FACES``.current` has been restored.
-
-    !!! warning
-    Changing faces is not thread-safe.
 """
 function withfaces(f, altfaces::Dict{Symbol, Face})
-    oldfaces, FACES.current[] = FACES.current[], altfaces
-    try f()
-    finally
-        FACES.current[] = oldfaces
-    end
+    @with(FACES.current => altfaces, f())
 end
 
 withfaces(f) = f()
