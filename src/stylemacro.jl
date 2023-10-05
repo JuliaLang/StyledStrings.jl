@@ -108,7 +108,7 @@ macro styled_str(raw_content::String)
     end =#
 
     # Instead we'll just use a `NamedTuple`
-    state = let content = unescape_string(raw_content, ('{', '}', '$', '\n'))
+    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n'))
         (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(zip(eachindex(content), content)),
          parts = Any[],
@@ -221,7 +221,7 @@ macro styled_str(raw_content::String)
     end
 
     function escaped!(state, i, char)
-        if char in ('{', '}', '$', '\\')
+        if char in ('{', '}', ':', '$', '\\')
             deleteat!(state.bytes, i + state.offset[] - 1)
             state.offset[] -= ncodeunits('\\')
         elseif char == '\n'
@@ -619,6 +619,8 @@ macro styled_str(raw_content::String)
                 else
                     stywarn("contains extranious style terminations", state, 2)
                 end
+            elseif char == ':' && !isempty(state.active_styles)
+                stywarn("colons within styled regions need to be escaped", state, 2)
             end
         end
         # Ensure that any trailing unstyled content is added
