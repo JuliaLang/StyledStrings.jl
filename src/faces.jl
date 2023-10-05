@@ -394,9 +394,8 @@ function resetfaces!(name::Symbol)
         FACES.current[][name] = deepcopy(FACES.default[name])
     else # This shouldn't happen
         delete!(FACES.current[], name)
-        println(stderr,
-                """! The face $name was reset, but it had no default value, and so has been deleted instead!",
-                     This should not have happened, perhaps the face was added without using `addface!`?""")
+        @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
+                 This should not have happened, perhaps the face was added without using `addface!`?"""
     end
 end
 
