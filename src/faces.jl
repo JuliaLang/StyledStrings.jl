@@ -27,6 +27,10 @@ end
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
 SimpleColor(rgb::UInt32) = SimpleColor(reverse(reinterpret(UInt8, [rgb]))[2:end]...)
 
+convert(::Type{SimpleColor}, (; r, g, b)::RGBTuple) = SimpleColor((; r, g, b))
+convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
+convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
+
 """
     tryparse(::Type{SimpleColor}, rgb::String)
 
@@ -131,27 +135,26 @@ function Face(; font::Union{Nothing, String} = nothing,
               height::Union{Nothing, Int, Float64} = nothing,
               weight::Union{Nothing, Symbol} = nothing,
               slant::Union{Nothing, Symbol} = nothing,
-              foreground::Union{Nothing, SimpleColor, Symbol, RGBTuple, UInt32} = nothing,
-              background::Union{Nothing, SimpleColor, Symbol, RGBTuple, UInt32} = nothing,
+              foreground = nothing, # nothing, or SimpleColor-able value
+              background = nothing, # nothing, or SimpleColor-able value
               underline::Union{Nothing, Bool, SimpleColor,
                                Symbol, RGBTuple, UInt32,
-                               Tuple{<:Union{Nothing, SimpleColor, Symbol, RGBTuple, UInt32}, Symbol}
+                               Tuple{<:Any, Symbol}
                                } = nothing,
               strikethrough::Union{Nothing, Bool} = nothing,
               inverse::Union{Nothing, Bool} = nothing,
               inherit::Union{Symbol, Vector{Symbol}} = Symbol[],
               _...) # Simply ignore unrecognised keyword arguments.
     ascolor(::Nothing) = nothing
-    ascolor(c::SimpleColor) = c
-    ascolor(c::Union{Symbol, RGBTuple, UInt32}) = SimpleColor(c)
+    ascolor(c::Any) = convert(SimpleColor, c)
     Face(font, height, weight, slant,
          ascolor(foreground), ascolor(background),
          if underline isa Tuple
              (ascolor(underline[1]), underline[2])
-         elseif underline isa Symbol || underline isa RGBTuple || underline isa UInt32
-             ascolor(underline)
-         else
+         elseif underline isa Bool
              underline
+         else
+             ascolor(underline)
          end,
          strikethrough,
          inverse,
@@ -614,7 +617,7 @@ function loadfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=not
     end
 end
 
-function Base.convert(::Type{Face}, spec::Dict)
+function convert(::Type{Face}, spec::Dict)
     Face(if haskey(spec, "font") && spec["font"] isa String
              spec["font"] end,
          if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)

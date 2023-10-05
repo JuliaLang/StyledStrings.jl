@@ -3,7 +3,7 @@
 module StyledStrings
 
 import Base: TaggedString, TaggedChar, textproperties, textproperty!,
-    merge, show, print, write
+    convert, merge, show, print, write
 
 export @styled_str
 public Face, addface!, SimpleColor
