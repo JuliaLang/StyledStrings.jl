@@ -18,4 +18,8 @@ function __init__()
     isfile(userfaces) && loadfaces!(Base.parsed_toml(userfaces))
 end
 
+if Base.generating_output()
+    include("precompile.jl")
+end
+
 end
