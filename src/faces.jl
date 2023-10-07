@@ -582,11 +582,11 @@ function loadface!((name, _)::Pair{Symbol, Nothing})
 end
 
 """
-    loadface!(faces::Dict{String, Any})
+    loaduserfaces!(faces::Dict{String, Any})
 
 For each face specified in `Dict`, load it to `FACES``.current`.
 """
-function loadface!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
+function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
     for (name, spec) in faces
         fullname = if isnothing(prefix)
             name
@@ -598,9 +598,16 @@ function loadface!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=noth
         !isempty(fspec) &&
             loadface!(Symbol(fullname) => convert(Face, fspec))
         !isempty(fnest) &&
-            loadface!(fnest, fullname)
+            loaduserfaces!(fnest, fullname)
     end
 end
+
+"""
+    loaduserfaces!(tomlfile::String)
+
+Load all faces declared in the Faces.toml file `tomlfile`.
+"""
+loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
 
 function convert(::Type{Face}, spec::Dict)
     Face(if haskey(spec, "font") && spec["font"] isa String

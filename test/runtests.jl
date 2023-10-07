@@ -85,7 +85,7 @@ end
     @test StyledStrings.loadface!(:testface => StyledStrings.Face(height=2.0)) == StyledStrings.Face(font="test", height=2.0)
     @test get(StyledStrings.FACES.current[], :testface, nothing) == StyledStrings.Face(font="test", height=2.0)
     # Loading from TOML (a Dict)
-    @test StyledStrings.loadface!(Dict{String, Any}("anotherface" =>
+    @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
                           "height" => 123,
                           "weight" => "semibold",
