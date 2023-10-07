@@ -78,14 +78,14 @@ end
     @test StyledStrings.Face(height=1) != StyledStrings.Face(height=2)
     @test StyledStrings.Face(inherit=:a) != StyledStrings.Face(inherit=:b)
     # Adding a face then resetting
-    @test StyledStrings.loadfaces!(:testface => StyledStrings.Face(font="test")) == StyledStrings.Face(font="test")
+    @test StyledStrings.loadface!(:testface => StyledStrings.Face(font="test")) == StyledStrings.Face(font="test")
     @test get(StyledStrings.FACES.current[], :testface, nothing) == StyledStrings.Face(font="test")
-    @test StyledStrings.loadfaces!(:bold => StyledStrings.Face(weight=:extrabold)) == StyledStrings.Face(weight=:extrabold)
+    @test StyledStrings.loadface!(:bold => StyledStrings.Face(weight=:extrabold)) == StyledStrings.Face(weight=:extrabold)
     @test get(StyledStrings.FACES.current[], :bold, nothing) == StyledStrings.Face(weight=:extrabold)
-    @test StyledStrings.loadfaces!(:testface => StyledStrings.Face(height=2.0)) == StyledStrings.Face(font="test", height=2.0)
+    @test StyledStrings.loadface!(:testface => StyledStrings.Face(height=2.0)) == StyledStrings.Face(font="test", height=2.0)
     @test get(StyledStrings.FACES.current[], :testface, nothing) == StyledStrings.Face(font="test", height=2.0)
     # Loading from TOML (a Dict)
-    @test StyledStrings.loadfaces!(Dict{String, Any}("anotherface" =>
+    @test StyledStrings.loadface!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
                           "height" => 123,
                           "weight" => "semibold",
@@ -125,12 +125,12 @@ end
         dface = StyledStrings.Face(font="d", foreground=:blue, weight=:bold)
         eface = StyledStrings.Face(font="e", inherit = [:c, :d])
         fface = StyledStrings.Face(font="f", inherit = [:d, :c])
-        StyledStrings.loadfaces!(:a => aface)
-        StyledStrings.loadfaces!(:b => bface)
-        StyledStrings.loadfaces!(:c => cface)
-        StyledStrings.loadfaces!(:d => dface)
-        StyledStrings.loadfaces!(:e => eface)
-        StyledStrings.loadfaces!(:f => fface)
+        StyledStrings.loadface!(:a => aface)
+        StyledStrings.loadface!(:b => bface)
+        StyledStrings.loadface!(:c => cface)
+        StyledStrings.loadface!(:d => dface)
+        StyledStrings.loadface!(:e => eface)
+        StyledStrings.loadface!(:f => fface)
         @test StyledStrings.getface(:c) == merge(StyledStrings.FACES.current[][:default], aface, bface, cface, StyledStrings.Face())
         @test StyledStrings.getface(:b) == merge(StyledStrings.FACES.current[][:default], aface, bface, StyledStrings.Face())
         @test StyledStrings.getface(:a) == merge(StyledStrings.FACES.current[][:default], aface, StyledStrings.Face())

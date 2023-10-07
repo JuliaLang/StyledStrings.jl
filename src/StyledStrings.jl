@@ -15,7 +15,7 @@ include("stylemacro.jl")
 
 function __init__()
     userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
-    isfile(userfaces) && loadfaces!(Base.parsed_toml(userfaces))
+    isfile(userfaces) && loadface!(Base.parsed_toml(userfaces))
 end
 
 if Base.generating_output()

@@ -30,8 +30,8 @@ StyledStrings.getface(:red)
 StyledStrings.getface(styled"{red:red}", 1)
 
 StyledStrings.addface!(:_precompile => Face(font="precompile"))
-StyledStrings.loadfaces!(:_precompile => Face(inverse=true))
-StyledStrings.loadfaces!(Dict{String, Any}("_precompile" =>
+StyledStrings.loadface!(:_precompile => Face(inverse=true))
+StyledStrings.loadface!(Dict{String, Any}("_precompile" =>
     Dict{String, Any}("strikethough" => true)))
 StyledStrings.resetfaces!(:_precompile)
 StyledStrings.resetfaces!()

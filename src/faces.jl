@@ -553,7 +553,7 @@ face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
 ## Reading face definitions from a dictionary ##
 
 """
-    loadfaces!(name::Symbol => update::Face)
+    loadface!(name::Symbol => update::Face)
 
 Merge the face `name` in `FACES``.current` with `update`. If the face `name`
 does not already exist in `FACES``.current`, then it is set to `update`. To
@@ -561,13 +561,13 @@ reset a face, `update` can be set to `nothing`.
 
 # Examples
 
-```jldoctest; setup = :(import StyledStrings: Face, loadfaces!)
-julia> loadfaces!(:red => Face(foreground=0xff0000))
+```jldoctest; setup = :(import StyledStrings: Face, loadface!)
+julia> loadface!(:red => Face(foreground=0xff0000))
 Face (sample)
     foreground: #ff0000
 ```
 """
-function loadfaces!((name, update)::Pair{Symbol, Face})
+function loadface!((name, update)::Pair{Symbol, Face})
     @lock FACES.lock if haskey(FACES.current[], name)
         FACES.current[][name] = merge(FACES.current[][name], update)
     else
@@ -575,18 +575,18 @@ function loadfaces!((name, update)::Pair{Symbol, Face})
     end
 end
 
-function loadfaces!((name, _)::Pair{Symbol, Nothing})
+function loadface!((name, _)::Pair{Symbol, Nothing})
     if haskey(FACES.current[], name)
         resetfaces!(name)
     end
 end
 
 """
-    loadfaces!(faces::Dict{String, Any})
+    loadface!(faces::Dict{String, Any})
 
 For each face specified in `Dict`, load it to `FACES``.current`.
 """
-function loadfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
+function loadface!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
     for (name, spec) in faces
         fullname = if isnothing(prefix)
             name
@@ -596,9 +596,9 @@ function loadfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=not
         fspec = filter((_, v)::Pair -> !(v isa Dict), spec)
         fnest = filter((_, v)::Pair -> v isa Dict, spec)
         !isempty(fspec) &&
-            loadfaces!(Symbol(fullname) => convert(Face, fspec))
+            loadface!(Symbol(fullname) => convert(Face, fspec))
         !isempty(fnest) &&
-            loadfaces!(fnest, fullname)
+            loadface!(fnest, fullname)
     end
 end
 
