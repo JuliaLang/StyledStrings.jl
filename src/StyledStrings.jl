@@ -2,7 +2,7 @@
 
 module StyledStrings
 
-import Base: TaggedString, TaggedChar, textproperties, textproperty!,
+import Base: TaggedString, TaggedChar, annotations, annotate!,
     convert, merge, show, print, write
 
 export @styled_str

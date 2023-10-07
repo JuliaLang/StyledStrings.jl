@@ -500,12 +500,12 @@ function getface(faces)
 end
 
 """
-    getface(styles::Vector{Pair{Symbol, Any}})
+    getface(annotations::Vector{Pair{Symbol, Any}})
 
-Combine all of the `:face` styles with `getfaces`.
+Combine all of the `:face` annotations with `getfaces`.
 """
-function getface(styles::Vector{Pair{Symbol, Any}})
-    faces = (last(prop) for prop in styles if first(prop) === :face)
+function getface(annotations::Vector{Pair{Symbol, Any}})
+    faces = (last(annot) for annot in annotations if first(annot) === :face)
     getface(faces)
 end
 
@@ -527,28 +527,28 @@ getface() = FACES.current[][:default]
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
 getface(s::TaggedString, i::Integer) =
-    getface(textproperties(s, i))
+    getface(annotations(s, i))
 
 """
     getface(c::TaggedChar)
 
 Get the merged [`Face`](@ref) that applies to `c`.
 """
-getface(c::TaggedChar) = getface(c.properties)
+getface(c::TaggedChar) = getface(c.annotations)
 
 """
-    face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
+    face!(str::Union{<:TaggedString, <:SubString{<:TaggedString}},
           [range::UnitRange{Int},] face::Union{Symbol, Face})
 
-Apply `face` to `s`, along `range` if specified, or the whole of `s`.
+Apply `face` to `str`, along `range` if specified or the whole of `str`.
 """
 face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
-      range::UnitRange{Int}, face::Union{Symbol, Face}) =
-          textproperty!(s, range, :face, face)
+      range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
+          annotate!(s, range, :face => face)
 
 face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
-      face::Union{Symbol, Face}) =
-          textproperty!(s, firstindex(s):lastindex(s), :face, face)
+      face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
+          annotate!(s, firstindex(s):lastindex(s), :face => face)
 
 ## Reading face definitions from a dictionary ##
 

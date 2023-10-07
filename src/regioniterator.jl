@@ -3,14 +3,14 @@
 struct RegionIterator{S <: AbstractString}
     str::S
     regions::Vector{UnitRange{Int}}
-    properties::Vector{Vector{Pair{Symbol, Any}}}
+    annotations::Vector{Vector{Pair{Symbol, Any}}}
 end
 
 Base.length(si::RegionIterator) = length(si.regions)
 
 Base.@propagate_inbounds function Base.iterate(si::RegionIterator, i::Integer=1)
     if i <= length(si.regions)
-        @inbounds ((SubString(si.str, si.regions[i]), si.properties[i]), i+1)
+        @inbounds ((SubString(si.str, si.regions[i]), si.annotations[i]), i+1)
     end
 end
 
@@ -21,8 +21,8 @@ Base.eltype(::RegionIterator{S}) where { S <: AbstractString} =
     eachregion(s::TaggedString{S})
     eachregion(s::SubString{TaggedString{S}})
 
-Identify the contiguous substrings of `s` with a constant properties, and return
-an iterator which provides each substring and the applicable properties as a
+Identify the contiguous substrings of `s` with a constant annotations, and return
+an iterator which provides each substring and the applicable annotations as a
 `Tuple{SubString{S}, Vector{Pair{Symbol, Any}}}`.
 
 # Examples
@@ -40,16 +40,16 @@ function eachregion(s::TaggedString, region::UnitRange{Int}=firstindex(s):lastin
     isempty(s) || isempty(region) &&
         return RegionIterator(s, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
     regions = Vector{UnitRange{Int}}()
-    properties = Vector{Vector{Pair{Symbol, Any}}}()
+    annots = Vector{Vector{Pair{Symbol, Any}}}()
     changepoints = filter(c -> c in region,
                           Iterators.flatten((first(region), nextind(s, last(region)))
-                                            for region in first.(s.properties)) |>
+                                            for region in first.(s.annotations)) |>
                                                 unique |> sort)
     isempty(changepoints) &&
-        return RegionIterator(s.string, [region], [textproperties(s, first(region))])
+        return RegionIterator(s.string, [region], [annotations(s, first(region))])
     function registerchange!(start, stop)
         push!(regions, start:stop)
-        push!(properties, textproperties(s, start))
+        push!(annots, annotations(s, start))
     end
     if first(region) < first(changepoints)
         registerchange!(first(region), prevind(s, first(changepoints)))
@@ -60,7 +60,7 @@ function eachregion(s::TaggedString, region::UnitRange{Int}=firstindex(s):lastin
     if last(changepoints) <= last(region)
         registerchange!(last(changepoints), last(region))
     end
-    RegionIterator(s.string, regions, properties)
+    RegionIterator(s.string, regions, annots)
 end
 
 function eachregion(s::SubString{<:TaggedString}, region::UnitRange{Int}=firstindex(s):lastindex(s))

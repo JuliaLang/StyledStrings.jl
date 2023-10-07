@@ -35,12 +35,12 @@ escaped = '\\\\', specialchar ;
 
 interpolated = '\$', ? expr ? | '\$(', ? expr ?, ')' ;
 
-styled = '{', ws, properties, ':', content, '}' ;
+styled = '{', ws, annotations, ':', content, '}' ;
 content = { interpolated | colonescaped | almostplain | styled } ;
 colonescaped = escaped | '\\\\:' ;
 almostplain = { plain - ':' } ;
-properties = property | properties, ws, ',', ws, property ;
-property = face | inlineface | keyvalue ;
+annotations = annotation | annotations, ws, ',', ws, annotation ;
+annotation = face | inlineface | keyvalue ;
 ws = { ' ' | '\\t' | '\\n' } ; (* whitespace *)
 
 face = facename | interpolated ;
@@ -178,14 +178,14 @@ macro styled_str(raw_content::String)
                   relevant_styles = Iterators.filter(
                       (start, _)::Tuple -> start <= stop + state.offset[] + 1,
                       Iterators.flatten(state.active_styles))
-                  for (start, prop) in relevant_styles
+                  for (start, annot) in relevant_styles
                       range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
-                      push!(styles, Expr(:tuple, range, prop))
+                      push!(styles, Expr(:tuple, range, annot))
                   end
                   sort!(state.pending_styles, by = first)
-                  for (range, prop) in state.pending_styles
+                  for (range, annot) in state.pending_styles
                       if !isempty(range)
-                          push!(styles, Expr(:tuple, range .- state.point[], prop))
+                          push!(styles, Expr(:tuple, range .- state.point[], annot))
                       end
                   end
                   empty!(state.pending_styles)
@@ -215,7 +215,7 @@ macro styled_str(raw_content::String)
                         $len = ncodeunits($str)
                         $TaggedString($str, $tags)
                     end))
-            map!.((_, prop)::Tuple -> (stop + state.offset[] + 1, prop),
+            map!.((_, annot)::Tuple -> (stop + state.offset[] + 1, annot),
                   state.active_styles, state.active_styles)
         end
     end
@@ -266,7 +266,7 @@ macro styled_str(raw_content::String)
     function begin_style!(state, i, char)
         hasvalue = false
         newstyles = Vector{Tuple{Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
-        while read_property!(state, i, char, newstyles) end
+        while read_annotation!(state, i, char, newstyles) end
         push!(state.active_styles, newstyles)
         # Adjust bytes/offset based on how much the index
         # has been incremented in the processing of the
@@ -280,14 +280,14 @@ macro styled_str(raw_content::String)
 
     function end_style!(state, i, char)
         # Close off most recent active style
-        for (start, prop) in pop!(state.active_styles)
-            push!(state.pending_styles, (start:i+state.offset[], prop))
+        for (start, annot) in pop!(state.active_styles)
+            push!(state.pending_styles, (start:i+state.offset[], annot))
         end
         deleteat!(state.bytes, i + state.offset[])
         state.offset[] -= ncodeunits('}')
     end
 
-    function read_property!(state, i, char, newstyles)
+    function read_annotation!(state, i, char, newstyles)
         skipwhitespace!(state)
         isempty(state.s) && return false
         nextchar = last(peek(state.s))

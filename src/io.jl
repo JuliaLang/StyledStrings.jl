@@ -266,7 +266,7 @@ function show(io::IO, c::TaggedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
-        print(io, ''', TaggedString(String(take!(out)[2:end-1]), c.properties), ''')
+        print(io, ''', TaggedString(String(take!(out)[2:end-1]), c.annotations), ''')
     else
         show(io, c.char)
     end
