@@ -492,7 +492,7 @@ function getface(faces)
     mergedface(face::Face) = face
     mergedface(face::Symbol) = get(FACES.current[], face, Face())
     mergedface(faces::Vector) = mapfoldl(mergedface, merge, Iterators.reverse(faces))
-    combined = mapfoldl(mergedface, merge, Iterators.reverse(faces))::Face
+    combined = mapfoldl(mergedface, merge, faces)::Face
     if !isempty(combined.inherit)
         combined = merge(combined, Face())
     end

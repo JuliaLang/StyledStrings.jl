@@ -137,9 +137,11 @@ end
         @test StyledStrings.getface([:c]) == StyledStrings.getface(:c)
         @test StyledStrings.getface(bface) == StyledStrings.getface(:b)
         @test StyledStrings.getface(cface) == StyledStrings.getface(:c)
-        @test StyledStrings.getface([:c, :d]).foreground.value == :red
+        @test StyledStrings.getface([:c, :d]).foreground.value == :blue
+        @test StyledStrings.getface([[:c, :d]]).foreground.value == :red
         @test StyledStrings.getface(:e).foreground.value == :red
-        @test StyledStrings.getface([:d, :c]).foreground.value == :blue
+        @test StyledStrings.getface([:d, :c]).foreground.value == :red
+        @test StyledStrings.getface([[:d, :c]]).foreground.value == :blue
         @test StyledStrings.getface(:f).foreground.value == :blue
         StyledStrings.resetfaces!()
     end
