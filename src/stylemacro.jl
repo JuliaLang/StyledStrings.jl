@@ -148,12 +148,12 @@ macro styled_str(raw_content::String)
                 ncodeunits(begin_ellipsis), ncodeunits(Base.escape_string(state.content[start:position])),
                 ncodeunits(window), ncodeunits(end_ellipsis)
             nprelabel = nbelip+nwind+neelip+textwidth(begin_ellipsis)+npre
-                          $(' '^(textwidth(begin_ellipsis)+npre))╰─╴around here",
-            AnnotatedString("\n $begin_ellipsis$window$end_ellipsis\n \
+            AnnotatedString("\n \"$begin_ellipsis$window$end_ellipsis\"\n \
+                          $(' '^(1+textwidth(begin_ellipsis)+npre))╰─╴around here",
                          [(3:2+nbelip, :face => :shadow),
-                          (3+nbelip:2+nbelip+nwind, :face => :bright_green),
-                          (3+nbelip+nwind:4+nbelip+nwind+neelip, :face => :shadow),
-                          (5+nprelabel:4+nprelabel+ncodeunits("╰─╴around here"), :face => :info)])
+                          (3+nbelip:4+nbelip+nwind, :face => :bright_green),
+                          (5+nbelip+nwind:6+nbelip+nwind+neelip, :face => :shadow),
+                          (8+nprelabel:7+nprelabel+ncodeunits("╰─╴around here"), :face => :info)])
         end
         @warn(Base.annotatedstring("Styled string macro, ", message, '.', posinfo),
               _file=String(__source__.file), _line=__source__.line, _module=__module__)
@@ -258,6 +258,10 @@ macro styled_str(raw_content::String)
     end
 
     function readexpr!(state, pos::Int)
+        if isempty(state.s)
+            stywarn("identifier or parenthesised expression expected after \$ in string", state, 1)
+            return "", pos
+        end
         expr, nextpos = Meta.parseatom(state.content, pos)
         nchars = length(state.content[pos:prevind(state.content, nextpos)])
         for _ in 1:min(length(state.s), nchars)
@@ -269,8 +273,7 @@ macro styled_str(raw_content::String)
     readexpr!(state) = readexpr!(state, first(popfirst!(state.s)) + 1)
 
     function skipwhitespace!(state)
-        isempty(state.s) && return
-        while last(peek(state.s)) ∈ (' ', '\t', '\n')
+        while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t', '\n')
             popfirst!(state.s)
         end
     end
@@ -301,6 +304,11 @@ macro styled_str(raw_content::String)
 
     function read_annotation!(state, i, char, newstyles)
         skipwhitespace!(state)
+        if isempty(state.s)
+            isempty(newstyles) &&
+                stywarn("incomplete annotation declaration", prevind(state.content, i))
+            return false
+        end
         isempty(state.s) && return false
         nextchar = last(peek(state.s))
         if nextchar == ':'
@@ -612,6 +620,9 @@ macro styled_str(raw_content::String)
                        Pair{Symbol, Any}(:face, Symbol(key))
                    end))
         end
+        if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', ',', ':')
+            stywarn("incomplete annotation declaration", prevind(state.content, i))
+        end
     end
 
     function run_state_machine!(state)
@@ -629,7 +640,7 @@ macro styled_str(raw_content::String)
                 if !isempty(state.active_styles)
                     end_style!(state, i, char)
                 else
-                    stywarn("contains extranious style terminations", state, 2)
+                    stywarn("contains extraneous style terminations", state, 1)
                 end
             elseif char == ':' && !isempty(state.active_styles)
                 stywarn("colons within styled regions need to be escaped", state, 2)
