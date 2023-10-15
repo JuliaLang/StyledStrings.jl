@@ -172,7 +172,7 @@ function show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype || show(io, SimpleColor)
     skiptype || print(io, '(')
     if get(io, :color, false)::Bool
-        print(io, TaggedString("■", [(1:1, :face => Face(foreground=color))]), ' ')
+        print(io, AnnotatedString("■", [(1:1, :face => Face(foreground=color))]), ' ')
     end
     if color.value isa Symbol
         print(io, color.value)
@@ -188,7 +188,7 @@ function show(io::IO, ::MIME"text/plain", face::Face)
         show(io, Face)
         if get(io, :color, false)::Bool
             # Could do styled"({$face:sample})", but S_str isn't defined yet
-            print(io, TaggedString("(sample)", [(2:7, :face => face)]))
+            print(io, AnnotatedString("(sample)", [(2:7, :face => face)]))
         # elseif get(io, :limit, false)::Bool
         #     print(io, "(…)")
         else
@@ -210,7 +210,7 @@ function show(io::IO, ::MIME"text/plain", face::Face)
         end
     else
         show(io, Face)
-        print(io, TaggedString(" (sample)", [(3:8, :face => face)]))
+        print(io, AnnotatedString(" (sample)", [(3:8, :face => face)]))
         showcolor(io, color) = show(IOContext(io, :typeinfo => SimpleColor),
                                     MIME("text/plain"), color)
         setfields = Pair{Symbol, Any}[]
@@ -252,7 +252,7 @@ function show(io::IO, ::MIME"text/plain", face::Face)
             isfirst = true
             for iface in face.inherit
                 if isfirst; isfirst = false else print(io, ", ") end
-                print(io, iface, '(', TaggedString("*", [(1:1, :face => iface)]), ')')
+                print(io, iface, '(', AnnotatedString("*", [(1:1, :face => iface)]), ')')
             end
         end
     end
@@ -519,34 +519,34 @@ Obtain the default face.
 """
 getface() = FACES.current[][:default]
 
-## Face/TaggedString integration ##
+## Face/AnnotatedString integration ##
 
 """
-    getface(s::TaggedString, i::Integer)
+    getface(s::AnnotatedString, i::Integer)
 
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
-getface(s::TaggedString, i::Integer) =
+getface(s::AnnotatedString, i::Integer) =
     getface(annotations(s, i))
 
 """
-    getface(c::TaggedChar)
+    getface(c::AnnotatedChar)
 
 Get the merged [`Face`](@ref) that applies to `c`.
 """
-getface(c::TaggedChar) = getface(c.annotations)
+getface(c::AnnotatedChar) = getface(c.annotations)
 
 """
-    face!(str::Union{<:TaggedString, <:SubString{<:TaggedString}},
+    face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
           [range::UnitRange{Int},] face::Union{Symbol, Face})
 
 Apply `face` to `str`, along `range` if specified or the whole of `str`.
 """
-face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
+face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
       range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
           annotate!(s, range, :face => face)
 
-face!(s::Union{<:TaggedString, <:SubString{<:TaggedString}},
+face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
       face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
           annotate!(s, firstindex(s):lastindex(s), :face => face)
 

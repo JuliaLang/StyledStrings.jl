@@ -18,8 +18,8 @@ Base.eltype(::RegionIterator{S}) where { S <: AbstractString} =
     Tuple{SubString{S}, Vector{Pair{Symbol, Any}}}
 
 """
-    eachregion(s::TaggedString{S})
-    eachregion(s::SubString{TaggedString{S}})
+    eachregion(s::AnnotatedString{S})
+    eachregion(s::SubString{AnnotatedString{S}})
 
 Identify the contiguous substrings of `s` with a constant annotations, and return
 an iterator which provides each substring and the applicable annotations as a
@@ -27,8 +27,8 @@ an iterator which provides each substring and the applicable annotations as a
 
 # Examples
 
-```jldoctest; setup = :(import Base.TaggedString; import StyledStrings.eachregion)
-julia> eachregion(TaggedString("hey there", [(1:3, :face => :bold),
+```jldoctest; setup = :(import Base.AnnotatedString; import StyledStrings.eachregion)
+julia> eachregion(AnnotatedString("hey there", [(1:3, :face => :bold),
                                              (5:9, :face => :italic)])) |> collect
 3-element Vector{Tuple{SubString{String}, Vector{Pair{Symbol, Any}}}}:
  ("hey", [:face => :bold])
@@ -36,7 +36,7 @@ julia> eachregion(TaggedString("hey there", [(1:3, :face => :bold),
  ("there", [:face => :italic])
 ```
 """
-function eachregion(s::TaggedString, region::UnitRange{Int}=firstindex(s):lastindex(s))
+function eachregion(s::AnnotatedString, region::UnitRange{Int}=firstindex(s):lastindex(s))
     isempty(s) || isempty(region) &&
         return RegionIterator(s, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
     regions = Vector{UnitRange{Int}}()
@@ -63,7 +63,7 @@ function eachregion(s::TaggedString, region::UnitRange{Int}=firstindex(s):lastin
     RegionIterator(s.string, regions, annots)
 end
 
-function eachregion(s::SubString{<:TaggedString}, region::UnitRange{Int}=firstindex(s):lastindex(s))
+function eachregion(s::SubString{<:AnnotatedString}, region::UnitRange{Int}=firstindex(s):lastindex(s))
     if isempty(s)
         RegionIterator(s, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
     else

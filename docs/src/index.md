@@ -19,7 +19,7 @@ concern.
 
 Instead of leaving this headache to be widely experienced downstream, it is
 tackled head-on by the introduction of a special string type
-([`TaggedString`](@ref Base.TaggedString)). This string type wraps any other
+([`AnnotatedString`](@ref Base.AnnotatedString)). This string type wraps any other
 string type and allows for formating information to be applied to regions (e.g.
 characters 1 through to 7 are bold and red).
 
@@ -29,7 +29,7 @@ convenience, it is possible to name a face in the global faces dictionary
 instead of giving the [`Face`](@ref StyledStrings.Face) directly.
 
 Along with these capabilities, we also provide a convenient way for constructing
-[`TaggedString`](@ref Base.TaggedString)s, detailed in [Styled String
+[`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
 Literals](@ref stdlib-styledstring-literals).
 
 ```julia-repl
@@ -37,7 +37,7 @@ julia> styled"{yellow:hello} {blue:there}"
 "hello there" # prints with colour in the REPL
 ```
 
-## Styling via [`TaggedString`](@ref Base.TaggedString)s
+## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
 
 ## [Faces](@id stdlib-styledstrings-faces)
 
@@ -123,24 +123,24 @@ like so:
 foreground = "white"
 ```
 
-### Applying faces to a `TaggedString`
+### Applying faces to a `AnnotatedString`
 
-By convention, the `:face` attributes of a [`TaggedString`](@ref
-Base.TaggedString) hold information on the [`Face`](@ref StyledStrings.Face)s
+By convention, the `:face` attributes of a [`AnnotatedString`](@ref
+Base.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
 that currently apply. This can be given in multiple forms, as a single `Symbol`
 naming a [`Face`](@ref StyledStrings.Face)s in the global face dictionary, a
 [`Face`](@ref StyledStrings.Face) itself, or a vector of either.
 
-The `show(::IO, ::MIME"text/plain", ::TaggedString)` and `show(::IO,
-::MIME"text/html", ::TaggedString)` methods both look at the `:face` attributes
+The `show(::IO, ::MIME"text/plain", ::AnnotatedString)` and `show(::IO,
+::MIME"text/html", ::AnnotatedString)` methods both look at the `:face` attributes
 and merge them all together when determining the overall styling.
 
-We can supply `:face` attributes to a `TaggedString` during construction, add
+We can supply `:face` attributes to a `AnnotatedString` during construction, add
 them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
-```jldoctest; setup = :(import Base.TaggedString; import StyledStrings: Face, @styled_str)
-julia> str1 = TaggedString("blue text", [(1:9, :face => :blue)])
+```jldoctest; setup = :(import Base.AnnotatedString; import StyledStrings: Face, @styled_str)
+julia> str1 = AnnotatedString("blue text", [(1:9, :face => :blue)])
 "blue text"
 
 julia> str2 = styled"{blue:blue text}"
@@ -158,7 +158,7 @@ julia> sprint(show, MIME("text/html"), str1, context = :color => true)
 
 ## [Styled String Literals](@id stdlib-styledstring-literals)
 
-To ease construction of [`TaggedString`](@ref Base.TaggedString)s with [`Face`](@ref StyledStrings.Face)s applied,
+To ease construction of [`AnnotatedString`](@ref Base.AnnotatedString)s with [`Face`](@ref StyledStrings.Face)s applied,
 the [`styled"..."`](@ref @styled_str) styled string literal allows for the content and
 attributes to be easily expressed together via a custom grammar.
 

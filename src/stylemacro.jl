@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 """
-    @styled_str -> TaggedString
+    @styled_str -> AnnotatedString
 
 Construct a styled string. Within the string, `{<specs>:<content>}` structures
 apply the formatting to `<content>`, according to the list of comma-separated
@@ -148,14 +148,14 @@ macro styled_str(raw_content::String)
                 ncodeunits(begin_ellipsis), ncodeunits(Base.escape_string(state.content[start:position])),
                 ncodeunits(window), ncodeunits(end_ellipsis)
             nprelabel = nbelip+nwind+neelip+textwidth(begin_ellipsis)+npre
-            TaggedString("\n $begin_ellipsis$window$end_ellipsis\n \
                           $(' '^(textwidth(begin_ellipsis)+npre))╰─╴around here",
+            AnnotatedString("\n $begin_ellipsis$window$end_ellipsis\n \
                          [(3:2+nbelip, :face => :shadow),
                           (3+nbelip:2+nbelip+nwind, :face => :bright_green),
                           (3+nbelip+nwind:4+nbelip+nwind+neelip, :face => :shadow),
                           (5+nprelabel:4+nprelabel+ncodeunits("╰─╴around here"), :face => :info)])
         end
-        @warn(Base.taggedstring("Styled string macro, ", message, '.', posinfo),
+        @warn(Base.annotatedstring("Styled string macro, ", message, '.', posinfo),
               _file=String(__source__.file), _line=__source__.line, _module=__module__)
     end
     function stywarn(message, state::NamedTuple, distance::Int=0)
@@ -200,7 +200,7 @@ macro styled_str(raw_content::String)
                   if isempty(styles)
                       str
                   else
-                      :(TaggedString($str, $(Expr(:vect, styles...))))
+                      :(AnnotatedString($str, $(Expr(:vect, styles...))))
                   end
               end)
         state.point[] = nextind(state.content, stop) + state.offset[]
@@ -215,16 +215,16 @@ macro styled_str(raw_content::String)
         else
             str = gensym("str")
             len = gensym("len")
-            tags = Expr(:vect, [
-                Expr(:tuple, Expr(:call, UnitRange, 1, len), tag)
-                for tag in last.(Iterators.flatten(state.active_styles))]...)
-            if isempty(tags.args)
-                push!(state.parts, :(TaggedString(string($expr))))
+            annots = Expr(:vect, [
+                Expr(:tuple, Expr(:call, UnitRange, 1, len), annot)
+                for annot in last.(Iterators.flatten(state.active_styles))]...)
+            if isempty(annots.args)
+                push!(state.parts, :(AnnotatedString(string($expr))))
             else
                 push!(state.parts,
                     :(let $str = string($expr)
                           $len = ncodeunits($str)
-                          TaggedString($str, $tags)
+                          AnnotatedString($str, $annots)
                       end))
             end
             map!.((i, _, annot)::Tuple -> (i, stop + state.offset[] + 1, annot),
@@ -347,7 +347,7 @@ macro styled_str(raw_content::String)
                 tryparse(SimpleColor, '#' * color[3:end])
             else
                 color ∈ valid_colornames ||
-                    stywarn(TaggedString("unrecognised named color '$color' (should be $(join(valid_colornames, ", ", ", or ")))",
+                    stywarn(AnnotatedString("unrecognised named color '$color' (should be $(join(valid_colornames, ", ", ", or ")))",
                                          [(ncodeunits("unrecognised named color '."):ncodeunits("unrecognised named color '")+ncodeunits(color),
                                            :face => :warning)]),
                             state, 2 + length(color))
@@ -651,8 +651,8 @@ macro styled_str(raw_content::String)
 
     run_state_machine!(state)
     if state.interpolated[]
-        :(Base.taggedstring($(state.parts...)))
+        :(annotatedstring($(state.parts...)))
     else
-        Base.taggedstring(map(eval, state.parts)...) |> Base.taggedstring_optimize!
+        annotatedstring(map(eval, state.parts)...) |> Base.annotatedstring_optimize!
     end
 end

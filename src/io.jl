@@ -213,7 +213,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                          ANSI_STYLE_CODES.end_reverse))
 end
 
-function _ansi_writer(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}},
+function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
                       string_writer::Function)
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatadly printing to `stdout`
@@ -232,7 +232,7 @@ function _ansi_writer(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}
         end
         termstyle(buf, FACES.default[:default], lastface)
         write(io, take!(buf))
-    elseif s isa TaggedString
+    elseif s isa AnnotatedString
         string_writer(io, s.string)
     elseif s isa SubString
         string_writer(
@@ -240,17 +240,17 @@ function _ansi_writer(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}
     end
 end
 
-write(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}}) =
+write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     _ansi_writer(io, s, write)
 
-print(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}}) =
+print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
-escape_string(io::IO, s::Union{<:TaggedString, SubString{<:TaggedString}},
+escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
               esc = ""; keep = ()) =
     (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
 
-function write(io::IO, c::TaggedChar)
+function write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
         print(io, c.char)
@@ -260,13 +260,13 @@ function write(io::IO, c::TaggedChar)
     end
 end
 
-print(io::IO, c::TaggedChar) = (write(io, c); nothing)
+print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
 
-function show(io::IO, c::TaggedChar)
+function show(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
-        print(io, ''', TaggedString(String(take!(out)[2:end-1]), c.annotations), ''')
+        print(io, ''', AnnotatedString(String(take!(out)[2:end-1]), c.annotations), ''')
     else
         show(io, c.char)
     end
@@ -400,7 +400,7 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "\">")
 end
 
-function show(io::IO, ::MIME"text/html", s::Union{<:TaggedString, SubString{<:TaggedString}}; wrap::Symbol=:pre)
+function show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
     htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
     wrap == :none ||
