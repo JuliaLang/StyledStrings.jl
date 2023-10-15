@@ -177,19 +177,30 @@ end
     @test Base.TaggedString("val") == @macroexpand styled"val"
     @test Base.TaggedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
-    @test :($(Base.taggedstring)(val)) == @macroexpand styled"$val"
-    @test :($(Base.taggedstring)("a", val)) == @macroexpand styled"a$val"
-    @test :($(Base.taggedstring)("a", val, "b")) == @macroexpand styled"a$(val)b"
-    # @test :($(Base.taggedstring)($(Base.TaggedString)(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
-    #     @macroexpand styled"{style:$val}"
-    @test :($(Base.taggedstring)($(Base.TaggedString)("val", [($(1:3), Pair{Symbol, Any}(:face, face))]))) ==
-        @macroexpand styled"{$face:val}"
-    @test :($(Base.taggedstring)($(Base.TaggedString)("val", [($(1:3), Pair{Symbol, Any}(key, "val"))]))) ==
-        @macroexpand styled"{$key=val:val}"
-    @test :($(Base.taggedstring)($(Base.TaggedString)("val", [($(1:3), Pair{Symbol, Any}(key, val))]))) ==
-        @macroexpand styled"{$key=$val:val}"
-    # @test :($(Base.taggedstring)($(Base.TaggedString)(string(val), Pair{Symbol, Any}(key, val)))) ==
-    #     @macroexpand styled"{$key=$val:$val}"
-    @test :($(Base.taggedstring)($(Base.TaggedString)("val", [($(1:3), Pair{Symbol, Any}(:face, $(StyledStrings.Face)(foreground = color)))]))) ==
-        @macroexpand styled"{(foreground=$color):val}"
+    let taggedstring = GlobalRef(StyledStrings, :taggedstring)
+        TaggedString = GlobalRef(StyledStrings, :TaggedString)
+        Pair = GlobalRef(StyledStrings, :Pair)
+        Symbol = GlobalRef(StyledStrings, :Symbol)
+        Any = GlobalRef(StyledStrings, :Any)
+        @test :($taggedstring(val)) == @macroexpand styled"$val"
+        @test :($taggedstring("a", val)) == @macroexpand styled"a$val"
+        @test :($taggedstring("a", val, "b")) == @macroexpand styled"a$(val)b"
+        # @test :($taggedstring(StyledStrings.TaggedString(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
+        #     @macroexpand styled"{style:$val}"
+        @test :($taggedstring($TaggedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))]))) ==
+            @macroexpand styled"{$face:val}"
+        @test :($taggedstring($TaggedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))]))) ==
+            @macroexpand styled"{$key=val:val}"
+        @test :($taggedstring($TaggedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(key, val))]))) ==
+            @macroexpand styled"{$key=$val:val}"
+        # @test :($taggedstring($TaggedString(
+        #     string(val), $Pair{$Symbol, $Any}(key, val)))) ==
+        #     @macroexpand styled"{$key=$val:$val}"
+        @test :($taggedstring($TaggedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(StyledStrings.Face)(foreground = color)))]))) ==
+            @macroexpand styled"{(foreground=$color):val}"
+    end
 end

@@ -200,7 +200,7 @@ macro styled_str(raw_content::String)
                   if isempty(styles)
                       str
                   else
-                      :($TaggedString($str, $(Expr(:vect, styles...))))
+                      :(TaggedString($str, $(Expr(:vect, styles...))))
                   end
               end)
         state.point[] = nextind(state.content, stop) + state.offset[]
@@ -218,12 +218,16 @@ macro styled_str(raw_content::String)
             tags = Expr(:vect, [
                 Expr(:tuple, Expr(:call, UnitRange, 1, len), tag)
                 for tag in last.(Iterators.flatten(state.active_styles))]...)
-            push!(state.parts,
-                  :(let $str = string($expr)
-                        $len = ncodeunits($str)
-                        $TaggedString($str, $tags)
-                    end))
-            map!.((_, annot)::Tuple -> (stop + state.offset[] + 1, annot),
+            if isempty(tags.args)
+                push!(state.parts, :(TaggedString(string($expr))))
+            else
+                push!(state.parts,
+                    :(let $str = string($expr)
+                          $len = ncodeunits($str)
+                          TaggedString($str, $tags)
+                      end))
+            end
+            map!.((i, _, annot)::Tuple -> (i, stop + state.offset[] + 1, annot),
                   state.active_styles, state.active_styles)
         end
     end
@@ -248,7 +252,7 @@ macro styled_str(raw_content::String)
         expr, nexti = readexpr!(state, i + ncodeunits('$'))
         deleteat!(state.bytes, i + state.offset[])
         state.offset[] -= ncodeunits('$')
-        addpart!(state, i, expr, nexti)
+        addpart!(state, i, esc(expr), nexti)
         state.point[] = nexti + state.offset[]
         state.interpolated[] = true
     end
@@ -273,7 +277,7 @@ macro styled_str(raw_content::String)
 
     function begin_style!(state, i, char)
         hasvalue = false
-        newstyles = Vector{Tuple{Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
+        newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
         while read_annotation!(state, i, char, newstyles) end
         push!(state.active_styles, newstyles)
         # Adjust bytes/offset based on how much the index
@@ -288,7 +292,7 @@ macro styled_str(raw_content::String)
 
     function end_style!(state, i, char)
         # Close off most recent active style
-        for (start, annot) in pop!(state.active_styles)
+        for (_, start, annot) in pop!(state.active_styles)
             push!(state.pending_styles, (start:i+state.offset[], annot))
         end
         deleteat!(state.bytes, i + state.offset[])
@@ -462,10 +466,10 @@ macro styled_str(raw_content::String)
                 lastchar = last(popfirst!(state.s))
                 state.interpolated[] = true
                 needseval = true
-                expr
+                esc(expr)
             elseif key == :face
                 if nextchar == '"'
-                    first(readexpr!(state, first(peek(state.s))))
+                    readexpr!(state, first(peek(state.s))) |> first |> esc
                 else
                     Iterators.takewhile(
                         c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
@@ -473,7 +477,7 @@ macro styled_str(raw_content::String)
                 end
             elseif key == :height
                 if nextchar == '.' || nextchar ∈ '0':'9'
-                    num = first(readexpr!(state, first(peek(state.s))))
+                    num = readexpr!(state, first(peek(state.s))) |> first
                     lastchar = last(popfirst!(state.s))
                     ifelse(num isa Number, num, nothing)
                 else
@@ -555,7 +559,7 @@ macro styled_str(raw_content::String)
             expr, _ = readexpr!(state)
             state.interpolated[] = true
             needseval = true
-            expr
+            esc(expr)
         else
             chars = Char[]
             while (next = peek(state.s)) |> !isnothing && last(next) ∉ (',', '=', ':')
@@ -580,7 +584,7 @@ macro styled_str(raw_content::String)
                 expr, _ = readexpr!(state)
                 state.interpolated[] = true
                 needseval = true
-                expr
+                esc(expr)
             else
                 chars = Char[]
                 while (next = peek(state.s)) |> !isnothing && last(next) ∉ (',', ':')
@@ -647,7 +651,7 @@ macro styled_str(raw_content::String)
 
     run_state_machine!(state)
     if state.interpolated[]
-        :($(Base.taggedstring)($(state.parts...))) |> esc
+        :(Base.taggedstring($(state.parts...)))
     else
         Base.taggedstring(map(eval, state.parts)...) |> Base.taggedstring_optimize!
     end
