@@ -97,9 +97,9 @@ macro styled_str(raw_content::String)
     bytes::Vector{UInt8}    # bytes of `content`
     s::Iterators.Stateful   # (index, char) interator of `content`
     parts::Vector{Any}      # the final result
-    active_styles::Vector{  # unterminated batches of styles
-        Vector{Tuple{Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
-    pending_styles::Vector{ # terminated styles that have yet to be applied
+    active_styles::Vector{  # unterminated batches of styles, [(source_pos, start, style), ...]
+        Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
+    pending_styles::Vector{ # terminated styles that have yet to be applied, [(range, style), ...]
         Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
     offset::Ref{Int}        # drift in the `content` index as structures are absorbed
     point::Ref{Int}         # current index in `content`
@@ -112,7 +112,7 @@ macro styled_str(raw_content::String)
         (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(zip(eachindex(content), content)),
          parts = Any[],
-         active_styles = Vector{Tuple{Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[],
+         active_styles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[],
          pending_styles = Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[],
          offset = Ref(0), point = Ref(1), escape = Ref(false), interpolated = Ref(false))
     end
@@ -127,18 +127,13 @@ macro styled_str(raw_content::String)
          "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
          "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
 
-    function stywarn(message, state=nothing, distance::Int=0)
+    function stywarn(message, position::Union{Nothing, Int}=nothing)
         location = string(something(__source__.file, ""), ':', string(__source__.line))
-        posinfo = if isnothing(state) || isempty(state.s)
+        posinfo = if isnothing(position)
             ""
         else
-            i, chr = peek(state.s)
-            if distance > 0
-                i = prevind(state.content, i, distance)
-                chr = state.content[i]
-            end
             infowidth = displaysize(stderr)[2] ÷ 3
-            j = clamp(12 * round(Int, i / 12),
+            j = clamp(12 * round(Int, position / 12),
                       firstindex(state.content):lastindex(state.content))
             start = if j <= infowidth firstindex(state.content) else
                 max(prevind(state.content, j, infowidth), firstindex(state.content))
@@ -150,7 +145,7 @@ macro styled_str(raw_content::String)
             begin_ellipsis = ifelse(start == firstindex(state.content), "", "…")
             end_ellipsis = ifelse(stop == lastindex(state.content), "", "…")
             nbelip, npre, nwind, neelip =
-                ncodeunits(begin_ellipsis), ncodeunits(Base.escape_string(state.content[start:i])),
+                ncodeunits(begin_ellipsis), ncodeunits(Base.escape_string(state.content[start:position])),
                 ncodeunits(window), ncodeunits(end_ellipsis)
             nprelabel = nbelip+nwind+neelip+textwidth(begin_ellipsis)+npre
             TaggedString("\n $begin_ellipsis$window$end_ellipsis\n \
@@ -162,6 +157,19 @@ macro styled_str(raw_content::String)
         end
         @warn(Base.taggedstring("Styled string macro, ", message, '.', posinfo),
               _file=String(__source__.file), _line=__source__.line, _module=__module__)
+    end
+    function stywarn(message, state::NamedTuple, distance::Int=0)
+        position = if !isnothing(state)
+            i = if !isempty(state.s)
+                first(peek(state.s))
+            else
+                lastindex(state.content)
+            end
+            if distance > 0
+                i = prevind(state.content, i, distance)
+            end
+        end
+        stywarn(message, position)
     end
 
     function addpart!(state, stop::Int)
@@ -176,9 +184,9 @@ macro styled_str(raw_content::String)
               else
                   styles = Expr[]
                   relevant_styles = Iterators.filter(
-                      (start, _)::Tuple -> start <= stop + state.offset[] + 1,
+                      (_, start, _)::Tuple -> start <= stop + state.offset[] + 1,
                       Iterators.flatten(state.active_styles))
-                  for (start, annot) in relevant_styles
+                  for (_, start, annot) in relevant_styles
                       range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
                       push!(styles, Expr(:tuple, range, annot))
                   end
@@ -511,7 +519,7 @@ macro styled_str(raw_content::String)
         end
         face = Expr(:call, Face, kwargs...)
         push!(newstyles,
-              (i + state.offset[] + 1,
+              (i, i + state.offset[] + 1,
                if needseval
                    :(Pair{Symbol, Any}(:face, $face))
                else
@@ -582,7 +590,7 @@ macro styled_str(raw_content::String)
                 String(chars)
             end
             push!(newstyles,
-                  (i + state.offset[] + ncodeunits('{'),
+                  (i, i + state.offset[] + ncodeunits('{'),
                    if key isa String && !(value isa Symbol || value isa Expr)
                        Pair{Symbol, Any}(Symbol(key), value)
                    elseif key isa Expr || key isa Symbol
@@ -593,7 +601,7 @@ macro styled_str(raw_content::String)
                    end))
         elseif key !== ""
             push!(newstyles,
-                  (i + state.offset[] + ncodeunits('{'),
+                  (i, i + state.offset[] + ncodeunits('{'),
                    if key isa Symbol || key isa Expr
                        :(Pair{Symbol, Any}(:face, $key))
                    else # Face symbol
@@ -627,8 +635,9 @@ macro styled_str(raw_content::String)
         if state.point[] <= lastindex(state.content) + state.offset[]
             addpart!(state, lastindex(state.content))
         end
-        if !isempty(state.active_styles)
-            stywarn("contains unterminated styled constructs")
+        for incomplete in Iterators.flatten(state.active_styles)
+            stywarn("unterminated annotation (missing closing '}')",
+                    prevind(state.content, first(incomplete)))
         end
     end
 
