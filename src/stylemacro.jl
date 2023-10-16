@@ -105,6 +105,7 @@ macro styled_str(raw_content::String)
     point::Ref{Int}         # current index in `content`
     escape::Ref{Bool}       # whether the last char was an escape char
     interpolated::Ref{Bool} # whether any string interpolation occurs
+    errors::Vector          # any errors raised during parsing
     end =#
 
     # Instead we'll just use a `NamedTuple`
@@ -114,7 +115,9 @@ macro styled_str(raw_content::String)
          parts = Any[],
          active_styles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[],
          pending_styles = Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[],
-         offset = Ref(0), point = Ref(1), escape = Ref(false), interpolated = Ref(false))
+         offset = Ref(0), point = Ref(1), escape = Ref(false), interpolated = Ref(false),
+         errors = Vector{NamedTuple{(:message, :position, :hint),
+                                    Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}}())
     end
 
     # Value restrictions we can check against
@@ -127,49 +130,19 @@ macro styled_str(raw_content::String)
          "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
          "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
 
-    function stywarn(message, position::Union{Nothing, Int}=nothing)
-        location = string(something(__source__.file, ""), ':', string(__source__.line))
-        posinfo = if isnothing(position)
-            ""
-        else
-            infowidth = displaysize(stderr)[2] ÷ 3
-            j = clamp(12 * round(Int, position / 12),
-                      firstindex(state.content):lastindex(state.content))
-            start = if j <= infowidth firstindex(state.content) else
-                max(prevind(state.content, j, infowidth), firstindex(state.content))
-            end
-            stop = if ncodeunits(state.content) - j <= infowidth lastindex(state.content) else
-                min(nextind(state.content, j, infowidth), lastindex(state.content))
-            end
-            window = Base.escape_string(state.content[start:stop])
-            begin_ellipsis = ifelse(start == firstindex(state.content), "", "…")
-            end_ellipsis = ifelse(stop == lastindex(state.content), "", "…")
-            nbelip, npre, nwind, neelip =
-                ncodeunits(begin_ellipsis), ncodeunits(Base.escape_string(state.content[start:position])),
-                ncodeunits(window), ncodeunits(end_ellipsis)
-            nprelabel = nbelip+nwind+neelip+textwidth(begin_ellipsis)+npre
-            AnnotatedString("\n \"$begin_ellipsis$window$end_ellipsis\"\n \
-                          $(' '^(1+textwidth(begin_ellipsis)+npre))╰─╴around here",
-                         [(3:2+nbelip, :face => :shadow),
-                          (3+nbelip:4+nbelip+nwind, :face => :bright_green),
-                          (5+nbelip+nwind:6+nbelip+nwind+neelip, :face => :shadow),
-                          (8+nprelabel:7+nprelabel+ncodeunits("╰─╴around here"), :face => :info)])
+    function styerr!(state, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
+        if !isnothing(position) && position < 0
+            position = prevind(
+                state.content,
+                if !isempty(state.s)
+                    first(peek(state.s))
+                else
+                    lastindex(state.content)
+                end,
+                -position)
         end
-        @warn(Base.annotatedstring("Styled string macro, ", message, '.', posinfo),
-              _file=String(__source__.file), _line=__source__.line, _module=__module__)
-    end
-    function stywarn(message, state::NamedTuple, distance::Int=0)
-        position = if !isnothing(state)
-            i = if !isempty(state.s)
-                first(peek(state.s))
-            else
-                lastindex(state.content)
-            end
-            if distance > 0
-                i = prevind(state.content, i, distance)
-            end
-        end
-        stywarn(message, position)
+        push!(state.errors, (; message=AnnotatedString(message), position, hint))
+        nothing
     end
 
     function addpart!(state, stop::Int)
@@ -259,7 +232,10 @@ macro styled_str(raw_content::String)
 
     function readexpr!(state, pos::Int)
         if isempty(state.s)
-            stywarn("identifier or parenthesised expression expected after \$ in string", state, 1)
+            styerr!(state,
+                    AnnotatedString("Identifier or parenthesised expression expected after \$ in string",
+                                    [(55:55, :face => :warning)]),
+                    -1, "right here")
             return "", pos
         end
         expr, nextpos = Meta.parseatom(state.content, pos)
@@ -306,7 +282,7 @@ macro styled_str(raw_content::String)
         skipwhitespace!(state)
         if isempty(state.s)
             isempty(newstyles) &&
-                stywarn("incomplete annotation declaration", prevind(state.content, i))
+                styerr!(state, "Incomplete annotation declaration", prevind(state.content, i), "starts here")
             return false
         end
         isempty(state.s) && return false
@@ -330,7 +306,7 @@ macro styled_str(raw_content::String)
             skipwhitespace!(state)
             true
         else
-            stywarn("malformed styled string construct", state, 1)
+            styerr!(state, "Malformed styled string construct", -1)
             false
         end
     end
@@ -353,12 +329,16 @@ macro styled_str(raw_content::String)
                 tryparse(SimpleColor, color)
             elseif startswith(color, "0x") && length(color) == 8
                 tryparse(SimpleColor, '#' * color[3:end])
+            elseif color ∈ valid_colornames
+                SimpleColor(Symbol(color))
             else
-                color ∈ valid_colornames ||
-                    stywarn(AnnotatedString("unrecognised named color '$color' (should be $(join(valid_colornames, ", ", ", or ")))",
-                                         [(ncodeunits("unrecognised named color '."):ncodeunits("unrecognised named color '")+ncodeunits(color),
-                                           :face => :warning)]),
-                            state, 2 + length(color))
+                valid_options = join(valid_colornames, ", ", ", or ")
+                styerr!(state,
+                        AnnotatedString("Invalid named color '$color' (should be $valid_options)",
+                                        [(22:21+ncodeunits(color), :face => :warning),
+                                         (24+ncodeunits(color):35+ncodeunits(color)+ncodeunits(valid_options),
+                                          :face => :light)]),
+                        -length(color) - 2)
                 SimpleColor(Symbol(color))
             end
         end
@@ -388,17 +368,23 @@ macro styled_str(raw_content::String)
                     if lastchar == ')'
                         lastchar = last(popfirst!(state.s))
                     else
-                        stywarn("malformed underline value, should be (<color>, <style>)",
-                                state, first(something(peek(state.s), (ustart+2, '.'))) - ustart + 1)
+                        styerr!(state, "Malformed underline value, should be (<color>, <style>)",
+                                -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
                     end
                 else
-                    stywarn("malformed underline value, should be (<color>, <style>)",
-                            state, first(something(peek(state.s), (ustart+2, '.'))) - ustart + 1)
+                    styerr!(state, "Malformed underline value, should be (<color>, <style>)",
+                            -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
                     ustyle = "straight"
                 end
-                ustyle ∈ valid_underline_styles ||
-                    stywarn("unrecognised underline style '$ustyle' (should be $(join(valid_underline_styles, ", ", ", or ")))",
-                            state, 3 + length(ustyle))
+                if ustyle ∉ valid_underline_styles
+                    valid_options = join(valid_underline_styles, ", ", ", or ")
+                    styerr!(state,
+                            AnnotatedString("Invalid underline style '$ustyle' (should be $valid_options)",
+                                            [(26:25+ncodeunits(ustyle), :face => :warning)
+                                             (28+ncodeunits(ustyle):39+ncodeunits(ustyle)+ncodeunits(valid_options),
+                                              :face => :light)]),
+                            -length(ustyle) - 3)
+                end
                 Expr(:tuple, ucolor, QuoteNode(Symbol(ustyle)))
             else
                 word, lastchar = readsymbol!(state, lastchar)
@@ -459,8 +445,10 @@ macro styled_str(raw_content::String)
             # Check for '=', and skip over surrounding whitespace
             if lastchar != '='
                 skipwhitespace!(state)
-                isempty(state.s) && break
-                last(peek(state.s)) == '=' || break
+                if isempty(state.s) || last(peek(state.s)) != '='
+                    styerr!(state, "Keyword argument has no value", -3)
+                    break
+                end
                 popfirst!(state.s)
             end
             skipwhitespace!(state)
@@ -490,17 +478,26 @@ macro styled_str(raw_content::String)
                     ifelse(num isa Number, num, nothing)
                 else
                     invalid, lastchar = readsymbol!(state, lastchar)
-                    stywarn("invalid height $invalid, should be a natural number or positive float",
-                            state, 3)
+                    styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
+                                                   [(17:16+ncodeunits(string(invalid)), :face => :warning)]),
+                            -3)
                 end
             elseif key ∈ (:weight, :slant)
                 v, lastchar = readalph!(state, lastchar)
                 if key == :weight && v ∉ valid_weights
-                    stywarn("unrecognised weight '$v' (should be $(join(valid_weights, ", ", ", or ")))",
-                            state, 3)
+                    valid_options = join(valid_weights, ", ", ", or ")
+                    styerr!(state, AnnotatedString("Invalid weight '$v' (should be $valid_options)",
+                                                   [(17:16+ncodeunits(v), :face => :warning),
+                                                    (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
+                                                     :face => :light)]),
+                            -3)
                 elseif key == :slant && v ∉ valid_slants
-                    stywarn("unrecognised slant '$v' (should be $(join(valid_slants, ", ", ", or ")))",
-                            state, 3)
+                    valid_options = join(valid_slants, ", ", ", or ")
+                    styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
+                                                   [(16:15+ncodeunits(v), :face => :warning),
+                                                    (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
+                                                     :face => :light)]),
+                            -3)
                 end
                 Symbol(v) |> QuoteNode
             elseif key ∈ (:foreground, :background)
@@ -520,13 +517,18 @@ macro styled_str(raw_content::String)
                 inherit, lastchar = read_inherit!(state, lastchar)
                 inherit
             else
-                stywarn("uses unrecognised face key '$key'", state, length(str_key)+2)
+                styerr!(state, AnnotatedString("Uses unrecognised face key '$key'",
+                                               [(29:28+ncodeunits(String(key)), :face => :warning)]),
+                        -length(str_key) - 2)
             end
             if !any(k -> first(k.args) == key, kwargs)
                 push!(kwargs, Expr(:kw, key, val))
             else
-                stywarn("contains repeated face key '$key'", state, length(str_key)+2)
+                styerr!(state, AnnotatedString("Contains repeated face key '$key'",
+                                               [(29:28+ncodeunits(String(key)), :face => :warning)]),
+                        -length(str_key) - 2)
             end
+            isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
             isempty(state.s) || last(peek(state.s)) != ',' || break
         end
         face = Expr(:call, Face, kwargs...)
@@ -621,7 +623,7 @@ macro styled_str(raw_content::String)
                    end))
         end
         if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', ',', ':')
-            stywarn("incomplete annotation declaration", prevind(state.content, i))
+            styerr!(state, "Incomplete annotation declaration", prevind(state.content, i), "starts here")
         end
     end
 
@@ -640,10 +642,10 @@ macro styled_str(raw_content::String)
                 if !isempty(state.active_styles)
                     end_style!(state, i, char)
                 else
-                    stywarn("contains extraneous style terminations", state, 1)
+                    styerr!(state, "Contains extraneous style terminations", -2, "right here")
                 end
             elseif char == ':' && !isempty(state.active_styles)
-                stywarn("colons within styled regions need to be escaped", state, 2)
+                styerr!(state, "Colons within styled regions need to be escaped", -2, "right here")
             end
         end
         # Ensure that any trailing unstyled content is added
@@ -651,8 +653,9 @@ macro styled_str(raw_content::String)
             addpart!(state, lastindex(state.content))
         end
         for incomplete in Iterators.flatten(state.active_styles)
-            stywarn("unterminated annotation (missing closing '}')",
-                    prevind(state.content, first(incomplete)))
+            styerr!(state, AnnotatedString("Unterminated annotation (missing closing '}')",
+                                           [(43:43, :face => :warning)]),
+                    prevind(state.content, first(incomplete)), "starts here")
         end
     end
 
@@ -661,9 +664,46 @@ macro styled_str(raw_content::String)
     #------------------
 
     run_state_machine!(state)
-    if state.interpolated[]
+    if !isempty(state.errors)
+        throw(MalformedStylingMacro(state.content, state.errors))
+    elseif state.interpolated[]
         :(annotatedstring($(state.parts...)))
     else
         annotatedstring(map(eval, state.parts)...) |> Base.annotatedstring_optimize!
     end
+end
+
+struct MalformedStylingMacro <: Exception
+    raw::String
+    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}}
+end
+
+function Base.showerror(io::IO, err::MalformedStylingMacro)
+    # We would do "{error:┌ ERROR\:} MalformedStylingMacro" but this is already going
+    # to be prefixed with "ERROR: LoadError", so it's better not to.
+    println(io, "MalformedStylingMacro")
+    for (; message, position, hint) in err.problems
+        posinfo = if isnothing(position)
+            println(io, styled"{error:│} $message.")
+        else
+            infowidth = displaysize(stderr)[2] ÷ 3
+            j = clamp(12 * round(Int, position / 12),
+                        firstindex(err.raw):lastindex(err.raw))
+            start = if j <= infowidth firstindex(err.raw) else
+                max(prevind(err.raw, j, infowidth), firstindex(err.raw))
+            end
+            stop = if ncodeunits(err.raw) - j <= infowidth lastindex(err.raw) else
+                min(nextind(err.raw, j, infowidth), lastindex(err.raw))
+            end
+            window = Base.escape_string(err.raw[start:stop])
+            begin_ellipsis = ifelse(start == firstindex(err.raw), "", "…")
+            end_ellipsis = ifelse(stop == lastindex(err.raw), "", "…")
+            npre = ncodeunits(Base.escape_string(err.raw[start:position]))
+            println(io, styled"{error:│} $message:\n\
+                           {error:│}  {bright_green:\"{shadow:$begin_ellipsis}$window{shadow:$end_ellipsis}\"}\n\
+                           {error:│}  $(' '^(1+textwidth(begin_ellipsis)+npre)){info:╰─╴$hint}")
+        end
+    end
+    pluralissues = length(err.problems) > 1
+    println(io, styled"{error:┕} {light,italic:$(length(err.problems)) $(ifelse(pluralissues, \"issues\", \"issue\"))}")
 end
