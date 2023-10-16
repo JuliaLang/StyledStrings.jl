@@ -281,6 +281,7 @@ const FACES = let default = Dict{Symbol, Face}(
         Symbol[]),              # inherit
     # Property faces
     :bold => Face(weight=:bold),
+    :light => Face(weight=:light),
     :italic => Face(slant=:italic),
     :underline => Face(underline=true),
     :strikethrough => Face(strikethrough=true),

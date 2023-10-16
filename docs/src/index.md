@@ -81,8 +81,8 @@ faces that are part of the default value of the faces dictionary.
 
 Basic faces are intended represent a general idea, that is widely applicable.
 
-For setting some text with a certain attribute, we have the `bold`, `italic`,
-`underline`, `strikethrough`, and `inverse` faces.
+For setting some text with a certain attribute, we have the `bold`, `light`,
+`italic`, `underline`, `strikethrough`, and `inverse` faces.
 
 There are also named faces for the 16 terminal colours: `black`, `red`, `green`,
 `yellow`, `blue`, `magenta`, `cyan`, `white`, `bright_black`/`grey`/`gray`,
