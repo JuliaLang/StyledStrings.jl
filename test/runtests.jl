@@ -207,3 +207,21 @@ end
             @macroexpand styled"{(foreground=$color):val}"
     end
 end
+
+@testset "Legacy" begin
+    @test StyledStrings.Legacy.legacy_color(:blue) == SimpleColor(:blue)
+    @test StyledStrings.Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
+    @test StyledStrings.Legacy.legacy_color(-1) === nothing
+    @test StyledStrings.Legacy.legacy_color(0) == SimpleColor(0x000000)
+    @test StyledStrings.Legacy.legacy_color(44) == SimpleColor(0x00d7d7)
+    @test StyledStrings.Legacy.legacy_color(255) == SimpleColor(0xeeeeee)
+    @test StyledStrings.Legacy.legacy_color(256) === nothing
+    @test StyledStrings.Legacy.legacy_color("blue") == SimpleColor(:blue)
+    @test StyledStrings.Legacy.legacy_color("light_blue") == SimpleColor(:bright_blue)
+    @test StyledStrings.Legacy.legacy_color("-1") === nothing
+    @test StyledStrings.Legacy.legacy_color("0") == SimpleColor(0x000000)
+    @test StyledStrings.Legacy.legacy_color("44") == SimpleColor(0x00d7d7)
+    @test StyledStrings.Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
+    @test StyledStrings.Legacy.legacy_color("256") === nothing
+    @test StyledStrings.Legacy.legacy_color("invalid") === nothing
+end
