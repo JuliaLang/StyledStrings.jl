@@ -16,7 +16,7 @@ interpolated with `\$`.
 # Example
 
 ```julia
-style"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over \
+styled"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over \
 the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
 ```
 

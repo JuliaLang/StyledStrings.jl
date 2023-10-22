@@ -27,9 +27,9 @@ an iterator which provides each substring and the applicable annotations as a
 
 # Examples
 
-```jldoctest; setup = :(import Base.AnnotatedString; import StyledStrings.eachregion)
-julia> eachregion(AnnotatedString("hey there", [(1:3, :face => :bold),
-                                             (5:9, :face => :italic)])) |> collect
+```jldoctest; setup = :(import AnnotatedString; import StyledStrings.eachregion)
+julia> collect(eachregion(Base.AnnotatedString(
+           "hey there", [(1:3, :face => :bold), (5:9, :face => :italic)])))
 3-element Vector{Tuple{SubString{String}, Vector{Pair{Symbol, Any}}}}:
  ("hey", [:face => :bold])
  (" ", [])

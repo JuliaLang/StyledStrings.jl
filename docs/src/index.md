@@ -139,8 +139,8 @@ We can supply `:face` attributes to a `AnnotatedString` during construction, add
 them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
-```jldoctest; setup = :(import Base.AnnotatedString; import StyledStrings: Face, @styled_str)
-julia> str1 = AnnotatedString("blue text", [(1:9, :face => :blue)])
+```jldoctest; setup = :(import StyledStrings: Face, @styled_str)
+julia> str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
 "blue text"
 
 julia> str2 = styled"{blue:blue text}"
