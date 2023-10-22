@@ -12,10 +12,12 @@ include("faces.jl")
 include("regioniterator.jl")
 include("io.jl")
 include("stylemacro.jl")
+include("legacy.jl")
 
 function __init__()
     userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
     isfile(userfaces) && loaduserfaces!(userfaces)
+    Legacy.load_env_colors!()
 end
 
 if Base.generating_output()
