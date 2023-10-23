@@ -145,6 +145,8 @@ macro styled_str(raw_content::String)
         nothing
     end
 
+    hygienic_eval(expr) = Core.eval(__module__, Expr(:var"hygienic-scope", expr, @__MODULE__))
+
     function addpart!(state, stop::Int)
         if state.point[] > stop+state.offset[]+ncodeunits(state.content[stop])-1
             return state.point[] = nextind(state.content, stop) + state.offset[]
@@ -537,7 +539,7 @@ macro styled_str(raw_content::String)
                if needseval
                    :(Pair{Symbol, Any}(:face, $face))
                else
-                   Pair{Symbol, Any}(:face, eval(face))
+                   Pair{Symbol, Any}(:face, hygienic_eval(face))
                end))
     end
 
@@ -669,7 +671,7 @@ macro styled_str(raw_content::String)
     elseif state.interpolated[]
         :(annotatedstring($(state.parts...)))
     else
-        annotatedstring(map(eval, state.parts)...) |> Base.annotatedstring_optimize!
+        annotatedstring(map(hygienic_eval, state.parts)...) |> Base.annotatedstring_optimize!
     end
 end
 
