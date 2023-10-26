@@ -206,6 +206,25 @@ end
             "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))]))) ==
             @macroexpand styled"{(foreground=$color):val}"
     end
+
+    # newlines
+    normal = "abc\
+              def"
+    styled = styled"abc\
+                    def"
+    @test normal == styled == "abcdef"
+
+    normal = "abc\\ndef"
+    styled = styled"abc\\ndef"
+    @test normal == styled == "abc\\ndef"
+
+    normal = eval(Meta.parse("\"abc\\\n \tdef\""))
+    styled = eval(Meta.parse("styled\"abc\\\n \tdef\""))
+    @test normal == styled == "abcdef"
+
+    normal = eval(Meta.parse("\"abc\\\r\n  def\""))
+    styled = eval(Meta.parse("styled\"abc\\\r\n  def\""))
+    @test normal == styled == "abcdef"
 end
 
 @testset "Legacy" begin
