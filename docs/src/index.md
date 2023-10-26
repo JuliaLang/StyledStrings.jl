@@ -184,4 +184,7 @@ StyledStrings.@styled_str
 StyledStrings.Face
 StyledStrings.addface!
 StyledStrings.SimpleColor
+Base.parse
+Base.tryparse
+Base.merge
 ```
