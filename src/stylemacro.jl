@@ -86,6 +86,9 @@ inheritval = whitespace, ':'?, symbol ;
 ```
 """
 macro styled_str(raw_content::String)
+    println("styled_str")
+    println(raw_content)
+    println("begin")
     #------------------
     # Helper functions
     #------------------
@@ -664,15 +667,17 @@ macro styled_str(raw_content::String)
     #------------------
     # The actual body of the macro
     #------------------
-
+    println("begin run")
     run_state_machine!(state)
-    if !isempty(state.errors)
+    result = if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))
     elseif state.interpolated[]
         :(annotatedstring($(state.parts...)))
     else
         annotatedstring(map(hygienic_eval, state.parts)...) |> Base.annotatedstring_optimize!
     end
+    println("end run, end")
+    result
 end
 
 struct MalformedStylingMacro <: Exception
