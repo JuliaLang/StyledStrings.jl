@@ -329,6 +329,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_help => Face(inherit=[:yellow, :repl_prompt]),
     :repl_prompt_shell => Face(inherit=[:red, :repl_prompt]),
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
+    :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
     )
     (; default, current=ScopedValue(copy(default)), lock=ReentrantLock())
 end
