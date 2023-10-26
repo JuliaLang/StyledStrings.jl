@@ -112,6 +112,8 @@ macro styled_str(raw_content::String)
     end =#
 
     # Instead we'll just use a `NamedTuple`
+    println("raw content")
+    println(raw_content)
     state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n'))
         (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(zip(eachindex(content), content)),
