@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, Face, loadface!
+using ..StyledStrings: SimpleColor, Face, loadface!, face!
 
 """
 A mapping from 256-color codes indicies to 8-bit colours.
@@ -110,6 +110,20 @@ function load_env_colors!()
             end
         end
     end
+end
+
+function Base.printstyled(io::Base.AnnotatedIOBuffer, msg...;
+                          bold::Bool=false, italic::Bool=false, underline::Bool=false,
+                          blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
+                          color::Union{Symbol, Int}=:normal)
+    str = Base.annotatedstring(msg...)
+    bold && face!(str, :bold)
+    italic && face!(str, :italic)
+    underline && face!(str, :underline)
+    reverse && face!(str, Face(inverse=true))
+    color !== :normal && face!(str, Face(foreground=legacy_color(color)))
+    write(io, str)
+    nothing
 end
 
 end
