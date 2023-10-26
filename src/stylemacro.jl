@@ -116,7 +116,7 @@ macro styled_str(raw_content::String)
     println(repr(raw_content))
     println("hash")
     println(hash(raw_content))
-    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n'))
+    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n', '\r'))
         (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(zip(eachindex(content), content)),
          parts = Any[],
