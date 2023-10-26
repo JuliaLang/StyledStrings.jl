@@ -56,14 +56,14 @@ A mapping from old named colours to the new names, specifically from `light_*`
 to `bright_*`.
 """
 const RENAMED_COLORS = Dict{Symbol, Symbol}(
-    :light_black => :bright_black,
-    :light_red => :bright_red,
-    :light_green => :bright_green,
-    :light_yellow => :bright_yellow,
-    :light_blue => :bright_blue,
+    :light_black   => :bright_black,
+    :light_red     => :bright_red,
+    :light_green   => :bright_green,
+    :light_yellow  => :bright_yellow,
+    :light_blue    => :bright_blue,
     :light_magenta => :bright_magenta,
-    :light_cyan => :bright_cyan,
-    :light_white => :bright_white)
+    :light_cyan    => :bright_cyan,
+    :light_white   => :bright_white)
 
 legacy_color(color::Symbol) = SimpleColor(get(RENAMED_COLORS, color, color))
 legacy_color(color256::Int) = get(ANSI_256_COLORS, color256+1, nothing)
