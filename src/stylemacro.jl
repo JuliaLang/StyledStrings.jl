@@ -109,7 +109,7 @@ macro styled_str(raw_content::String)
     end =#
 
     # Instead we'll just use a `NamedTuple`
-    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n'))
+    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n', '\r'))
         (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(zip(eachindex(content), content)),
          parts = Any[],
@@ -211,8 +211,12 @@ macro styled_str(raw_content::String)
         if char in ('{', '}', ':', '$', '\\')
             deleteat!(state.bytes, i + state.offset[] - 1)
             state.offset[] -= ncodeunits('\\')
-        elseif char == '\n'
+        elseif char ∈ ('\n', '\r')
             skipped = 0
+            if char == '\r' && last(peek(state.s)) == '\n'
+                popfirst!(state.s)
+                skipped += 1
+            end
             while last(peek(state.s)) ∈ (' ', '\t')
                 popfirst!(state.s)
                 skipped += 1
