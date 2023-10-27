@@ -246,7 +246,8 @@ macro styled_str(raw_content::String)
         end
         expr, nextpos = Meta.parseatom(state.content, pos)
         nchars = length(state.content[pos:prevind(state.content, nextpos)])
-        for _ in 1:min(length(state.s), nchars)
+        for _ in 1:nchars
+            isempty(state.s) && break
             popfirst!(state.s)
         end
         expr, nextpos
