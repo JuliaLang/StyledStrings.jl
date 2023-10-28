@@ -3,6 +3,7 @@
 using Test, StyledStrings
 
 import StyledStrings: SimpleColor, Face
+import StyledStrings: AnnotatedString
 
 @testset "SimpleColor" begin
     @test SimpleColor(:hey).value == :hey # no error
@@ -149,36 +150,48 @@ end
     end
 end
 
-@testset "Styled string macro" begin
+@static if VERSION < v"1.1" # Why *on earth* is this needed!?!?
+    macro maybetestset(label, body)
+        esc(body)
+    end
+elseif VERSION < v"1.3"
+    macro maybetestset(label, body)
+        esc(:(@testset($label, $body)))
+    end
+else
+    var"@maybetestset" = var"@testset"
+end
+
+@maybetestset "Styled string macro" begin
     # Preservation of an unstyled string
-    @test styled"some string" == Base.AnnotatedString("some string")
+    @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
-    @test styled"{thing=val:some} string" == Base.AnnotatedString("some string", [(1:4, :thing => "val")])
-    @test styled"some {thing=val:string}" == Base.AnnotatedString("some string", [(6:11, :thing => "val")])
-    @test styled"some {a=1:s}trin{b=2:g}" == Base.AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
-    @test styled"{thing=val with spaces:some} string" == Base.AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
-    @test styled"{aface:some} string" == Base.AnnotatedString("some string", [(1:4, :face => :aface)])
+    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing => "val")])
+    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing => "val")])
+    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
+    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
+    @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face => :aface)])
     @test styled"{aface,bface:some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+        AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
+        AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
+        AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
     # Curly bracket escaping
-    @test styled"some \{string" == Base.AnnotatedString("some {string")
-    @test styled"some string\}" == Base.AnnotatedString("some string}")
-    @test styled"some \{string\}" == Base.AnnotatedString("some {string}")
-    @test styled"some \{str:ing\}" == Base.AnnotatedString("some {str:ing}")
-    @test styled"some \{{bold:string}\}" == Base.AnnotatedString("some {string}", [(7:12, :face => :bold)])
-    @test styled"some {bold:string \{other\}}" == Base.AnnotatedString("some string {other}", [(6:19, :face => :bold)])
+    @test styled"some \{string" == AnnotatedString("some {string")
+    @test styled"some string\}" == AnnotatedString("some string}")
+    @test styled"some \{string\}" == AnnotatedString("some {string}")
+    @test styled"some \{str:ing\}" == AnnotatedString("some {str:ing}")
+    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face => :bold)])
+    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face => :bold)])
     # Nesting
     @test styled"{bold:nest{italic:ed st{red:yling}}}" ==
-        Base.AnnotatedString(
+        AnnotatedString(
             "nested styling", [(1:14, :face => :bold), (5:14, :face => :italic), (10:14, :face => :red)])
-    # Production of a `(Base.AnnotatedString)` value instead of an expression when possible
-    @test Base.AnnotatedString("val") == @macroexpand styled"val"
-    @test Base.AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
+    # Production of a `(AnnotatedString)` value instead of an expression when possible
+    @test AnnotatedString("val") == @macroexpand styled"val"
+    @test AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
     let annotatedstring = GlobalRef(StyledStrings, :annotatedstring)
         AnnotatedString = GlobalRef(StyledStrings, :AnnotatedString)
@@ -216,23 +229,23 @@ end
     @test String(styled".\\\\\\") == ".\\\\\\"
 
     # newlines
-    normal = "abc\
-              def"
     styled = styled"abc\
                     def"
-    @test normal == styled == "abcdef"
+    @test styled == "abcdef"
 
     normal = "abc\\ndef"
     styled = styled"abc\\ndef"
     @test normal == styled == "abc\\ndef"
 
-    normal = eval(Meta.parse("\"abc\\\n \tdef\""))
-    styled = eval(Meta.parse("styled\"abc\\\n \tdef\""))
-    @test normal == styled == "abcdef"
+    if VERSION >= v"1.7"
+        normal = eval(Meta.parse("\"abc\\\n \tdef\""))
+        styled = eval(Meta.parse("styled\"abc\\\n \tdef\""))
+        @test normal == styled == "abcdef"
 
-    normal = eval(Meta.parse("\"abc\\\r\n  def\""))
-    styled = eval(Meta.parse("styled\"abc\\\r\n  def\""))
-    @test normal == styled == "abcdef"
+        normal = eval(Meta.parse("\"abc\\\r\n  def\""))
+        styled = eval(Meta.parse("styled\"abc\\\r\n  def\""))
+        @test normal == styled == "abcdef"
+    end
 end
 
 @testset "AnnotatedIOBuffer" begin
