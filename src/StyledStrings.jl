@@ -2,11 +2,16 @@
 
 module StyledStrings
 
-import Base: AnnotatedString, AnnotatedChar, annotations, annotate!,
-    annotatedstring, convert, merge, show, print, write
+import Base: convert, merge, show, print, write
 
 export @styled_str
-public Face, addface!, SimpleColor
+
+include("strings/strings.jl")
+include("compat.jl")
+include("terminfo.jl")
+
+import .AnnotatedStrings: AnnotatedString, AnnotatedChar, annotations, annotate!,
+    annotatedstring, annotatedstring_optimize!
 
 include("faces.jl")
 include("regioniterator.jl")
@@ -15,12 +20,14 @@ include("stylemacro.jl")
 include("legacy.jl")
 
 function __init__()
+    term_env = get(ENV, "TERM", @static Sys.iswindows() ? "" : "dumb")
+    global current_terminfo = load_terminfo(term_env)
     userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
     isfile(userfaces) && loaduserfaces!(userfaces)
     Legacy.load_env_colors!()
 end
 
-if Base.generating_output()
+if generating_output()
     include("precompile.jl")
 end
 

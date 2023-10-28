@@ -16,8 +16,7 @@ interpolated with `\$`.
 # Example
 
 ```julia
-styled"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over \
-the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
+styled"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
 ```
 
 # Extended help
@@ -110,14 +109,14 @@ macro styled_str(raw_content::String)
 
     # Instead we'll just use a `NamedTuple`
     state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n', '\r'))
-         (; content, bytes = Vector{UInt8}(content),
+         (; content=content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(pairs(content)),
          parts = Any[],
          active_styles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[],
          pending_styles = Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[],
          offset = Ref(0), point = Ref(1), escape = Ref(false), interpolated = Ref(false),
-         errors = Vector{NamedTuple{(:message, :position, :hint),
-                                    Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}}())
+         errors = Vector{Union{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Int, String}},
+                               NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Nothing, String}}}}())
     end
 
     # Value restrictions we can check against
@@ -141,11 +140,11 @@ macro styled_str(raw_content::String)
                 end,
                 -position)
         end
-        push!(state.errors, (; message=AnnotatedString(message), position, hint))
+        push!(state.errors, (; message=AnnotatedString(message), position=position, hint=hint))
         nothing
     end
 
-    hygienic_eval(expr) = Core.eval(__module__, Expr(:var"hygienic-scope", expr, @__MODULE__))
+    hygienic_eval(expr) = Core.eval(__module__, Expr(Symbol("hygienic-scope"), expr, @__MODULE__))
 
     function addpart!(state, stop::Int)
         if state.point[] > stop+state.offset[]+ncodeunits(state.content[stop])-1
@@ -244,7 +243,7 @@ macro styled_str(raw_content::String)
                     -1, "right here")
             return "", pos
         end
-        expr, nextpos = Meta.parseatom(state.content, pos)
+        expr, nextpos = parseatom(state.content, pos)
         nchars = length(state.content[pos:prevind(state.content, nextpos)])
         for _ in 1:nchars
             isempty(state.s) && break
@@ -321,12 +320,12 @@ macro styled_str(raw_content::String)
     function read_inlineface!(state, i, char, newstyles)
         # Substructure parsing helper functions
         function readalph!(state, lastchar)
-            Iterators.takewhile(
+            takewhile(
                 c -> 'a' <= (lastchar = last(c)) <= 'z', state.s) |>
                     collect .|> last |> String, lastchar
         end
         function readsymbol!(state, lastchar)
-            Iterators.takewhile(
+            takewhile(
                 c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', ',', ')'), state.s) |>
                     collect .|> last |> String, lastchar
         end
@@ -424,7 +423,7 @@ macro styled_str(raw_content::String)
                         lastchar = last(popfirst!(state.s))
                         break
                     end
-                    facename = Iterators.takewhile(
+                    facename = takewhile(
                         c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
                             collect .|> last |> String
                     push!(inherit, Symbol(rstrip(facename)))
@@ -433,7 +432,7 @@ macro styled_str(raw_content::String)
                     end
                 end
             else
-                facename = Iterators.takewhile(
+                facename = takewhile(
                     c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
                         collect .|> last |> String
                 push!(inherit, Symbol(rstrip(facename)))
@@ -474,7 +473,7 @@ macro styled_str(raw_content::String)
                 if nextchar == '"'
                     readexpr!(state, first(peek(state.s))) |> first |> esc
                 else
-                    Iterators.takewhile(
+                    takewhile(
                         c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
                             collect .|> last |> String
                 end
@@ -676,26 +675,28 @@ macro styled_str(raw_content::String)
     elseif state.interpolated[]
         :(annotatedstring($(state.parts...)))
     else
-        annotatedstring(map(hygienic_eval, state.parts)...) |> Base.annotatedstring_optimize!
+        annotatedstring(map(hygienic_eval, state.parts)...) |> annotatedstring_optimize!
     end
 end
 
 struct MalformedStylingMacro <: Exception
     raw::String
-    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}}
+    problems::Vector{Union{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Int, String}},
+                           NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Nothing, String}}}}
 end
 
 function Base.showerror(io::IO, err::MalformedStylingMacro)
     # We would do "{error:┌ ERROR\:} MalformedStylingMacro" but this is already going
     # to be prefixed with "ERROR: LoadError", so it's better not to.
     println(io, "MalformedStylingMacro")
-    for (; message, position, hint) in err.problems
+    for prob in err.problems
+        message, position, hint = prob.message, prob.position, prob.hint
         posinfo = if isnothing(position)
             println(io, styled"{error:│} $message.")
         else
             infowidth = displaysize(stderr)[2] ÷ 3
             j = clamp(12 * round(Int, position / 12),
-                        firstindex(err.raw):lastindex(err.raw))
+                      firstindex(err.raw), lastindex(err.raw))
             start = if j <= infowidth firstindex(err.raw) else
                 max(prevind(err.raw, j, infowidth), firstindex(err.raw))
             end
