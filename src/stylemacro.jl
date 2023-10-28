@@ -110,8 +110,8 @@ macro styled_str(raw_content::String)
 
     # Instead we'll just use a `NamedTuple`
     state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n', '\r'))
-        (; content, bytes = Vector{UInt8}(content),
-         s = Iterators.Stateful(zip(eachindex(content), content)),
+         (; content, bytes = Vector{UInt8}(content),
+         s = Iterators.Stateful(pairs(content)),
          parts = Any[],
          active_styles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[],
          pending_styles = Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[],
@@ -246,7 +246,8 @@ macro styled_str(raw_content::String)
         end
         expr, nextpos = Meta.parseatom(state.content, pos)
         nchars = length(state.content[pos:prevind(state.content, nextpos)])
-        for _ in 1:min(length(state.s), nchars)
+        for _ in 1:nchars
+            isempty(state.s) && break
             popfirst!(state.s)
         end
         expr, nextpos
