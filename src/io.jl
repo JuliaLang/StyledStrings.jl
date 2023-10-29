@@ -111,6 +111,8 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
         else
             termcolor8bit(io, color.value, category)
         end
+    elseif color.value === :default
+        print(io, "\e[", category, "9m")
     elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
         termcolor(io, fg, category)
     else
