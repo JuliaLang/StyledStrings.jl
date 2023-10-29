@@ -454,7 +454,7 @@ Merge the properties of the `initial` face and `others`, with
 later faces taking priority.
 """
 function merge(a::Face, b::Face)
-    if isempty(a.inherit)
+    if isempty(b.inherit)
         Face(ifelse(isnothing(b.font),          a.font,          b.font),
              if isnothing(b.height)      a.height
              elseif isnothing(a.height)  b.height
@@ -468,14 +468,14 @@ function merge(a::Face, b::Face)
              ifelse(isnothing(b.underline),     a.underline,     b.underline),
              ifelse(isnothing(b.strikethrough), a.strikethrough, b.strikethrough),
              ifelse(isnothing(b.inverse),       a.inverse,       b.inverse),
-             b.inherit)
+             a.inherit)
     else
-        a_noinherit = Face(
-            a.font, a.height, a.weight, a.slant, a.foreground, a.background,
-            a.underline, a.strikethrough, a.inverse, Symbol[])
-        a_inheritance = map(fname -> get(FACES.current[], fname, Face()), Iterators.reverse(a.inherit))
-        a_resolved = merge(foldl(merge, a_inheritance), a_noinherit)
-        merge(a_resolved, b)
+        b_noinherit = Face(
+            b.font, b.height, b.weight, b.slant, b.foreground, b.background,
+            b.underline, b.strikethrough, b.inverse, Symbol[])
+        b_inheritance = map(fname -> get(FACES.current[], fname, Face()), Iterators.reverse(b.inherit))
+        b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
+        merge(a, b_resolved)
     end
 end
 
@@ -496,7 +496,7 @@ function getface(faces)
     mergedface(faces::Vector) = mapfoldl(mergedface, merge, Iterators.reverse(faces))
     combined = mapfoldl(mergedface, merge, faces)::Face
     if !isempty(combined.inherit)
-        combined = merge(combined, Face())
+        combined = merge(Face(), combined)
     end
     merge(FACES.current[][:default], combined)
 end
@@ -511,7 +511,7 @@ function getface(annotations::Vector{Pair{Symbol, Any}})
     getface(faces)
 end
 
-getface(face::Face) = merge(FACES.current[][:default], merge(face, Face()))
+getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
 getface(face::Symbol) = getface(get(FACES.current[], face, Face()))
 
 """
