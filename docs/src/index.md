@@ -184,7 +184,7 @@ StyledStrings.@styled_str
 StyledStrings.Face
 StyledStrings.addface!
 StyledStrings.SimpleColor
-Base.parse
-Base.tryparse
-Base.merge
+Base.parse(::Type{StyledStrings.SimpleColor}, ::String)
+Base.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
+Base.merge(::StyledStrings.Face, ::StyledStrings.Face)
 ```
