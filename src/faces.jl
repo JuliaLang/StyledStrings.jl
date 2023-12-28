@@ -318,6 +318,14 @@ const FACES = let default = Dict{Symbol, Face}(
     :info => Face(foreground=:bright_cyan),
     :note => Face(foreground=:grey),
     :tip => Face(foreground=:bright_green),
+    # Stacktraces (on behalf of Base)
+    :julia_stacktrace_frameindex => Face(),
+    :julia_stacktrace_location => Face(inherit=:shadow),
+    :julia_stacktrace_filename => Face(underline=true, inherit=:julia_stacktrace_location),
+    :julia_stacktrace_fileline => Face(inherit=:julia_stacktrace_filename),
+    :julia_stacktrace_repetition => Face(inherit=:warning),
+    :julia_stacktrace_inlined => Face(inherit=:julia_stacktrace_repetition),
+    :julia_stacktrace_basemodule => Face(inherit=:shadow),
     # Log messages
     :log_error => Face(inherit=[:error, :bold]),
     :log_warn => Face(inherit=[:warning, :bold]),
