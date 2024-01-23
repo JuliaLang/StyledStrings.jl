@@ -36,9 +36,7 @@ escaped = '\\\\', specialchar ;
 interpolated = '\$', ? expr ? | '\$(', ? expr ?, ')' ;
 
 styled = '{', ws, annotations, ':', content, '}' ;
-content = { interpolated | colonescaped | almostplain | styled } ;
-colonescaped = escaped | '\\\\:' ;
-almostplain = { plain - ':' } ;
+content = { interpolated | plain | escaped | styled } ;
 annotations = annotation | annotations, ws, ',', ws, annotation ;
 annotation = face | inlineface | keyvalue ;
 ws = { ' ' | '\\t' | '\\n' } ; (* whitespace *)
@@ -109,7 +107,7 @@ macro styled_str(raw_content::String)
     end =#
 
     # Instead we'll just use a `NamedTuple`
-    state = let content = unescape_string(raw_content, ('{', '}', ':', '$', '\n', '\r'))
+    state = let content = unescape_string(raw_content, ('{', '}', '$', '\n', '\r'))
          (; content, bytes = Vector{UInt8}(content),
          s = Iterators.Stateful(pairs(content)),
          parts = Any[],
@@ -208,7 +206,7 @@ macro styled_str(raw_content::String)
     end
 
     function escaped!(state, i, char)
-        if char in ('{', '}', ':', '$', '\\')
+        if char in ('{', '}', '$', '\\')
             deleteat!(state.bytes, i + state.offset[] - 1)
             state.offset[] -= ncodeunits('\\')
         elseif char ∈ ('\n', '\r')
@@ -651,8 +649,6 @@ macro styled_str(raw_content::String)
                 else
                     styerr!(state, "Contains extraneous style terminations", -2, "right here")
                 end
-            elseif char == ':' && !isempty(state.active_styles)
-                styerr!(state, "Colons within styled regions need to be escaped", -2, "right here")
             end
         end
         # Ensure that any trailing unstyled content is added
