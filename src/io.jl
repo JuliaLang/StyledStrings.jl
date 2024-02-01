@@ -216,7 +216,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
 end
 
 function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-                      string_writer::Function)
+                      string_writer::F) where {F <: Function}
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatadly printing to `stdout`
         lastface::Face = FACES.default[:default]
@@ -243,7 +243,7 @@ function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedS
 end
 
 write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    _ansi_writer(io, s, write)
+    _ansi_writer(io, s, write)::Int
 
 print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
