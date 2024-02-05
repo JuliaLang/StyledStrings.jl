@@ -84,9 +84,11 @@ inheritval = whitespace, ':'?, symbol ;
 ```
 """
 macro styled_str(raw_content::String)
-    #------------------
-    # Helper functions
-    #------------------
+    # First undo the transforms of the parser, (assuming the input was entered
+    # with single `styled""` markers so this transform is unambiguously
+    # reversible and not as `@styled_str "."` or `styled"""."""`), since the
+    # `unescape_string` transforms will be a superset of those transforms
+    raw_content = Base.escape_raw_string(raw_content)
 
     # If this were a module, I'd define the following struct.
 
@@ -127,6 +129,10 @@ macro styled_str(raw_content::String)
         ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
          "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
          "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
+
+    #------------------
+    # Helper functions
+    #------------------
 
     function styerr!(state, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
         if !isnothing(position) && position < 0

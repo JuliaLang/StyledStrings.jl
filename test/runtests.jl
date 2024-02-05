@@ -207,6 +207,14 @@ end
             @macroexpand styled"{(foreground=$color):val}"
     end
 
+    # Trailing (and non-trailing) Backslashes
+    @test String(styled"\\") == "\\"
+    @test String(styled"\\\\") == "\\\\"
+    @test String(styled"\\\\\\") == "\\\\\\"
+    @test String(styled".\\") == ".\\"
+    @test String(styled".\\\\") == ".\\\\"
+    @test String(styled".\\\\\\") == ".\\\\\\"
+
     # newlines
     normal = "abc\
               def"
