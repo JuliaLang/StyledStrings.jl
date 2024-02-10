@@ -215,13 +215,13 @@ macro styled_str(raw_content::String)
         if char in ('{', '}', '$', '\\')
             deleteat!(state.bytes, i + state.offset[] - 1)
             state.offset[] -= ncodeunits('\\')
-        elseif char ∈ ('\n', '\r')
+        elseif char ∈ ('\n', '\r') && !isempty(state.s)
             skipped = 0
             if char == '\r' && last(peek(state.s)) == '\n'
                 popfirst!(state.s)
                 skipped += 1
             end
-            while last(peek(state.s)) ∈ (' ', '\t')
+            while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t')
                 popfirst!(state.s)
                 skipped += 1
             end
