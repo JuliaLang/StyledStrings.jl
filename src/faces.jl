@@ -537,7 +537,7 @@ getface() = FACES.current[][:default]
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
 getface(s::AnnotatedString, i::Integer) =
-    getface(annotations(s, i))
+    getface(map(last, annotations(s, i)))
 
 """
     getface(c::AnnotatedChar)
