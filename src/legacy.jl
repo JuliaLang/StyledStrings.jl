@@ -9,6 +9,15 @@ module Legacy
 using ..StyledStrings: SimpleColor, Face, loadface!, face!
 
 """
+    legacy_color(color::Union{String, Symbol, Int})
+
+Attempt to obtain a `SimpleColor` for a "legacy" color value `color`.
+
+When this is not possible, `nothing` is returned.
+"""
+function legacy_color end
+
+"""
 A mapping from 256-color codes indicies to 8-bit colours.
 """
 const ANSI_256_COLORS =
@@ -51,6 +60,19 @@ const ANSI_256_COLORS =
          0x8a8a8a, 0x949494, 0x9e9e9e, 0xa8a8a8, 0xb2b2b2, 0xbcbcbc, 0xc6c6c6,
          0xd0d0d0, 0xdadada, 0xe4e4e4, 0xeeeeee])
 
+legacy_color(color256::Int) = get(ANSI_256_COLORS, color256+1, nothing)
+
+"""
+A list of all named colors recognised, including both the old `light_*` and new
+`bright_*` named colors.
+"""
+const NAMED_COLORS =
+    (:black, :red, :green, :yellow, :blue, :magenta, :cyan, :white,
+     :bright_black, :grey, :gray, :bright_red, :bright_green, :bright_yellow,
+     :bright_blue, :bright_magenta, :bright_cyan, :bright_white, :light_black,
+     :light_red, :light_green, :light_yellow, :light_blue, :light_magenta,
+     :light_cyan, :light_white)
+
 """
 A mapping from old named colours to the new names, specifically from `light_*`
 to `bright_*`.
@@ -65,24 +87,13 @@ const RENAMED_COLORS = Dict{Symbol, Symbol}(
     :light_cyan    => :bright_cyan,
     :light_white   => :bright_white)
 
-legacy_color(color::Symbol) = SimpleColor(get(RENAMED_COLORS, color, color))
-legacy_color(color256::Int) = get(ANSI_256_COLORS, color256+1, nothing)
+legacy_color(color::Symbol) =
+    if color in NAMED_COLORS
+        SimpleColor(get(RENAMED_COLORS, color, color))
+    end
 
-"""
-    legacy_color(color::Union{String, Symbol, Int})
-
-Attempt to obtain a `SimpleColor` for a "legacy" color value `color`.
-
-When this is not possible, `nothing` is returned.
-"""
 function legacy_color(color::String)
-    namedcolours = ("black", "red", "green", "yellow", "blue", "magenta",
-                    "cyan", "white", "bright_black", "grey", "gray",
-                    "bright_red", "bright_green", "bright_yellow",
-                    "bright_blue", "bright_magenta", "bright_cyan",
-                    "bright_white", "light_black", "light_red", "light_green",
-                    "light_yellow", "light_blue", "light_magenta", "light_cyan",
-                    "light_white")
+    namedcolours = String.(NAMED_COLORS)
     if color in namedcolours
         legacy_color(Symbol(color))
     elseif 0 <= (color256 = something(tryparse(Int, color), -1)) <= 255
