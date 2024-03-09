@@ -274,6 +274,20 @@ function show(io::IO, c::AnnotatedChar)
     end
 end
 
+function write(io::IO, aio::Base.AnnotatedIOBuffer)
+    if get(io, :color, false) == true
+        # This does introduce an overhead that technically
+        # could be avoided, but I'm not sure that it's currently
+        # worth the effort to implement an efficient version of
+        # writing from a AnnotatedIOBuffer with style.
+        # In the meantime, by converting to an `AnnotatedString` we can just
+        # reuse all the work done to make that work.
+        write(io, read(aio, AnnotatedString))
+    else
+        write(io, aio.io)
+    end
+end
+
 """
 A mapping between ANSI named colors and 8-bit colors for use in HTML
 representations.

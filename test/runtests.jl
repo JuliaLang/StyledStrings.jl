@@ -235,6 +235,17 @@ end
     @test normal == styled == "abcdef"
 end
 
+@testset "AnnotatedIOBuffer" begin
+    aio = Base.AnnotatedIOBuffer()
+    @test write(aio, styled"{red:hey} {blue:there}") == 9
+    buf = IOBuffer()
+    @test write(buf, seekstart(aio)) == 9
+    @test String(take!(buf)) == "hey there"
+    cbuf = IOContext(buf, :color => true)
+    @test write(cbuf, seekstart(aio)) == 29
+    @test String(take!(buf)) == "\e[31mhey\e[39m \e[34mthere\e[39m"
+end
+
 @testset "Legacy" begin
     @test StyledStrings.Legacy.legacy_color(:blue) == SimpleColor(:blue)
     @test StyledStrings.Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
