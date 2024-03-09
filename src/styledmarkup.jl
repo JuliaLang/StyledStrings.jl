@@ -45,6 +45,12 @@ const VALID_COLORNAMES =
      "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
      "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
 
+isnextchar(state::State, c::Char) =
+    !isempty(state.s) && last(peek(state.s)) == c
+
+isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
+    !isempty(state.s) && last(peek(state.s)) ∈ cs
+
 function styerr!(state::State, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
     if !isnothing(position) && position < 0
         position = prevind(
@@ -136,11 +142,11 @@ function escaped!(state::State, i::Int, char::Char)
         state.offset[] -= ncodeunits('\\')
     elseif char ∈ ('\n', '\r') && !isempty(state.s)
         skipped = 0
-        if char == '\r' && last(peek(state.s)) == '\n'
+        if char == '\r' && isnextchar(state, '\n')
             popfirst!(state.s)
             skipped += 1
         end
-        while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t')
+        while isnextchar(state, (' ', '\t'))
             popfirst!(state.s)
             skipped += 1
         end
@@ -179,7 +185,7 @@ end
 readexpr!(state) = readexpr!(state, first(popfirst!(state.s)) + 1)
 
 function skipwhitespace!(state::State)
-    while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t', '\n')
+    while isnextchar(state, (' ', '\t', '\n'))
         popfirst!(state.s)
     end
 end
@@ -280,10 +286,10 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         lastchar
     end
     function read_underline!(state, lastchar)
-        if last(peek(state.s)) == '('
+        if isnextchar(state, '(')
             ustart, _ = popfirst!(state.s)
             skipwhitespace!(state)
-            ucolor_str, ucolor = if last(peek(state.s)) == ','
+            ucolor_str, ucolor = if isnextchar(state, ',')
                 lastchar = last(popfirst!(state.s))
                 "", nothing
             else
@@ -334,11 +340,11 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     end
     function read_inherit!(state, lastchar)
         inherit = Symbol[]
-        if last(peek(state.s)) == ':'
+        if isnextchar(state, ':')
             popfirst!(state.s)
             facename, lastchar = readsymbol!(state, lastchar)
             push!(inherit, Symbol(facename))
-        elseif last(peek(state.s)) == '['
+        elseif isnextchar(state, '[')
             popfirst!(state.s)
             readvec = true
             while readvec
@@ -371,7 +377,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     popfirst!(state.s)
     lastchar = '('
     skipwhitespace!(state)
-    if !isempty(state.s) && last(peek(state.s)) == ')'
+    if isnextchar(state, ')')
         # We've hit the empty-construct special case
         popfirst!(state.s)
         return
@@ -398,14 +404,14 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         key == :fg && (key = :foreground)
         key == :bg && (key = :background)
         # Parse value
-        val = if !isnothing(state.mod) && (nextchar = last(peek(state.s))) == '$'
+        val = if isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
             state.interpolated[] = true
             needseval = true
             esc(expr)
         elseif key == :face
-            if nextchar == '"'
+            if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first |> esc
             else
                 Iterators.takewhile(
@@ -413,7 +419,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                         collect .|> last |> String
             end
         elseif key == :height
-            if nextchar == '.' || nextchar ∈ '0':'9'
+            if isnextchar(state, ('.', '0':'9'...))
                 num = readexpr!(state, first(peek(state.s))) |> first
                 lastchar = last(popfirst!(state.s))
                 ifelse(num isa Number, num, nothing)
@@ -472,7 +478,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     -length(str_key) - 2)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
-        isempty(state.s) || last(peek(state.s)) != ',' || break
+        !isnextchar(state, ',') || break
     end
     face = Expr(:call, Face, kwargs...)
     push!(newstyles,
@@ -527,11 +533,10 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     if isempty(state.s)
     elseif last(peek(state.s)) == '='
         popfirst!(state.s)
-        nextchar = last(peek(state.s))
-        if nextchar ∈ (' ', '\t', '\n')
+        if isnextchar(state, (' ', '\t', '\n'))
             skipwhitespace!(state)
-            nextchar = last(peek(state.s))
         end
+        nextchar = if !isempty(state.s) last(peek(state.s)) else '\0' end
         value = if isempty(state.s) ""
         elseif nextchar == '{'
             read_curlywrapped!(state)
