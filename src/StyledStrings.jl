@@ -12,8 +12,10 @@ public Face, addface!, SimpleColor
 include("faces.jl")
 include("regioniterator.jl")
 include("io.jl")
-include("stylemacro.jl")
+include("styledmarkup.jl")
 include("legacy.jl")
+
+using .StyledMarkup
 
 function __init__()
     userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")

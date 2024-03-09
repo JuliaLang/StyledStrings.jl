@@ -180,11 +180,11 @@ end
     @test Base.AnnotatedString("val") == @macroexpand styled"val"
     @test Base.AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
-    let annotatedstring = GlobalRef(StyledStrings, :annotatedstring)
-        AnnotatedString = GlobalRef(StyledStrings, :AnnotatedString)
-        Pair = GlobalRef(StyledStrings, :Pair)
-        Symbol = GlobalRef(StyledStrings, :Symbol)
-        Any = GlobalRef(StyledStrings, :Any)
+    let annotatedstring = GlobalRef(StyledStrings.StyledMarkup, :annotatedstring)
+        AnnotatedString = GlobalRef(StyledStrings.StyledMarkup, :AnnotatedString)
+        Pair            = GlobalRef(StyledStrings.StyledMarkup, :Pair)
+        Symbol          = GlobalRef(StyledStrings.StyledMarkup, :Symbol)
+        Any             = GlobalRef(StyledStrings.StyledMarkup, :Any)
         @test :($annotatedstring(val)) == @macroexpand styled"$val"
         @test :($annotatedstring("a", val)) == @macroexpand styled"a$val"
         @test :($annotatedstring("a", val, "b")) == @macroexpand styled"a$(val)b"
