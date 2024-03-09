@@ -165,6 +165,7 @@ end
         Base.AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
         Base.AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
+    @test styled"{():}" == styled"{( ):}" == Base.AnnotatedString("") # empty attribute lists are legal
     # Curly bracket escaping
     @test styled"some \{string" == Base.AnnotatedString("some {string")
     @test styled"some string\}" == Base.AnnotatedString("some string}")

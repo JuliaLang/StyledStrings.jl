@@ -367,11 +367,18 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         end
         inherit, lastchar
     end
-    # Get on with the parsing now
+    # Tentatively initiate the parsing
     popfirst!(state.s)
+    lastchar = '('
+    skipwhitespace!(state)
+    if !isempty(state.s) && last(peek(state.s)) == ')'
+        # We've hit the empty-construct special case
+        popfirst!(state.s)
+        return
+    end
+    # Get on with the parsing now
     kwargs = if !isnothing(state.mod) Expr[] else Pair{Symbol, Any}[] end
     needseval = false
-    lastchar = '('
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
         str_key, lastchar = readalph!(state, lastchar)
