@@ -181,6 +181,7 @@ For more information on the grammar, see the extended help of the
 
 ```@docs
 StyledStrings.@styled_str
+StyledStrings.styled
 StyledStrings.Face
 StyledStrings.addface!
 StyledStrings.SimpleColor

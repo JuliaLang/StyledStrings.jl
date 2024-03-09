@@ -2,7 +2,7 @@
 
 using Test, StyledStrings
 
-import StyledStrings: SimpleColor, Face
+import StyledStrings: SimpleColor, Face, styled
 
 @testset "SimpleColor" begin
     @test SimpleColor(:hey).value == :hey # no error
@@ -149,7 +149,7 @@ end
     end
 end
 
-@testset "Styled string macro" begin
+@testset "Styled Markup" begin
     # Preservation of an unstyled string
     @test styled"some string" == Base.AnnotatedString("some string")
     # Basic styled constructs
@@ -216,23 +216,29 @@ end
     @test String(styled".\\\\\\") == ".\\\\\\"
 
     # newlines
-    normal = "abc\
-              def"
-    styled = styled"abc\
-                    def"
-    @test normal == styled == "abcdef"
+    strlines = "abc\
+                def"
+    stylines = styled"abc\
+                      def"
+    @test strlines == stylines == "abcdef"
 
-    normal = "abc\\ndef"
-    styled = styled"abc\\ndef"
-    @test normal == styled == "abc\\ndef"
+    strlines = "abc\\ndef"
+    stylines = styled"abc\\ndef"
+    @test strlines == stylines == "abc\\ndef"
 
-    normal = eval(Meta.parse("\"abc\\\n \tdef\""))
-    styled = eval(Meta.parse("styled\"abc\\\n \tdef\""))
-    @test normal == styled == "abcdef"
+    strlines = eval(Meta.parse("\"abc\\\n \tdef\""))
+    stylines = eval(Meta.parse("styled\"abc\\\n \tdef\""))
+    @test strlines == stylines == "abcdef"
 
-    normal = eval(Meta.parse("\"abc\\\r\n  def\""))
-    styled = eval(Meta.parse("styled\"abc\\\r\n  def\""))
-    @test normal == styled == "abcdef"
+    strlines = eval(Meta.parse("\"abc\\\r\n  def\""))
+    stylines = eval(Meta.parse("styled\"abc\\\r\n  def\""))
+    @test strlines == stylines == "abcdef"
+
+    # The function form. As this uses the same FSM as the macro,
+    # we don't need many tests to verify it's behaving sensibly.
+    @test styled("{red:hey} {blue:there}") == styled"{red:hey} {blue:there}"
+    @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
+    @test styled("\$hey") == styled"\$hey"
 end
 
 @testset "AnnotatedIOBuffer" begin
