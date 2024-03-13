@@ -388,6 +388,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
         str_key, lastchar = readalph!(state, lastchar)
+        # If we have actually reached the end but there is a trailing
+        # comma/whitespace, we find out here and abort.
+        isempty(str_key) && lastchar == ')' && break
         key = Symbol(str_key)
         # Check for '=', and skip over surrounding whitespace
         if lastchar != '='
@@ -478,6 +481,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     -length(str_key) - 2)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
+        skipwhitespace!(state)
         !isnextchar(state, ',') || break
     end
     face = Expr(:call, Face, kwargs...)
