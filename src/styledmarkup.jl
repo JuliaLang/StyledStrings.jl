@@ -660,6 +660,9 @@ curlybraced = '{' { escaped | plain } '}' ;
 simplevalue = [^\${},:], [^,:]* ;
 ```
 
+An extra stipulation not encoded in the above grammar is that `plain` should be
+a valid input to [`unescape_string`](@ref), with `specialchar` kept.
+
 The above grammar for `inlineface` is simplified, as the actual implementation
 is a bit more sophisticated. The full behaviour is given below.
 
