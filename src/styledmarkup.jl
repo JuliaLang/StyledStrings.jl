@@ -691,11 +691,11 @@ hexcolor = ('#' | '0x'), [0-9a-f]{6} ;
 simplecolor = hexcolor | symbol | nothing ;
 
 underline = nothing | bool | simplecolor | underlinestyled;
-underlinestyled = '(', whitespace, ('' | nothing | simplecolor), whitespace,
-                  ',', whitespace, symbol, whitespace ')' ;
+underlinestyled = '(', ws, ('' | nothing | simplecolor), ws,
+                  ',', ws, symbol, ws ')' ;
 
 inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval;
-inheritval = whitespace, ':'?, symbol ;
+inheritval = ws, ':'?, symbol ;
 ```
 """
 macro styled_str(raw_content::String)
