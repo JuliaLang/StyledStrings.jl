@@ -51,6 +51,8 @@ isnextchar(state::State, c::Char) =
 isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
     !isempty(state.s) && last(peek(state.s)) ∈ cs
 
+ismacro(state::State) = !isnothing(state.mod)
+
 function styerr!(state::State, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
     if !isnothing(position) && position < 0
         position = prevind(
@@ -75,7 +77,7 @@ function addpart!(state::State, stop::Int)
     end
     str = String(state.bytes[
         state.point[]:stop+state.offset[]+ncodeunits(state.content[stop])-1])
-    sty_type, tupl = if !isnothing(state.mod)
+    sty_type, tupl = if ismacro(state)
         Expr, (a, b) -> Expr(:tuple, a, b)
     else
         Tuple{UnitRange{Int}, Pair{Symbol, Any}}, (a, b) -> (a, b)
@@ -101,7 +103,7 @@ function addpart!(state::State, stop::Int)
                 empty!(state.pending_styles)
                 if isempty(styles)
                     str
-                elseif isnothing(state.mod)
+                elseif !ismacro(state)
                     AnnotatedString(str, styles)
                 else
                     :(AnnotatedString($str, $(Expr(:vect, styles...))))
@@ -137,7 +139,7 @@ function addpart!(state::State, start::Int, expr, stop::Int)
 end
 
 function escaped!(state::State, i::Int, char::Char)
-    if char in ('{', '}', '\\') || (char == '$' && !isnothing(state.mod))
+    if char in ('{', '}', '\\') || (char == '$' && ismacro(state))
         deleteat!(state.bytes, i + state.offset[] - 1)
         state.offset[] -= ncodeunits('\\')
     elseif char ∈ ('\n', '\r') && !isempty(state.s)
@@ -321,7 +323,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                             :face => :light)]),
                         -length(ustyle) - 3)
             end
-            if !isnothing(state.mod)
+            if ismacro(state)
                 Expr(:tuple, ucolor, QuoteNode(Symbol(ustyle)))
             else
                 (ucolor, Symbol(ustyle))
@@ -383,7 +385,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         return
     end
     # Get on with the parsing now
-    kwargs = if !isnothing(state.mod) Expr[] else Pair{Symbol, Any}[] end
+    kwargs = if ismacro(state) Expr[] else Pair{Symbol, Any}[] end
     needseval = false
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
@@ -471,9 +473,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                             [(29:28+ncodeunits(String(key)), :face => :warning)]),
                     -length(str_key) - 2)
         end
-        if !isnothing(state.mod) && !any(k -> first(k.args) == key, kwargs)
+        if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
             push!(kwargs, Expr(:kw, key, val))
-        elseif isnothing(state.mod) && !any(kw -> first(kw) == key, kwargs)
+        elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
             push!(kwargs, key => val)
         else
             styerr!(state, AnnotatedString("Contains repeated face key '$key'",
@@ -487,7 +489,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     face = Expr(:call, Face, kwargs...)
     push!(newstyles,
           (i, i + state.offset[] + 1,
-           if isnothing(state.mod)
+           if !ismacro(state)
                Pair{Symbol, Any}(:face, Face(; NamedTuple(kwargs)...))
            elseif needseval
                :(Pair{Symbol, Any}(:face, $face))
@@ -503,7 +505,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         escaped = false
         while !isempty(state.s)
             _, c = popfirst!(state.s)
-            if escaped && (c ∈ ('\\', '{', '}') || (c == '$' && !isnothing(state.mod)))
+            if escaped && (c ∈ ('\\', '{', '}') || (c == '$' && ismacro(state)))
                 push!(chars, c)
                 escaped = false
             elseif escaped
@@ -520,7 +522,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         String(chars)
     end
     # this isn't the 'last' char yet, but it will be
-    key = if !isnothing(state.mod) && last(peek(state.s)) == '$'
+    key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
         state.interpolated[] = true
         needseval = true
@@ -544,7 +546,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         value = if isempty(state.s) ""
         elseif nextchar == '{'
             read_curlywrapped!(state)
-        elseif !isnothing(state.mod) && nextchar == '$'
+        elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
             state.interpolated[] = true
             needseval = true
@@ -588,7 +590,7 @@ function run_state_machine!(state::State)
             state.escape[] = true
         elseif state.escape[]
             escaped!(state, i, char)
-        elseif !isnothing(state.mod) && char == '$'
+        elseif ismacro(state) && char == '$'
             interpolated!(state, i, char)
         elseif char == '{'
             begin_style!(state, i, char)
