@@ -451,7 +451,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                                     :face => :light)]),
                         -3)
             end
-            Symbol(v) |> QuoteNode
+            Symbol(v) |> if ismacro(state) QuoteNode else identity end
         elseif key ∈ (:foreground, :background)
             color, lastchar = readsymbol!(state, lastchar)
             parsecolor(color)
