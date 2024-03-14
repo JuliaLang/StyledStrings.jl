@@ -123,6 +123,8 @@ like so:
 foreground = "white"
 ```
 
+On initialisation, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
+
 ### Applying faces to a `AnnotatedString`
 
 By convention, the `:face` attributes of a [`AnnotatedString`](@ref
