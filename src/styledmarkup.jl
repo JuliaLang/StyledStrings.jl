@@ -1,5 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+# When updating any part of the parsing code in this file, it is highly
+# recommended to also check and/or update `../test/fuzz.jl`.
+
 module StyledMarkup
 
 using Base: AnnotatedString, annotatedstring
