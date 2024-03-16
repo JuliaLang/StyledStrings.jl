@@ -56,22 +56,22 @@ be close to `color`.
 function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
     # Magic numbers? Lots.
     cdistsq(r1, g1, b1) = (r1 - r)^2 + (g1 - g)^2 + (b1 - b)^2
-    to6cube(value) = if value < 48; 1
-    elseif value < 114; 2
-    else 1 + (value - 35) ÷ 40 end
+    to6cube(value) = if value < 48; 0
+    elseif value < 114; 1
+    else (value - 35) ÷ 40 end
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
     sixcube = (0, 95, 135, 175, 215, 255)
-    rnear, gnear, bnear = sixcube[r6cube], sixcube[g6cube], sixcube[b6cube]
+    rnear, gnear, bnear = sixcube[r6cube+1], sixcube[g6cube+1], sixcube[b6cube+1]
     colorcode = if r == rnear && g == gnear && b == bnear
-        16 + 35 * r6cube + 6 * g6cube + b6cube
+        16 + 36 * r6cube + 6 * g6cube + b6cube
     else
         grey_avg = Int(r + g + b) ÷ 3
         grey_index = if grey_avg > 238 23 else (grey_avg - 3) ÷ 10 end
         grey = 8 + 10 * grey_index
         if cdistsq(grey, grey, grey) <= cdistsq(rnear, gnear, bnear)
-            232 + grey
+            232 + grey_index
         else
-            16 + 35 * r6cube + 6 * g6cube + b6cube
+            16 + 36 * r6cube + 6 * g6cube + b6cube
         end
     end
     print(io, "\e[", category, "8;5;", string(colorcode), 'm')
