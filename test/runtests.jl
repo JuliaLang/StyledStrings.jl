@@ -256,6 +256,115 @@ end
     @test String(take!(buf)) == "\e[31mhey\e[39m \e[34mthere\e[39m"
 end
 
+# For ANSI tests
+
+const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.TermInfoRaw))
+const fancy_term = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), Base.TermInfoRaw))
+
+function with_terminfo(fn::Function, tinfo::Base.TermInfo)
+    prev_terminfo = getglobal(Base, :current_terminfo)
+    prev_truecolor = getglobal(Base, :have_truecolor)
+    try
+        setglobal!(Base, :current_terminfo, tinfo)
+        setglobal!(Base, :have_truecolor,   haskey(tinfo, :setrgbf))
+        fn()
+    finally
+        setglobal!(Base, :current_terminfo, prev_terminfo)
+        setglobal!(Base, :have_truecolor,   prev_truecolor)
+    end
+end
+
+@testset "ANSI encoding" begin
+    # 4-bit color
+    @test StyledStrings.ansi_4bit_color_code(:cyan, false) == "36"
+    @test StyledStrings.ansi_4bit_color_code(:cyan, true) == "46"
+    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, false) == "96"
+    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, true) == "106"
+    @test StyledStrings.ansi_4bit_color_code(:nonexistant) == "39"
+    # 8-bit color
+    @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;26m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;28m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x95, g=0x58, b=0xb2), '3') == "\e[38;5;97m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;5;160m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0xee, g=0xee, b=0xee), '3') == "\e[38;5;255m"
+    # 24-bit color
+    @test sprint(StyledStrings.termcolor24bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;2;64;99;216m"
+    @test sprint(StyledStrings.termcolor24bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;2;56;152;38m"
+    @test sprint(StyledStrings.termcolor24bit, (r=0x95, g=0x58, b=0xb2), '3') == "\e[38;2;149;88;178m"
+    @test sprint(StyledStrings.termcolor24bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;2;203;60;51m"
+    # The color reset method
+    @test sprint(StyledStrings.termcolor, nothing, '3') == "\e[39m"
+    # ANSI attributes
+    function ansi_change(; attrs...)
+        face = StyledStrings.getface(StyledStrings.Face(; attrs...))
+        dface = StyledStrings.getface()
+        sprint(StyledStrings.termstyle, face, dface),
+        sprint(StyledStrings.termstyle, dface, face)
+    end
+    with_terminfo(vt100) do
+        @test ansi_change(foreground=:cyan) == ("\e[36m", "\e[39m")
+        @test ansi_change(background=:cyan) == ("\e[46m", "\e[49m")
+        @test ansi_change(weight=:bold) == ("\e[1m", "\e[22m")
+        @test ansi_change(weight=:extrabold) == ("\e[1m", "\e[22m")
+        @test ansi_change(inverse=true) == ("\e[7m", "\e[27m")
+        # Reduced-capability behaviours
+        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;26m", "\e[39m")
+        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;26m", "\e[49m")
+        @test ansi_change(weight=:light) == ("", "\e[22m")
+        @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
+        @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
+        @test ansi_change(underline=:green) == ("\e[4m", "\e[24m")
+        @test ansi_change(strikethrough=true) == ("", "")
+    end
+    with_terminfo(fancy_term) do
+        # Extra-capability behaviours
+        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;2;64;99;216m", "\e[39m")
+        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;2;64;99;216m", "\e[49m")
+        @test ansi_change(weight=:light) == ("\e[2m", "\e[22m")
+        @test ansi_change(slant=:italic) == ("\e[3m", "\e[23m")
+        @test ansi_change(underline=:green) == ("\e[4m\e[58;5;2m", "\e[59m\e[24m")
+        @test ansi_change(underline=:straight) == ("\e[4:1m", "\e[24m")
+        @test ansi_change(underline=:double) == ("\e[4:2m", "\e[24m")
+        @test ansi_change(underline=:curly)  == ("\e[4:3m", "\e[24m")
+        @test ansi_change(underline=:dotted) == ("\e[4:4m", "\e[24m")
+        @test ansi_change(underline=:dashed) == ("\e[4:5m", "\e[24m")
+        @test ansi_change(underline=(:cyan, :double)) == ("\e[4:2m\e[58;5;6m", "\e[59m\e[24m")
+        @test ansi_change(strikethrough=true) == ("\e[9m", "\e[29m")
+    end
+    # AnnotatedChar
+    @test sprint(print, Base.AnnotatedChar('a')) == "a"
+    @test sprint(print, Base.AnnotatedChar('a', [:face => :red]), context = :color => true) == "\e[31ma\e[39m"
+    @test sprint(show, Base.AnnotatedChar('a')) == "'a'"
+    @test sprint(show, Base.AnnotatedChar('a', [:face => :red]), context = :color => true) == "'\e[31ma\e[39m'"
+    # Might as well put everything together for a final test
+    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
+        {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
+        to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} \
+        system, suitable for {inverse:terminal} and graphical displays."
+    @test sprint(print, fancy_string) == "The `StyledStrings` package builds on top of \
+        the `AnnotatedString` type to provide a full-fledged textual styling system, suitable \
+        for terminal and graphical displays."
+    @test sprint(print, fancy_string[1:27], context = :color => true) ==
+        "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package"
+    with_terminfo(vt100) do
+        @test sprint(print, fancy_string, context = :color => true) ==
+            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[4mbuilds\
+             \e[1m\e[24m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \
+             \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide \
+             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;26m\e[1mstyling\e[39m\e[49m\e[22m \
+             system, suitable for \e[7mterminal\e[27m and graphical displays."
+    end
+    with_terminfo(fancy_term) do
+        @test sprint(print, fancy_string, context = :color => true) ==
+            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \
+            \e[3mbuilds\e[1m\e[23m on top\e[22m of the \e[35m`\e[32mAnnotatedString\
+            \e[35m`\e[39m \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\
+            \\ to provide a \e[4:3m\e[58;5;1mfull-fledged\e[59m\e[24m textual \
+            \e[38;2;173;189;248m\e[48;2;64;99;216m\e[1m\e[9mstyling\e[39m\e[49m\e[22m\e[29m system, \
+            suitable for \e[7mterminal\e[27m and graphical displays."
+    end
+end
+
 @testset "Legacy" begin
     @test StyledStrings.Legacy.legacy_color(:blue) == SimpleColor(:blue)
     @test StyledStrings.Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
