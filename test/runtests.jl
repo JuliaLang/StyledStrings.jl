@@ -168,7 +168,7 @@ end
     # Inline face attributes: empty attribute lists are legal
     @test styled"{():}" == styled"{( ):}" == Base.AnnotatedString("")
     # Inline face attributes: leading/trailing whitespace
-    @test styled"{ ( fg=red ) :a}" ==  Base.AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
+    @test styled"{ ( fg=red , ) :a}" ==  Base.AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
     # Curly bracket escaping
     @test styled"some \{string" == Base.AnnotatedString("some {string")
     @test styled"some string\}" == Base.AnnotatedString("some string}")

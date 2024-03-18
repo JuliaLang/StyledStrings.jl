@@ -489,7 +489,12 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
         skipwhitespace!(state)
-        !isnextchar(state, ',') || break
+        if lastchar ∈ (',', ')')
+        elseif isnextchar(state, (',', ')'))
+            _, lastchar= popfirst!(state.s)
+        else
+            break
+        end
     end
     face = Expr(:call, Face, kwargs...)
     push!(newstyles,
