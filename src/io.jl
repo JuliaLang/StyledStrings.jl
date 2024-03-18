@@ -57,7 +57,10 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
     # RGB values are mapped to a 6x6x6 "colour cube", which (mapped to
     # 24-bit colour space), jumps up from a black level of 0 in each
     # component to 95, then takes 4 steps of 40 to reach 255.
-    cdistsq(r1, g1, b1) = (r1 - r)^2 + (g1 - g)^2 + (b1 - b)^2
+    function cdistsq(r2, g2, b2) # The squared "redmean" colour distance function
+        rr = (r + r2) / 2
+        (2 + r/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
+    end
     to6cube(value) = (value - 35) ÷ 40
     from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
     sixcube = (0, 95:40:255...)
