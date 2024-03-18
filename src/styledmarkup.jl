@@ -338,6 +338,8 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 true
             elseif word == "false"
                 false
+            elseif word ∈ VALID_UNDERLINE_STYLES
+                Symbol(word) |> if ismacro(state) QuoteNode else identity end
             else
                 parsecolor(word)
             end
