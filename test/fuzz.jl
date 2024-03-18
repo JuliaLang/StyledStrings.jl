@@ -44,7 +44,7 @@ const underlinestyled = @composed function ulsty(
     ws2=whitespace, ws3=whitespace, v2=underlineline, ws4=whitespace)
     '(' * ws1 * v1 * ws2 * ',' * ws3 * v2 * ws4 * ')'
 end
-const underline = dnothing | bool | simplecolor | underlinestyled
+const underline = dnothing | bool | simplecolor | underlineline | underlinestyled
 
 const inheritval = @composed function ival(
     ws1=whitespace, colonp=Data.Booleans(), symb=identifier)

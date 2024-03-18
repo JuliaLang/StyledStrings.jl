@@ -149,8 +149,10 @@ function Face(; font::Union{Nothing, String} = nothing,
     ascolor(c::Any) = convert(SimpleColor, c)
     Face(font, height, weight, slant,
          ascolor(foreground), ascolor(background),
-         if underline isa Tuple
+         if underline isa Tuple{Any, Symbol}
              (ascolor(underline[1]), underline[2])
+         elseif underline in (:straight, :double, :curly, :dotted, :dashed)
+             (nothing, underline)
          elseif underline isa Bool
              underline
          else
