@@ -155,7 +155,7 @@ julia> sprint(print, str1, context = :color => true)
 "\e[34mblue text\e[39m"
 
 julia> sprint(show, MIME("text/html"), str1, context = :color => true)
-"<pre><span style=\"color: #000080;\">blue text</span></pre>"
+"<pre><span style=\"color: #195eb3;\">blue text</span></pre>"
 ```
 
 ## [Styled String Literals](@id stdlib-styledstring-literals)
