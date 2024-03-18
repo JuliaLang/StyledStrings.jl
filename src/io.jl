@@ -161,7 +161,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         termcolor(io, face.background, '4')
     face.weight == lastface.weight ||
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
-                  get(Base.current_terminfo, :bold, "\e[1m")
+                  ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
                   get(Base.current_terminfo, :dim, "")
               else # :normal
