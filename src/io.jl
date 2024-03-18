@@ -54,24 +54,28 @@ Print to `io` the best 8-bit SGR color code that sets the `category` color to
 be close to `color`.
 """
 function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
-    # Magic numbers? Lots.
+    # RGB values are mapped to a 6x6x6 "colour cube", which (mapped to
+    # 24-bit colour space), jumps up from a black level of 0 in each
+    # component to 95, then takes 4 steps of 40 to reach 255.
     cdistsq(r1, g1, b1) = (r1 - r)^2 + (g1 - g)^2 + (b1 - b)^2
-    to6cube(value) = if value < 48; 0
-    elseif value < 114; 1
-    else (value - 35) ÷ 40 end
+    to6cube(value) = (value - 35) ÷ 40
+    from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
+    sixcube = (0, 95:40:255...)
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
-    sixcube = (0, 95, 135, 175, 215, 255)
     rnear, gnear, bnear = sixcube[r6cube+1], sixcube[g6cube+1], sixcube[b6cube+1]
     colorcode = if r == rnear && g == gnear && b == bnear
-        16 + 36 * r6cube + 6 * g6cube + b6cube
+        from6cube(r6cube, g6cube, b6cube)
     else
-        grey_avg = Int(r + g + b) ÷ 3
-        grey_index = if grey_avg > 238 23 else (grey_avg - 3) ÷ 10 end
-        grey = 8 + 10 * grey_index
-        if cdistsq(grey, grey, grey) <= cdistsq(rnear, gnear, bnear)
-            232 + grey_index
+        # There aren't many greys in the 6x6x6 colour cube, so the remaining
+        # space in the 256-colour range not taken up by the 16 "named" 4-bit
+        # colours and the 6 colour cube is used for 24 shades of grey (`8:10:238`).
+        grey = sum((r, g, b)) ÷ 3
+        grey_level = min(23, (grey - 3) ÷ 10)
+        greynear = 8 + 10 * grey_level
+        if cdistsq(greynear, greynear, greynear) <= cdistsq(rnear, gnear, bnear)
+            16 + 6^3 + grey_level
         else
-            16 + 36 * r6cube + 6 * g6cube + b6cube
+            from6cube(r6cube, g6cube, b6cube)
         end
     end
     print(io, "\e[", category, "8;5;", string(colorcode), 'm')
