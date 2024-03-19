@@ -389,9 +389,9 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
                 htmlcolor(io, color)
                 print(io, ' ')
             end
-            print(io, if style == :straight "solid  "
+            print(io, if style == :straight "solid "
                   elseif style == :double   "double "
-                  elseif style == :curly    "wavy   "
+                  elseif style == :curly    "wavy "
                   elseif style == :dotted   "dotted "
                   elseif style == :dashed   "dashed "
                   else "" end)
