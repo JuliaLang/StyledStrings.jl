@@ -432,4 +432,11 @@ end
         @test getface(:info).foreground.value == :magenta
         StyledStrings.resetfaces!()
     end
+    aio = AnnotatedIOBuffer()
+    @test printstyled(aio, "a", bold=true)      |> isnothing
+    @test printstyled(aio, "b", italic=true)    |> isnothing
+    @test printstyled(aio, "c", underline=true) |> isnothing
+    @test printstyled(aio, "d", reverse=true)   |> isnothing
+    @test printstyled(aio, "e", color=:green)   |> isnothing
+    @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
 end
