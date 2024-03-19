@@ -16,7 +16,7 @@ const hexcolor = @composed function hashprefix(
     bytes = Data.Text(Data.SampledFrom(['0':'9'..., 'a':'f'...]), min_len=6, max_len=6))
     '#' * bytes
 end
-const namecolor = Data.SampledFrom(StyledStrings.StyledMarkup.VALID_COLORNAMES)
+const namecolor = identifier # Data.SampledFrom(StyledStrings.StyledMarkup.VALID_COLORNAMES)
 const whitespace = Data.Text(Data.SampledFrom(collect(" \t\n")), max_len=3)
 
 const integer = Data.Text(Data.SampledFrom('0':'9'), min_len=1, max_len=5)

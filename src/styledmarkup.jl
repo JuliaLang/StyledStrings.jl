@@ -43,10 +43,6 @@ const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
                        "medium", "semibold", "bold", "extrabold", "black")
 const VALID_SLANTS = ("italic", "oblique", "normal")
 const VALID_UNDERLINE_STYLES = ("straight", "double", "curly", "dotted", "dashed")
-const VALID_COLORNAMES =
-    ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-     "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
-     "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
 
 isnextchar(state::State, c::Char) =
     !isempty(state.s) && last(peek(state.s)) == c
@@ -270,16 +266,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             tryparse(SimpleColor, color)
         elseif startswith(color, "0x") && length(color) == 8
             tryparse(SimpleColor, '#' * color[3:end])
-        elseif color ∈ VALID_COLORNAMES
-            SimpleColor(Symbol(color))
         else
-            valid_options = join(VALID_COLORNAMES, ", ", ", or ")
-            styerr!(state,
-                    AnnotatedString("Invalid named color '$color' (should be $valid_options)",
-                                    [(22:21+ncodeunits(color), :face => :warning),
-                                        (24+ncodeunits(color):35+ncodeunits(color)+ncodeunits(valid_options),
-                                        :face => :light)]),
-                    -length(color) - 2)
             SimpleColor(Symbol(color))
         end
     end
