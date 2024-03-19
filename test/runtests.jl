@@ -365,6 +365,51 @@ end
     end
 end
 
+@testset "HTML encoding" begin
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#1c1a23"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:green)) == "#25a268"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:warning)) == "#e5a509"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "initial"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
+    function html_change(; attrs...)
+        face = StyledStrings.getface(StyledStrings.Face(; attrs...))
+        sprint(StyledStrings.htmlstyle, face)
+    end
+    @test html_change(foreground=:cyan) == "<span style=\"color: #0097a7;\">"
+    @test html_change(background=:cyan) == "<span style=\"background-color: #0097a7;\">"
+    @test html_change(weight=:bold) == "<span style=\"font-weight: 700;\">"
+    @test html_change(weight=:extrabold) == "<span style=\"font-weight: 800;\">"
+    @test html_change(weight=:light) == "<span style=\"font-weight: 300;\">"
+    @test html_change(foreground=:blue, background=:red, inverse=true) ==
+        "<span style=\"color: #a51c2c;background-color: #195eb3;\">"
+    @test html_change(slant=:italic) == "<span style=\"font-style: italic;\">"
+    @test html_change(height=180) == "<span style=\"font-size: 18pt;\">"
+    @test html_change(underline=true) == "<span style=\"text-decoration: underline;\">"
+    @test html_change(underline=:green) == "<span style=\"text-decoration: #25a268 underline;\">"
+    @test html_change(underline=:straight) == "<span style=\"text-decoration: solid underline;\">"
+    @test html_change(underline=:double) == "<span style=\"text-decoration: double underline;\">"
+    @test html_change(underline=:curly)  == "<span style=\"text-decoration: wavy underline;\">"
+    @test html_change(underline=:dotted) == "<span style=\"text-decoration: dotted underline;\">"
+    @test html_change(underline=:dashed) == "<span style=\"text-decoration: dashed underline;\">"
+    @test html_change(underline=(:cyan, :double)) == "<span style=\"text-decoration: #0097a7 double underline;\">"
+    @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
+    # Might as well put everything together for a final test
+    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
+        {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
+        to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} \
+        system, suitable for {inverse:terminal} and graphical displays."
+    @test sprint(show, MIME("text/html"), fancy_string[1:27]) ==
+        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span>\
+        <span style=\"color: #803d9b;\">`</span> package</pre>"
+    @test sprint(show, MIME("text/html"), fancy_string) ==
+        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span><span style=\"color: #803d9b;\">\
+        `</span> package <span style=\"font-style: italic;\">builds<span style=\"font-weight: 700;font-style: normal;\"> on top</span></span> \
+        of the <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">AnnotatedString</span><span style=\"color: #803d9b;\">\
+        `</span> <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline;\">\
+        full-fledged</span> textual <span style=\"font-weight: 700;color: #adbdf8;background-color: #4063d8;text-decoration: line-through\">styling</span> \
+        system, suitable for <span style=\"\">terminal</span> and graphical displays.</pre>"
+end
+
 @testset "Legacy" begin
     @test StyledStrings.Legacy.legacy_color(:blue) == SimpleColor(:blue)
     @test StyledStrings.Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
