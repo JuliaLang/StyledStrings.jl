@@ -1,8 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Test, StyledStrings
+using Test
 
-import StyledStrings: SimpleColor, Face, styled
+using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face, @styled_str, styled, getface, loadface!
+using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
 
 @testset "SimpleColor" begin
     @test SimpleColor(:hey).value == :hey # no error
@@ -80,12 +81,12 @@ end
     @test Face(height=1) != Face(height=2)
     @test Face(inherit=:a) != Face(inherit=:b)
     # Adding a face then resetting
-    @test StyledStrings.loadface!(:testface => Face(font="test")) == Face(font="test")
-    @test get(StyledStrings.FACES.current[], :testface, nothing) == Face(font="test")
-    @test StyledStrings.loadface!(:bold => Face(weight=:extrabold)) == Face(weight=:extrabold)
-    @test get(StyledStrings.FACES.current[], :bold, nothing) == Face(weight=:extrabold)
-    @test StyledStrings.loadface!(:testface => Face(height=2.0)) == Face(font="test", height=2.0)
-    @test get(StyledStrings.FACES.current[], :testface, nothing) == Face(font="test", height=2.0)
+    @test loadface!(:testface => Face(font="test")) == Face(font="test")
+    @test get(FACES.current[], :testface, nothing) == Face(font="test")
+    @test loadface!(:bold => Face(weight=:extrabold)) == Face(weight=:extrabold)
+    @test get(FACES.current[], :bold, nothing) == Face(weight=:extrabold)
+    @test loadface!(:testface => Face(height=2.0)) == Face(font="test", height=2.0)
+    @test get(FACES.current[], :testface, nothing) == Face(font="test", height=2.0)
     # Loading from TOML (a Dict)
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
@@ -98,19 +99,19 @@ end
                           "strikethrough" => true,
                           "inverse" => true,
                           "inherit" => ["iface"]))) isa Any
-    @test get(StyledStrings.FACES.current[], :anotherface, nothing) ==
+    @test get(FACES.current[], :anotherface, nothing) ==
         Face(font = "afont", height = 123, weight = :semibold,
              slant = :oblique, foreground = :green, background = :magenta,
              underline = (:blue, :curly), strikethrough = true,
              inverse = true, inherit = [:iface])
     StyledStrings.resetfaces!()
-    @test get(StyledStrings.FACES.current[], :bold, nothing) == Face(weight=:bold)
-    @test haskey(StyledStrings.FACES.current[], :testface) == false
-    @test haskey(StyledStrings.FACES.current[], :anotherface) == false
+    @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
+    @test haskey(FACES.current[], :testface) == false
+    @test haskey(FACES.current[], :anotherface) == false
     # `withfaces`
-    @test StyledStrings.withfaces(() -> get(StyledStrings.FACES.current[], :testface, nothing),
+    @test StyledStrings.withfaces(() -> get(FACES.current[], :testface, nothing),
                     :testface => Face(font="test")) == Face(font="test")
-    @test haskey(StyledStrings.FACES.current[], :testface) == false
+    @test haskey(FACES.current[], :testface) == false
     # Basic merging
     let f1 = Face(height=140, weight=:bold, inherit=[:a])
         f2 = Face(height=1.5, weight=:light, inherit=[:b])
@@ -127,62 +128,62 @@ end
         dface = Face(font="d", foreground=:blue, weight=:bold)
         eface = Face(font="e", inherit = [:c, :d])
         fface = Face(font="f", inherit = [:d, :c])
-        StyledStrings.loadface!(:a => aface)
-        StyledStrings.loadface!(:b => bface)
-        StyledStrings.loadface!(:c => cface)
-        StyledStrings.loadface!(:d => dface)
-        StyledStrings.loadface!(:e => eface)
-        StyledStrings.loadface!(:f => fface)
-        @test StyledStrings.getface(:c) == merge(StyledStrings.FACES.current[][:default], aface, bface, Face(height=120), cface)
-        @test StyledStrings.getface(:b) == merge(StyledStrings.FACES.current[][:default], aface, Face(height=120), bface)
-        @test StyledStrings.getface(:a) == merge(StyledStrings.FACES.current[][:default], aface)
-        @test StyledStrings.getface([:c]) == StyledStrings.getface(:c)
-        @test StyledStrings.getface(bface) == StyledStrings.getface(:b)
-        @test StyledStrings.getface(cface) == StyledStrings.getface(:c)
-        @test StyledStrings.getface([:c, :d]).foreground.value == :blue
-        @test StyledStrings.getface([[:c, :d]]).foreground.value == :red
-        @test StyledStrings.getface(:e).foreground.value == :red
-        @test StyledStrings.getface([:d, :c]).foreground.value == :red
-        @test StyledStrings.getface([[:d, :c]]).foreground.value == :blue
-        @test StyledStrings.getface(:f).foreground.value == :blue
+        loadface!(:a => aface)
+        loadface!(:b => bface)
+        loadface!(:c => cface)
+        loadface!(:d => dface)
+        loadface!(:e => eface)
+        loadface!(:f => fface)
+        @test getface(:c) == merge(FACES.current[][:default], aface, bface, Face(height=120), cface)
+        @test getface(:b) == merge(FACES.current[][:default], aface, Face(height=120), bface)
+        @test getface(:a) == merge(FACES.current[][:default], aface)
+        @test getface([:c]) == getface(:c)
+        @test getface(bface) == getface(:b)
+        @test getface(cface) == getface(:c)
+        @test getface([:c, :d]).foreground.value == :blue
+        @test getface([[:c, :d]]).foreground.value == :red
+        @test getface(:e).foreground.value == :red
+        @test getface([:d, :c]).foreground.value == :red
+        @test getface([[:d, :c]]).foreground.value == :blue
+        @test getface(:f).foreground.value == :blue
         StyledStrings.resetfaces!()
     end
 end
 
 @testset "Styled Markup" begin
     # Preservation of an unstyled string
-    @test styled"some string" == Base.AnnotatedString("some string")
+    @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
-    @test styled"{thing=val:some} string" == Base.AnnotatedString("some string", [(1:4, :thing => "val")])
-    @test styled"some {thing=val:string}" == Base.AnnotatedString("some string", [(6:11, :thing => "val")])
-    @test styled"some {a=1:s}trin{b=2:g}" == Base.AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
-    @test styled"{thing=val with spaces:some} string" == Base.AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
-    @test styled"{aface:some} string" == Base.AnnotatedString("some string", [(1:4, :face => :aface)])
+    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing => "val")])
+    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing => "val")])
+    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
+    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
+    @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face => :aface)])
     @test styled"{aface,bface:some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+        AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
+        AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
-        Base.AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
+        AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
     # Inline face attributes: empty attribute lists are legal
-    @test styled"{():}" == styled"{( ):}" == Base.AnnotatedString("")
+    @test styled"{():}" == styled"{( ):}" == AnnotatedString("")
     # Inline face attributes: leading/trailing whitespace
-    @test styled"{ ( fg=red , ) :a}" ==  Base.AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
+    @test styled"{ ( fg=red , ) :a}" ==  AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
     # Curly bracket escaping
-    @test styled"some \{string" == Base.AnnotatedString("some {string")
-    @test styled"some string\}" == Base.AnnotatedString("some string}")
-    @test styled"some \{string\}" == Base.AnnotatedString("some {string}")
-    @test styled"some \{str:ing\}" == Base.AnnotatedString("some {str:ing}")
-    @test styled"some \{{bold:string}\}" == Base.AnnotatedString("some {string}", [(7:12, :face => :bold)])
-    @test styled"some {bold:string \{other\}}" == Base.AnnotatedString("some string {other}", [(6:19, :face => :bold)])
+    @test styled"some \{string" == AnnotatedString("some {string")
+    @test styled"some string\}" == AnnotatedString("some string}")
+    @test styled"some \{string\}" == AnnotatedString("some {string}")
+    @test styled"some \{str:ing\}" == AnnotatedString("some {str:ing}")
+    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face => :bold)])
+    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face => :bold)])
     # Nesting
     @test styled"{bold:nest{italic:ed st{red:yling}}}" ==
-        Base.AnnotatedString(
+        AnnotatedString(
             "nested styling", [(1:14, :face => :bold), (5:14, :face => :italic), (10:14, :face => :red)])
-    # Production of a `(Base.AnnotatedString)` value instead of an expression when possible
-    @test Base.AnnotatedString("val") == @macroexpand styled"val"
-    @test Base.AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
+    # Production of a `(AnnotatedString)` value instead of an expression when possible
+    @test AnnotatedString("val") == @macroexpand styled"val"
+    @test AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
     let annotatedstring = GlobalRef(StyledStrings.StyledMarkup, :annotatedstring)
         AnnotatedString = GlobalRef(StyledStrings.StyledMarkup, :AnnotatedString)
@@ -246,7 +247,7 @@ end
 end
 
 @testset "AnnotatedIOBuffer" begin
-    aio = Base.AnnotatedIOBuffer()
+    aio = AnnotatedIOBuffer()
     @test write(aio, styled"{red:hey} {blue:there}") == 9
     buf = IOBuffer()
     @test write(buf, seekstart(aio)) == 9
@@ -296,8 +297,8 @@ end
     @test sprint(StyledStrings.termcolor, nothing, '3') == "\e[39m"
     # ANSI attributes
     function ansi_change(; attrs...)
-        face = StyledStrings.getface(StyledStrings.Face(; attrs...))
-        dface = StyledStrings.getface()
+        face = getface(Face(; attrs...))
+        dface = getface()
         sprint(StyledStrings.termstyle, face, dface),
         sprint(StyledStrings.termstyle, dface, face)
     end
@@ -332,10 +333,10 @@ end
         @test ansi_change(strikethrough=true) == ("\e[9m", "\e[29m")
     end
     # AnnotatedChar
-    @test sprint(print, Base.AnnotatedChar('a')) == "a"
-    @test sprint(print, Base.AnnotatedChar('a', [:face => :red]), context = :color => true) == "\e[31ma\e[39m"
-    @test sprint(show, Base.AnnotatedChar('a')) == "'a'"
-    @test sprint(show, Base.AnnotatedChar('a', [:face => :red]), context = :color => true) == "'\e[31ma\e[39m'"
+    @test sprint(print, AnnotatedChar('a')) == "a"
+    @test sprint(print, AnnotatedChar('a', [:face => :red]), context = :color => true) == "\e[31ma\e[39m"
+    @test sprint(show, AnnotatedChar('a')) == "'a'"
+    @test sprint(show, AnnotatedChar('a', [:face => :red]), context = :color => true) == "'\e[31ma\e[39m'"
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
@@ -372,7 +373,7 @@ end
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "initial"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
-        face = StyledStrings.getface(StyledStrings.Face(; attrs...))
+        face = getface(Face(; attrs...))
         sprint(StyledStrings.htmlstyle, face)
     end
     @test html_change(foreground=:cyan) == "<span style=\"color: #0097a7;\">"
@@ -411,19 +412,19 @@ end
 end
 
 @testset "Legacy" begin
-    @test StyledStrings.Legacy.legacy_color(:blue) == SimpleColor(:blue)
-    @test StyledStrings.Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
-    @test StyledStrings.Legacy.legacy_color(-1) === nothing
-    @test StyledStrings.Legacy.legacy_color(0) == SimpleColor(0x000000)
-    @test StyledStrings.Legacy.legacy_color(44) == SimpleColor(0x00d7d7)
-    @test StyledStrings.Legacy.legacy_color(255) == SimpleColor(0xeeeeee)
-    @test StyledStrings.Legacy.legacy_color(256) === nothing
-    @test StyledStrings.Legacy.legacy_color("blue") == SimpleColor(:blue)
-    @test StyledStrings.Legacy.legacy_color("light_blue") == SimpleColor(:bright_blue)
-    @test StyledStrings.Legacy.legacy_color("-1") === nothing
-    @test StyledStrings.Legacy.legacy_color("0") == SimpleColor(0x000000)
-    @test StyledStrings.Legacy.legacy_color("44") == SimpleColor(0x00d7d7)
-    @test StyledStrings.Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
-    @test StyledStrings.Legacy.legacy_color("256") === nothing
-    @test StyledStrings.Legacy.legacy_color("invalid") === nothing
+    @test Legacy.legacy_color(:blue) == SimpleColor(:blue)
+    @test Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
+    @test Legacy.legacy_color(-1) === nothing
+    @test Legacy.legacy_color(0) == SimpleColor(0x000000)
+    @test Legacy.legacy_color(44) == SimpleColor(0x00d7d7)
+    @test Legacy.legacy_color(255) == SimpleColor(0xeeeeee)
+    @test Legacy.legacy_color(256) === nothing
+    @test Legacy.legacy_color("blue") == SimpleColor(:blue)
+    @test Legacy.legacy_color("light_blue") == SimpleColor(:bright_blue)
+    @test Legacy.legacy_color("-1") === nothing
+    @test Legacy.legacy_color("0") == SimpleColor(0x000000)
+    @test Legacy.legacy_color("44") == SimpleColor(0x00d7d7)
+    @test Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
+    @test Legacy.legacy_color("256") === nothing
+    @test Legacy.legacy_color("invalid") === nothing
 end
