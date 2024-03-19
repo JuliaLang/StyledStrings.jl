@@ -427,4 +427,9 @@ end
     @test Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
     @test Legacy.legacy_color("256") === nothing
     @test Legacy.legacy_color("invalid") === nothing
+    withenv("JULIA_INFO_COLOR" => "magenta") do
+        Legacy.load_env_colors!() isa Any
+        @test getface(:info).foreground.value == :magenta
+        StyledStrings.resetfaces!()
+    end
 end
