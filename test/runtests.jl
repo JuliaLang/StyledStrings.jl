@@ -3,7 +3,8 @@
 using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
-    @styled_str, styled, getface, addface!, loadface!, resetfaces!
+    @styled_str, styled, StyledMarkup, getface, addface!, loadface!, resetfaces!
+using .StyledMarkup: MalformedStylingMacro
 using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
 
 # For output testing
@@ -293,11 +294,11 @@ end
     @test AnnotatedString("val") == @macroexpand styled"val"
     @test AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
-    let annotatedstring = GlobalRef(StyledStrings.StyledMarkup, :annotatedstring)
-        AnnotatedString = GlobalRef(StyledStrings.StyledMarkup, :AnnotatedString)
-        Pair            = GlobalRef(StyledStrings.StyledMarkup, :Pair)
-        Symbol          = GlobalRef(StyledStrings.StyledMarkup, :Symbol)
-        Any             = GlobalRef(StyledStrings.StyledMarkup, :Any)
+    let annotatedstring = GlobalRef(StyledMarkup, :annotatedstring)
+        AnnotatedString = GlobalRef(StyledMarkup, :AnnotatedString)
+        Pair            = GlobalRef(StyledMarkup, :Pair)
+        Symbol          = GlobalRef(StyledMarkup, :Symbol)
+        Any             = GlobalRef(StyledMarkup, :Any)
         @test :($annotatedstring(val)) == @macroexpand styled"$val"
         @test :($annotatedstring("a", val)) == @macroexpand styled"a$val"
         @test :($annotatedstring("a", val, "b")) == @macroexpand styled"a$(val)b"
@@ -352,6 +353,20 @@ end
     @test styled("{red:hey} {blue:there}") == styled"{red:hey} {blue:there}"
     @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
     @test styled("\$hey") == styled"\$hey"
+
+    # Various kinds of syntax errors that should be reported
+    @test_throws MalformedStylingMacro styled("{incomplete")
+    @test_throws MalformedStylingMacro styled("{unterminated:")
+    # @test_throws LoadError styled("$") # FIXME still throws 😢
+    @test_throws MalformedStylingMacro styled("}")
+    @test_throws MalformedStylingMacro styled("{(:}")
+    @test_throws MalformedStylingMacro styled("{(underline=()):}")
+    @test_throws MalformedStylingMacro styled("{(underline=(_)):}")
+    @test_throws MalformedStylingMacro styled("{(underline=(_,invalid)):}")
+    @test_throws MalformedStylingMacro styled("{(height=invalid):}")
+    @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
+    @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
+    @test_throws MalformedStylingMacro styled("{(invalid=):}")
 end
 
 @testset "AnnotatedIOBuffer" begin
