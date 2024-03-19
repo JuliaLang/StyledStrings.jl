@@ -2,7 +2,8 @@
 
 using Test
 
-using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face, @styled_str, styled, getface, loadface!
+using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
+    @styled_str, styled, getface, addface!, loadface!, resetfaces!
 using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
 
 # For output testing
@@ -114,8 +115,12 @@ end
     @test get(FACES.current[], :testface, nothing) == Face(font="test")
     @test loadface!(:bold => Face(weight=:extrabold)) == Face(weight=:extrabold)
     @test get(FACES.current[], :bold, nothing) == Face(weight=:extrabold)
+    @test_nowarn loadface!(:bold => nothing)
+    @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
     @test loadface!(:testface => Face(height=2.0)) == Face(font="test", height=2.0)
     @test get(FACES.current[], :testface, nothing) == Face(font="test", height=2.0)
+    @test_warn "reset, but it had no default value" loadface!(:testface => nothing)
+    @test get(FACES.current[], :testface, nothing) === nothing
     # Loading from TOML (a Dict)
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
@@ -138,9 +143,21 @@ end
     @test haskey(FACES.current[], :testface) == false
     @test haskey(FACES.current[], :anotherface) == false
     # `withfaces`
-    @test StyledStrings.withfaces(() -> get(FACES.current[], :testface, nothing),
-                    :testface => Face(font="test")) == Face(font="test")
+    @test StyledStrings.withfaces(:testface => Face(font="test")) do
+        get(FACES.current[], :testface, nothing)
+    end == Face(font="test")
     @test haskey(FACES.current[], :testface) == false
+    @test StyledStrings.withfaces(:red => :green) do
+        get(FACES.current[], :red, nothing)
+    end == Face(foreground=:green)
+    @test StyledStrings.withfaces(:red => nothing) do
+        get(FACES.current[], :red, nothing)
+    end === nothing
+    @test StyledStrings.withfaces(Dict(:green => Face(foreground=:green))) do
+        get(FACES.current[], :green, nothing),
+        get(FACES.current[], :blue, nothing)
+    end == (Face(foreground=:green), nothing)
+    @test StyledStrings.withfaces(() -> 1) == 1
     # Basic merging
     let f1 = Face(height=140, weight=:bold, inherit=[:a])
         f2 = Face(height=1.5, weight=:light, inherit=[:b])
