@@ -5,6 +5,24 @@ using Test
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face, @styled_str, styled, getface, loadface!
 using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
 
+# For output testing
+
+const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.TermInfoRaw))
+const fancy_term = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), Base.TermInfoRaw))
+
+function with_terminfo(fn::Function, tinfo::Base.TermInfo)
+    prev_terminfo = getglobal(Base, :current_terminfo)
+    prev_truecolor = getglobal(Base, :have_truecolor)
+    try
+        setglobal!(Base, :current_terminfo, tinfo)
+        setglobal!(Base, :have_truecolor,   haskey(tinfo, :setrgbf))
+        fn()
+    finally
+        setglobal!(Base, :current_terminfo, prev_terminfo)
+        setglobal!(Base, :have_truecolor,   prev_truecolor)
+    end
+end
+
 @testset "SimpleColor" begin
     @test SimpleColor(:hey).value == :hey # no error
     @test SimpleColor(0x01, 0x02, 0x03).value == (r=0x01, g=0x02, b=0x03)
@@ -14,7 +32,14 @@ using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
     @test tryparse(SimpleColor, "#010203") == SimpleColor(0x010203)
     @test tryparse(SimpleColor, "#12345g") === nothing
     @test tryparse(SimpleColor, "!not a color") === nothing
+    @test parse(SimpleColor, "blue") == SimpleColor(:blue)
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
+    @test sprint(show, MIME("text/plain"), SimpleColor(:blue)) ==
+        "SimpleColor(blue)"
+    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) ==
+        "SimpleColor(\e[34m■\e[39m blue)"
+    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = (:color => true, :typeinfo => SimpleColor)) ==
+        "\e[34m■\e[39m blue"
 end
 
 @testset "Faces" begin
@@ -148,6 +173,68 @@ end
         @test getface(:f).foreground.value == :blue
         StyledStrings.resetfaces!()
     end
+    # Pretty display
+    @test sprint(show, MIME("text/plain"), getface()) ==
+        """
+        Face (sample)
+                  font: monospace
+                height: 120
+                weight: normal
+                 slant: normal
+            foreground: default
+            background: default
+             underline: false
+         strikethrough: false
+               inverse: false\
+        """
+    @test sprint(show, MIME("text/plain"), getface(), context = :color => true) ==
+        """
+        Face (sample)
+                  font: monospace
+                height: 120
+                weight: normal
+                 slant: normal
+            foreground: ■ default
+            background: ■ default
+             underline: false
+         strikethrough: false
+               inverse: false\
+        """
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :color => true) ==
+        """
+        Face (\e[31msample\e[39m)
+            foreground: \e[31m■\e[39m red\
+        """
+    @test sprint(show, FACES.default[:red]) ==
+        "Face(foreground=SimpleColor(:red))"
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :compact => true) ==
+        "Face(foreground=SimpleColor(:red))"
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) ==
+        "Face(\e[31msample\e[39m)"
+    @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :compact => true) ==
+        "Face(inverse=true, inherit=[:emphasis])"
+    with_terminfo(vt100) do # Not truecolor capable
+        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) ==
+            """
+            Face (\e[48;5;237msample\e[49m)
+                background: \e[38;5;237m■\e[39m #3a3a3a\
+            """
+    end
+    with_terminfo(fancy_term) do # Truecolor capable
+        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) ==
+            """
+            Face (\e[48;2;58;58;58msample\e[49m)
+                background: \e[38;2;58;58;58m■\e[39m #3a3a3a\
+            """
+    end
+    with_terminfo(vt100) do # Ensure `enter_reverse_mode` exists
+        @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :color => true) ==
+            """
+            Face (\e[34m\e[7msample\e[39m\e[27m)
+                   inverse: true
+                   inherit: emphasis(\e[34m*\e[39m)\
+            """
+    end
 end
 
 @testset "Styled Markup" begin
@@ -255,24 +342,6 @@ end
     cbuf = IOContext(buf, :color => true)
     @test write(cbuf, seekstart(aio)) == 29
     @test String(take!(buf)) == "\e[31mhey\e[39m \e[34mthere\e[39m"
-end
-
-# For ANSI tests
-
-const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.TermInfoRaw))
-const fancy_term = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), Base.TermInfoRaw))
-
-function with_terminfo(fn::Function, tinfo::Base.TermInfo)
-    prev_terminfo = getglobal(Base, :current_terminfo)
-    prev_truecolor = getglobal(Base, :have_truecolor)
-    try
-        setglobal!(Base, :current_terminfo, tinfo)
-        setglobal!(Base, :have_truecolor,   haskey(tinfo, :setrgbf))
-        fn()
-    finally
-        setglobal!(Base, :current_terminfo, prev_terminfo)
-        setglobal!(Base, :have_truecolor,   prev_truecolor)
-    end
 end
 
 @testset "ANSI encoding" begin
