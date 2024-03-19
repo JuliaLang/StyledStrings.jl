@@ -176,13 +176,32 @@ function show(io::IO, ::MIME"text/plain", color::SimpleColor)
     if get(io, :color, false)::Bool
         print(io, AnnotatedString("■", [(1:1, :face => Face(foreground=color))]), ' ')
     end
-    if color.value isa Symbol
+    if color.value isa RGBTuple
+        (; r, g, b) = color.value
+        print(io, '#',
+              rpad(string(r, base=16), 2, '0'),
+              rpad(string(g, base=16), 2, '0'),
+              rpad(string(b, base=16), 2, '0'))
+    else
         print(io, color.value)
-    else # rgb tuple
-        print(io, '#', join(lpad.(string.(values(color.value), base=16), 2, '0')))
     end
     skiptype || print(io, ')')
     nothing
+end
+
+function show(io::IO, color::SimpleColor)
+    show(io, SimpleColor)
+    print(io, '(')
+    if color.value isa RGBTuple
+        (; r, g, b) = color.value
+        print(io, "0x",
+              rpad(string(r, base=16), 2, '0'),
+              rpad(string(g, base=16), 2, '0'),
+              rpad(string(b, base=16), 2, '0'))
+    else
+        show(io, color.value)
+    end
+    print(io, ')')
 end
 
 function show(io::IO, ::MIME"text/plain", face::Face)

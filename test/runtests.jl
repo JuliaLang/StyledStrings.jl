@@ -34,6 +34,10 @@ end
     @test tryparse(SimpleColor, "!not a color") === nothing
     @test parse(SimpleColor, "blue") == SimpleColor(:blue)
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
+    @test sprint(show, SimpleColor(:blue)) ==
+        "SimpleColor(:blue)"
+    @test sprint(show, SimpleColor(0x123456)) ==
+        "SimpleColor(0x123456)"
     @test sprint(show, MIME("text/plain"), SimpleColor(:blue)) ==
         "SimpleColor(blue)"
     @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) ==
