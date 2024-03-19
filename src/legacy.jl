@@ -131,7 +131,7 @@ function Base.printstyled(io::Base.AnnotatedIOBuffer, msg...;
     bold && face!(str, :bold)
     italic && face!(str, :italic)
     underline && face!(str, :underline)
-    reverse && face!(str, Face(inverse=true))
+    reverse && face!(str, :inverse)
     color !== :normal && face!(str, Face(foreground=legacy_color(color)))
     write(io, str)
     nothing
