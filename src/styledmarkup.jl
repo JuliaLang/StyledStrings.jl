@@ -88,12 +88,12 @@ function addpart!(state::State, stop::Int)
                 styles = sty_type[]
                 relevant_styles = Iterators.filter(
                     (_, start, _)::Tuple -> start <= stop + state.offset[] + 1,
-                    Iterators.flatten(state.active_styles))
+                    Iterators.flatten(map(reverse, state.active_styles)))
                 for (_, start, annot) in relevant_styles
                     range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
                     push!(styles, tupl(range, annot))
                 end
-                sort!(state.pending_styles, by = first)
+                sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # see `Base._annot_sortkey`
                 for (range, annot) in state.pending_styles
                     if !isempty(range)
                         push!(styles, tupl(range .- state.point[], annot))
@@ -122,7 +122,10 @@ function addpart!(state::State, start::Int, expr, stop::Int)
         len = gensym("len")
         annots = Expr(:vect, [
             Expr(:tuple, Expr(:call, UnitRange, 1, len), annot)
-            for annot in last.(Iterators.flatten(state.active_styles))]...)
+            for annot in
+                map(last,
+                    (Iterators.flatten(
+                        map(reverse, state.active_styles))))]...)
         if isempty(annots.args)
             push!(state.parts, :(AnnotatedString(string($expr))))
         else
@@ -195,7 +198,7 @@ function begin_style!(state::State, i::Int, char::Char)
     hasvalue = false
     newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
     while read_annotation!(state, i, char, newstyles) end
-    push!(state.active_styles, newstyles)
+    push!(state.active_styles, reverse!(newstyles))
     # Adjust bytes/offset based on how much the index
     # has been incremented in the processing of the
     # style declaration(s).
@@ -209,7 +212,7 @@ end
 function end_style!(state::State, i::Int, char::Char)
     # Close off most recent active style
     for (_, start, annot) in pop!(state.active_styles)
-        push!(state.pending_styles, (start:i+state.offset[], annot))
+        pushfirst!(state.pending_styles, (start:i+state.offset[], annot))
     end
     deleteat!(state.bytes, i + state.offset[])
     state.offset[] -= ncodeunits('}')

@@ -268,8 +268,15 @@ end
     @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
     @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
     @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face => :aface)])
+    # Annotation prioritisation
     @test styled"{aface,bface:some} string" ==
         AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+    @test styled"{aface:{bface:some}} string" ==
+        AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+    @test styled"{aface,bface:$(1)} string" ==
+        AnnotatedString("1 string", [(1:1, :face => :aface), (1:1, :face => :bface)])
+    @test styled"{aface:{bface:$(1)}} string" ==
+        AnnotatedString("1 string", [(1:1, :face => :aface), (1:1, :face => :bface)])
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
         AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
