@@ -407,7 +407,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             state.interpolated[] = true
             needseval = true
             esc(expr)
-        elseif key == :face
+        elseif key == :font
             if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first |> esc
             else
