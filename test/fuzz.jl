@@ -54,9 +54,9 @@ const inherit = inheritval | map(Data.Vectors(inheritval, min_size=1, max_size=5
     '[' * join(v, ',') * ']'
 end
 
-const faceprop_face = @composed function fpface(
+const faceprop_font = @composed function fpfont(
     ws0=whitespace, ws1=whitespace, ws2=whitespace, val=identifier, ws3=whitespace)
-    ws0 * "face" * ws1 * '=' * ws2 * val * ws3
+    ws0 * "font" * ws1 * '=' * ws2 * val * ws3
 end
 const faceprop_height = @composed function fpheight(
     ws0=whitespace, ws1=whitespace, ws2=whitespace, val=integer|decimal, ws3=whitespace)
@@ -98,7 +98,7 @@ const faceprop_inh = @composed function fpinh(
 end
 
 const faceprop_pos = reduce(|, (
-    Data.Pairs(Data.Just(:face), faceprop_face),
+    Data.Pairs(Data.Just(:face), faceprop_font),
     Data.Pairs(Data.Just(:height), faceprop_height),
     Data.Pairs(Data.Just(:weight), faceprop_weight),
     Data.Pairs(Data.Just(:slant), faceprop_slant),
