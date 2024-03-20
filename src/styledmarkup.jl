@@ -401,7 +401,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         key == :fg && (key = :foreground)
         key == :bg && (key = :background)
         # Parse value
-        val = if isnextchar(state, '$')
+        val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
             state.interpolated[] = true
