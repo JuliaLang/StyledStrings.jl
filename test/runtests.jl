@@ -5,7 +5,7 @@ using Test
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
     @styled_str, styled, StyledMarkup, getface, addface!, loadface!, resetfaces!
 using .StyledMarkup: MalformedStylingMacro
-using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer
+using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 
 # For output testing
 
@@ -388,6 +388,24 @@ end
     @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
     @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
     @test_throws MalformedStylingMacro styled("{(invalid=):}")
+    # Test the error printing too
+    aio = AnnotatedIOBuffer()
+    try
+        styled("{")
+    catch err
+        showerror(aio, err)
+    end
+    errstr = read(seekstart(aio), AnnotatedString)
+    Base.annotatedstring_optimize!(errstr) # Remove when julialang/julia/#53801 is merged.
+    filter!(((region, _),) -> !isempty(region),
+            annotations(errstr))
+    sort!(annotations(errstr), by=first) # Remove when julialang/julia/#53800 is merged.
+    @test errstr ==
+        styled"MalformedStylingMacro\n\
+               {error:│} Incomplete annotation declaration:\n\
+               {error:│}  {bright_green:\"\{\"}\n\
+               {error:│}   {info:╰─╴starts here}\n\
+               {error:┕} {light,italic:1 issue}\n"
 end
 
 @testset "AnnotatedIOBuffer" begin
