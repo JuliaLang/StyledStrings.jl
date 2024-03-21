@@ -146,6 +146,7 @@ function Face(; font::Union{Nothing, String} = nothing,
               inherit::Union{Symbol, Vector{Symbol}} = Symbol[],
               _...) # Simply ignore unrecognised keyword arguments.
     ascolor(::Nothing) = nothing
+    ascolor(c::AbstractString) = parse(SimpleColor, c)
     ascolor(c::Any) = convert(SimpleColor, c)
     Face(font, height, weight, slant,
          ascolor(foreground), ascolor(background),

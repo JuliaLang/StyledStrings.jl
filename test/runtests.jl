@@ -74,6 +74,12 @@ end
     @test Face(foreground=0xff0000) ==
         Face(nothing, nothing, nothing, nothing, SimpleColor(0xff0000),
              nothing, nothing, nothing, nothing, Symbol[])
+    @test Face(foreground="red") ==
+        Face(nothing, nothing, nothing, nothing, SimpleColor(:red),
+             nothing, nothing, nothing, nothing, Symbol[])
+    @test Face(foreground="#ff0000") ==
+        Face(nothing, nothing, nothing, nothing, SimpleColor(0xff0000),
+             nothing, nothing, nothing, nothing, Symbol[])
     @test Face(background=SimpleColor(:red)) ==
         Face(nothing, nothing, nothing, nothing, nothing,
              SimpleColor(:red), nothing, nothing, nothing, Symbol[])
