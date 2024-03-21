@@ -131,9 +131,13 @@ function addpart!(state::State, start::Int, expr, stop::Int)
         else
             push!(state.parts,
                 :(let $str = string($expr)
-                        $len = ncodeunits($str)
-                        AnnotatedString($str, $annots)
-                    end))
+                      if isempty($str)
+                          ""
+                      else
+                          $len = ncodeunits($str)
+                          AnnotatedString($str, $annots)
+                      end
+                  end))
         end
         map!.((i, _, annot)::Tuple -> (i, stop + state.offset[] + 1, annot),
                 state.active_styles, state.active_styles)
