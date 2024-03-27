@@ -183,7 +183,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
     face.underline == lastface.underline ||
-        if get(Base.current_terminfo, :Su, false) # Color/style capabilities
+        if haskey(Base.current_terminfo, :set_underline_style)
             if face.underline isa Tuple # Color and style
                 color, style = face.underline
                 print(io, "\e[4:",
