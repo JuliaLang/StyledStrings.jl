@@ -54,24 +54,31 @@ Print to `io` the best 8-bit SGR color code that sets the `category` color to
 be close to `color`.
 """
 function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
-    # Magic numbers? Lots.
-    cdistsq(r1, g1, b1) = (r1 - r)^2 + (g1 - g)^2 + (b1 - b)^2
-    to6cube(value) = if value < 48; 1
-    elseif value < 114; 2
-    else 1 + (value - 35) ÷ 40 end
+    # RGB values are mapped to a 6x6x6 "colour cube", which (mapped to
+    # 24-bit colour space), jumps up from a black level of 0 in each
+    # component to 95, then takes 4 steps of 40 to reach 255.
+    function cdistsq(r2, g2, b2) # The squared "redmean" colour distance function
+        rr = (r + r2) / 2
+        (2 + r/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
+    end
+    to6cube(value) = (value - 35) ÷ 40
+    from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
+    sixcube = (0, 95:40:255...)
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
-    sixcube = (0, 95, 135, 175, 215, 255)
-    rnear, gnear, bnear = sixcube[r6cube], sixcube[g6cube], sixcube[b6cube]
+    rnear, gnear, bnear = sixcube[r6cube+1], sixcube[g6cube+1], sixcube[b6cube+1]
     colorcode = if r == rnear && g == gnear && b == bnear
-        16 + 35 * r6cube + 6 * g6cube + b6cube
+        from6cube(r6cube, g6cube, b6cube)
     else
-        grey_avg = Int(r + g + b) ÷ 3
-        grey_index = if grey_avg > 238 23 else (grey_avg - 3) ÷ 10 end
-        grey = 8 + 10 * grey_index
-        if cdistsq(grey, grey, grey) <= cdistsq(rnear, gnear, bnear)
-            232 + grey
+        # There aren't many greys in the 6x6x6 colour cube, so the remaining
+        # space in the 256-colour range not taken up by the 16 "named" 4-bit
+        # colours and the 6 colour cube is used for 24 shades of grey (`8:10:238`).
+        grey = sum((r, g, b)) ÷ 3
+        grey_level = min(23, (grey - 3) ÷ 10)
+        greynear = 8 + 10 * grey_level
+        if cdistsq(greynear, greynear, greynear) <= cdistsq(rnear, gnear, bnear)
+            16 + 6^3 + grey_level
         else
-            16 + 35 * r6cube + 6 * g6cube + b6cube
+            from6cube(r6cube, g6cube, b6cube)
         end
     end
     print(io, "\e[", category, "8;5;", string(colorcode), 'm')
@@ -157,7 +164,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         termcolor(io, face.background, '4')
     face.weight == lastface.weight ||
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
-                  get(Base.current_terminfo, :bold, "\e[1m")
+                  ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
                   get(Base.current_terminfo, :dim, "")
               else # :normal
@@ -176,7 +183,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
     face.underline == lastface.underline ||
-        if get(Base.current_terminfo, :Su, false) # Color/style capabilities
+        if haskey(Base.current_terminfo, :set_underline_style)
             if face.underline isa Tuple # Color and style
                 color, style = face.underline
                 print(io, "\e[4:",
@@ -293,24 +300,24 @@ A mapping between ANSI named colors and 8-bit colors for use in HTML
 representations.
 """
 const HTML_BASIC_COLORS = Dict{Symbol, SimpleColor}(
-    :black => SimpleColor(0x00, 0x00, 0x00),
-    :red => SimpleColor(0x80, 0x00, 0x00),
-    :green => SimpleColor(0x00, 0x80, 0x00),
-    :yellow => SimpleColor(0x80, 0x80, 0x00),
-    :blue => SimpleColor(0x00, 0x00, 0x80),
-    :magenta => SimpleColor(0x80, 0x00, 0x80),
-    :cyan => SimpleColor(0x00, 0x80, 0x80),
-    :white => SimpleColor(0xc0, 0xc0, 0xc0),
-    :bright_black => SimpleColor(0x80, 0x80, 0x80),
-    :grey => SimpleColor(0x80, 0x80, 0x80),
-    :gray => SimpleColor(0x80, 0x80, 0x80),
-    :bright_red => SimpleColor(0xff, 0x00, 0x00),
-    :bright_green => SimpleColor(0x00, 0xff, 0x00),
-    :bright_yellow => SimpleColor(0xff, 0xff, 0x00),
-    :bright_blue => SimpleColor(0x00, 0x00, 0xff),
-    :bright_magenta => SimpleColor(0xff, 0x00, 0xff),
-    :bright_cyan => SimpleColor(0x00, 0xff, 0xff),
-    :bright_white => SimpleColor(0xff, 0xff, 0xff))
+    :black => SimpleColor(0x1c, 0x1a, 0x23),
+    :red => SimpleColor(0xa5, 0x1c, 0x2c),
+    :green => SimpleColor(0x25, 0xa2, 0x68),
+    :yellow => SimpleColor(0xe5, 0xa5, 0x09),
+    :blue => SimpleColor(0x19, 0x5e, 0xb3),
+    :magenta => SimpleColor(0x80, 0x3d, 0x9b),
+    :cyan => SimpleColor(0x00, 0x97, 0xa7),
+    :white => SimpleColor(0xdd, 0xdc, 0xd9),
+    :bright_black => SimpleColor(0x76, 0x75, 0x7a),
+    :grey => SimpleColor(0x76, 0x75, 0x7a),
+    :gray => SimpleColor(0x76, 0x75, 0x7a),
+    :bright_red => SimpleColor(0xed, 0x33, 0x3b),
+    :bright_green => SimpleColor(0x33, 0xd0, 0x79),
+    :bright_yellow => SimpleColor(0xf6, 0xd2, 0x2c),
+    :bright_blue => SimpleColor(0x35, 0x83, 0xe4),
+    :bright_magenta => SimpleColor(0xbf, 0x60, 0xca),
+    :bright_cyan => SimpleColor(0x26, 0xc6, 0xda),
+    :bright_white => SimpleColor(0xf6, 0xf5, 0xf4))
 
 function htmlcolor(io::IO, color::SimpleColor)
     if color.value isa Symbol
@@ -382,9 +389,9 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
                 htmlcolor(io, color)
                 print(io, ' ')
             end
-            print(io, if style == :straight "solid  "
+            print(io, if style == :straight "solid "
                   elseif style == :double   "double "
-                  elseif style == :curly    "wavy   "
+                  elseif style == :curly    "wavy "
                   elseif style == :dotted   "dotted "
                   elseif style == :dashed   "dashed "
                   else "" end)

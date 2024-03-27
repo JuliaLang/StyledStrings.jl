@@ -1,5 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+# When updating any part of the parsing code in this file, it is highly
+# recommended to also check and/or update `../test/fuzz.jl`.
+
 module StyledMarkup
 
 using Base: AnnotatedString, annotatedstring
@@ -40,10 +43,14 @@ const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
                        "medium", "semibold", "bold", "extrabold", "black")
 const VALID_SLANTS = ("italic", "oblique", "normal")
 const VALID_UNDERLINE_STYLES = ("straight", "double", "curly", "dotted", "dashed")
-const VALID_COLORNAMES =
-    ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-     "grey", "gray", "bright_black", "bright_red", "bright_green", "bright_yellow",
-     "bright_blue", "bright_magenta", "bright_cyan", "bright_white")
+
+isnextchar(state::State, c::Char) =
+    !isempty(state.s) && last(peek(state.s)) == c
+
+isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
+    !isempty(state.s) && last(peek(state.s)) ∈ cs
+
+ismacro(state::State) = !isnothing(state.mod)
 
 function styerr!(state::State, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
     if !isnothing(position) && position < 0
@@ -69,7 +76,7 @@ function addpart!(state::State, stop::Int)
     end
     str = String(state.bytes[
         state.point[]:stop+state.offset[]+ncodeunits(state.content[stop])-1])
-    sty_type, tupl = if !isnothing(state.mod)
+    sty_type, tupl = if ismacro(state)
         Expr, (a, b) -> Expr(:tuple, a, b)
     else
         Tuple{UnitRange{Int}, Pair{Symbol, Any}}, (a, b) -> (a, b)
@@ -81,12 +88,12 @@ function addpart!(state::State, stop::Int)
                 styles = sty_type[]
                 relevant_styles = Iterators.filter(
                     (_, start, _)::Tuple -> start <= stop + state.offset[] + 1,
-                    Iterators.flatten(state.active_styles))
+                    Iterators.flatten(map(reverse, state.active_styles)))
                 for (_, start, annot) in relevant_styles
                     range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
                     push!(styles, tupl(range, annot))
                 end
-                sort!(state.pending_styles, by = first)
+                sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # see `Base._annot_sortkey`
                 for (range, annot) in state.pending_styles
                     if !isempty(range)
                         push!(styles, tupl(range .- state.point[], annot))
@@ -95,7 +102,7 @@ function addpart!(state::State, stop::Int)
                 empty!(state.pending_styles)
                 if isempty(styles)
                     str
-                elseif isnothing(state.mod)
+                elseif !ismacro(state)
                     AnnotatedString(str, styles)
                 else
                     :(AnnotatedString($str, $(Expr(:vect, styles...))))
@@ -115,15 +122,22 @@ function addpart!(state::State, start::Int, expr, stop::Int)
         len = gensym("len")
         annots = Expr(:vect, [
             Expr(:tuple, Expr(:call, UnitRange, 1, len), annot)
-            for annot in last.(Iterators.flatten(state.active_styles))]...)
+            for annot in
+                map(last,
+                    (Iterators.flatten(
+                        map(reverse, state.active_styles))))]...)
         if isempty(annots.args)
             push!(state.parts, :(AnnotatedString(string($expr))))
         else
             push!(state.parts,
                 :(let $str = string($expr)
-                        $len = ncodeunits($str)
-                        AnnotatedString($str, $annots)
-                    end))
+                      if isempty($str)
+                          ""
+                      else
+                          $len = ncodeunits($str)
+                          AnnotatedString($str, $annots)
+                      end
+                  end))
         end
         map!.((i, _, annot)::Tuple -> (i, stop + state.offset[] + 1, annot),
                 state.active_styles, state.active_styles)
@@ -131,16 +145,16 @@ function addpart!(state::State, start::Int, expr, stop::Int)
 end
 
 function escaped!(state::State, i::Int, char::Char)
-    if char in ('{', '}', '\\') || (char == '$' && !isnothing(state.mod))
+    if char in ('{', '}', '\\') || (char == '$' && ismacro(state))
         deleteat!(state.bytes, i + state.offset[] - 1)
         state.offset[] -= ncodeunits('\\')
     elseif char ∈ ('\n', '\r') && !isempty(state.s)
         skipped = 0
-        if char == '\r' && last(peek(state.s)) == '\n'
+        if char == '\r' && isnextchar(state, '\n')
             popfirst!(state.s)
             skipped += 1
         end
-        while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t')
+        while isnextchar(state, (' ', '\t'))
             popfirst!(state.s)
             skipped += 1
         end
@@ -179,7 +193,7 @@ end
 readexpr!(state) = readexpr!(state, first(popfirst!(state.s)) + 1)
 
 function skipwhitespace!(state::State)
-    while !isempty(state.s) && last(peek(state.s)) ∈ (' ', '\t', '\n')
+    while isnextchar(state, (' ', '\t', '\n'))
         popfirst!(state.s)
     end
 end
@@ -188,7 +202,7 @@ function begin_style!(state::State, i::Int, char::Char)
     hasvalue = false
     newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
     while read_annotation!(state, i, char, newstyles) end
-    push!(state.active_styles, newstyles)
+    push!(state.active_styles, reverse!(newstyles))
     # Adjust bytes/offset based on how much the index
     # has been incremented in the processing of the
     # style declaration(s).
@@ -202,7 +216,7 @@ end
 function end_style!(state::State, i::Int, char::Char)
     # Close off most recent active style
     for (_, start, annot) in pop!(state.active_styles)
-        push!(state.pending_styles, (start:i+state.offset[], annot))
+        pushfirst!(state.pending_styles, (start:i+state.offset[], annot))
     end
     deleteat!(state.bytes, i + state.offset[])
     state.offset[] -= ncodeunits('}')
@@ -259,16 +273,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             tryparse(SimpleColor, color)
         elseif startswith(color, "0x") && length(color) == 8
             tryparse(SimpleColor, '#' * color[3:end])
-        elseif color ∈ VALID_COLORNAMES
-            SimpleColor(Symbol(color))
         else
-            valid_options = join(VALID_COLORNAMES, ", ", ", or ")
-            styerr!(state,
-                    AnnotatedString("Invalid named color '$color' (should be $valid_options)",
-                                    [(22:21+ncodeunits(color), :face => :warning),
-                                        (24+ncodeunits(color):35+ncodeunits(color)+ncodeunits(valid_options),
-                                        :face => :light)]),
-                    -length(color) - 2)
             SimpleColor(Symbol(color))
         end
     end
@@ -280,10 +285,10 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         lastchar
     end
     function read_underline!(state, lastchar)
-        if last(peek(state.s)) == '('
+        if isnextchar(state, '(')
             ustart, _ = popfirst!(state.s)
             skipwhitespace!(state)
-            ucolor_str, ucolor = if last(peek(state.s)) == ','
+            ucolor_str, ucolor = if isnextchar(state, ',')
                 lastchar = last(popfirst!(state.s))
                 "", nothing
             else
@@ -315,7 +320,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                             :face => :light)]),
                         -length(ustyle) - 3)
             end
-            if !isnothing(state.mod)
+            if ismacro(state)
                 Expr(:tuple, ucolor, QuoteNode(Symbol(ustyle)))
             else
                 (ucolor, Symbol(ustyle))
@@ -327,6 +332,8 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 true
             elseif word == "false"
                 false
+            elseif word ∈ VALID_UNDERLINE_STYLES
+                Symbol(word) |> if ismacro(state) QuoteNode else identity end
             else
                 parsecolor(word)
             end
@@ -334,11 +341,11 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     end
     function read_inherit!(state, lastchar)
         inherit = Symbol[]
-        if last(peek(state.s)) == ':'
+        if isnextchar(state, ':')
             popfirst!(state.s)
             facename, lastchar = readsymbol!(state, lastchar)
             push!(inherit, Symbol(facename))
-        elseif last(peek(state.s)) == '['
+        elseif isnextchar(state, '[')
             popfirst!(state.s)
             readvec = true
             while readvec
@@ -367,14 +374,24 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         end
         inherit, lastchar
     end
-    # Get on with the parsing now
+    # Tentatively initiate the parsing
     popfirst!(state.s)
-    kwargs = if !isnothing(state.mod) Expr[] else Pair{Symbol, Any}[] end
-    needseval = false
     lastchar = '('
+    skipwhitespace!(state)
+    if isnextchar(state, ')')
+        # We've hit the empty-construct special case
+        popfirst!(state.s)
+        return
+    end
+    # Get on with the parsing now
+    kwargs = if ismacro(state) Expr[] else Pair{Symbol, Any}[] end
+    needseval = false
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
         str_key, lastchar = readalph!(state, lastchar)
+        # If we have actually reached the end but there is a trailing
+        # comma/whitespace, we find out here and abort.
+        isempty(str_key) && lastchar == ')' && break
         key = Symbol(str_key)
         # Check for '=', and skip over surrounding whitespace
         if lastchar != '='
@@ -391,22 +408,22 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         key == :fg && (key = :foreground)
         key == :bg && (key = :background)
         # Parse value
-        val = if !isnothing(state.mod) && (nextchar = last(peek(state.s))) == '$'
+        val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
             state.interpolated[] = true
             needseval = true
             esc(expr)
-        elseif key == :face
-            if nextchar == '"'
-                readexpr!(state, first(peek(state.s))) |> first |> esc
+        elseif key == :font
+            if isnextchar(state, '"')
+                readexpr!(state, first(peek(state.s))) |> first
             else
                 Iterators.takewhile(
                     c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
                         collect .|> last |> String
             end
         elseif key == :height
-            if nextchar == '.' || nextchar ∈ '0':'9'
+            if isnextchar(state, ('.', '0':'9'...))
                 num = readexpr!(state, first(peek(state.s))) |> first
                 lastchar = last(popfirst!(state.s))
                 ifelse(num isa Number, num, nothing)
@@ -433,7 +450,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                                     :face => :light)]),
                         -3)
             end
-            Symbol(v) |> QuoteNode
+            Symbol(v) |> if ismacro(state) QuoteNode else identity end
         elseif key ∈ (:foreground, :background)
             color, lastchar = readsymbol!(state, lastchar)
             parsecolor(color)
@@ -455,9 +472,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                                             [(29:28+ncodeunits(String(key)), :face => :warning)]),
                     -length(str_key) - 2)
         end
-        if !isnothing(state.mod) && !any(k -> first(k.args) == key, kwargs)
+        if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
             push!(kwargs, Expr(:kw, key, val))
-        elseif isnothing(state.mod) && !any(kw -> first(kw) == key, kwargs)
+        elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
             push!(kwargs, key => val)
         else
             styerr!(state, AnnotatedString("Contains repeated face key '$key'",
@@ -465,12 +482,18 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     -length(str_key) - 2)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
-        isempty(state.s) || last(peek(state.s)) != ',' || break
+        skipwhitespace!(state)
+        if lastchar ∈ (',', ')')
+        elseif isnextchar(state, (',', ')'))
+            _, lastchar= popfirst!(state.s)
+        else
+            break
+        end
     end
     face = Expr(:call, Face, kwargs...)
     push!(newstyles,
           (i, i + state.offset[] + 1,
-           if isnothing(state.mod)
+           if !ismacro(state)
                Pair{Symbol, Any}(:face, Face(; NamedTuple(kwargs)...))
            elseif needseval
                :(Pair{Symbol, Any}(:face, $face))
@@ -486,7 +509,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         escaped = false
         while !isempty(state.s)
             _, c = popfirst!(state.s)
-            if escaped && (c ∈ ('\\', '{', '}') || (c == '$' && !isnothing(state.mod)))
+            if escaped && (c ∈ ('\\', '{', '}') || (c == '$' && ismacro(state)))
                 push!(chars, c)
                 escaped = false
             elseif escaped
@@ -503,7 +526,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         String(chars)
     end
     # this isn't the 'last' char yet, but it will be
-    key = if !isnothing(state.mod) && last(peek(state.s)) == '$'
+    key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
         state.interpolated[] = true
         needseval = true
@@ -520,15 +543,14 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     if isempty(state.s)
     elseif last(peek(state.s)) == '='
         popfirst!(state.s)
-        nextchar = last(peek(state.s))
-        if nextchar ∈ (' ', '\t', '\n')
+        if isnextchar(state, (' ', '\t', '\n'))
             skipwhitespace!(state)
-            nextchar = last(peek(state.s))
         end
+        nextchar = if !isempty(state.s) last(peek(state.s)) else '\0' end
         value = if isempty(state.s) ""
         elseif nextchar == '{'
             read_curlywrapped!(state)
-        elseif !isnothing(state.mod) && nextchar == '$'
+        elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
             state.interpolated[] = true
             needseval = true
@@ -572,7 +594,7 @@ function run_state_machine!(state::State)
             state.escape[] = true
         elseif state.escape[]
             escaped!(state, i, char)
-        elseif !isnothing(state.mod) && char == '$'
+        elseif ismacro(state) && char == '$'
             interpolated!(state, i, char)
         elseif char == '{'
             begin_style!(state, i, char)
@@ -648,6 +670,9 @@ curlybraced = '{' { escaped | plain } '}' ;
 simplevalue = [^\${},:], [^,:]* ;
 ```
 
+An extra stipulation not encoded in the above grammar is that `plain` should be
+a valid input to [`unescape_string`](@ref), with `specialchar` kept.
+
 The above grammar for `inlineface` is simplified, as the actual implementation
 is a bit more sophisticated. The full behaviour is given below.
 
@@ -670,11 +695,11 @@ hexcolor = ('#' | '0x'), [0-9a-f]{6} ;
 simplecolor = hexcolor | symbol | nothing ;
 
 underline = nothing | bool | simplecolor | underlinestyled;
-underlinestyled = '(', whitespace, ('' | nothing | simplecolor), whitespace,
-                  ',', whitespace, symbol, whitespace ')' ;
+underlinestyled = '(', ws, ('' | nothing | simplecolor), ws,
+                  ',', ws, symbol, ws ')' ;
 
 inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval;
-inheritval = whitespace, ':'?, symbol ;
+inheritval = ws, ':'?, symbol ;
 ```
 """
 macro styled_str(raw_content::String)
