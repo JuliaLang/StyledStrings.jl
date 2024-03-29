@@ -7,6 +7,8 @@ using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
 using .StyledMarkup: MalformedStylingMacro
 using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 
+include("maybefuzz.jl") # For use in the "Styled Markup" testset
+
 # For output testing
 
 const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.TermInfoRaw))
@@ -418,6 +420,9 @@ end
                {error:│}   {info:╰─╴starts here}\n\
                {error:┕} {light,italic:1 issue}\n"
 end
+
+# Markup fuzzing!
+maybefuzz()
 
 @testset "AnnotatedIOBuffer" begin
     aio = AnnotatedIOBuffer()

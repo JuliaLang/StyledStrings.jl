@@ -39,6 +39,10 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
                      Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}[])
 end
 
+const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
+                          "height", "weight", "slant", "underline",
+                          "strikethrough", "inverse", "inherit")
+const LIKELY_FUTURE_FACE_ATTRS = ("shape", "style", "variant", "features", "alpha")
 const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
                        "medium", "semibold", "bold", "extrabold", "black")
 const VALID_SLANTS = ("italic", "oblique", "normal")
