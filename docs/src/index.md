@@ -32,9 +32,9 @@ Along with these capabilities, we also provide a convenient way for constructing
 [`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
 Literals](@ref stdlib-styledstring-literals).
 
-```julia-repl
-julia> styled"{yellow:hello} {blue:there}"
-"hello there" # prints with colour in the REPL
+```@repl demo
+using StyledStrings
+styled"{yellow:hello} {blue:there}"
 ```
 
 ## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
@@ -141,21 +141,12 @@ We can supply `:face` attributes to a `AnnotatedString` during construction, add
 them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
-```jldoctest; setup = :(import StyledStrings: Face, @styled_str)
-julia> str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
-"blue text"
-
-julia> str2 = styled"{blue:blue text}"
-"blue text"
-
-julia> str1 == str2
-true
-
-julia> sprint(print, str1, context = :color => true)
-"\e[34mblue text\e[39m"
-
-julia> sprint(show, MIME("text/html"), str1, context = :color => true)
-"<pre><span style=\"color: #195eb3;\">blue text</span></pre>"
+```@repl demo
+str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
+str2 = styled"{blue:blue text}"
+str1 == str2
+sprint(print, str1, context = :color => true)
+sprint(show, MIME("text/html"), str1, context = :color => true)
 ```
 
 ## [Styled String Literals](@id stdlib-styledstring-literals)
@@ -178,6 +169,98 @@ Interpolation is possible everywhere except for inline face keys.
 
 For more information on the grammar, see the extended help of the
 [`styled"..."`](@ref @styled_str) docstring.
+
+As an example, we can demonstrate the list of built-in faces mentioned above like so:
+
+```julia-repl
+julia> println(styled"
+The basic font-style attributes are {bold:bold}, {light:light}, {italic:italic},
+{underline:underline}, and {strikethrough:strikethrough}.
+
+In terms of color, we have named faces for the 16 standard terminal colors:
+ {black:■} {red:■} {green:■} {yellow:■} {blue:■} {magenta:■} {cyan:■} {white:■}
+ {bright_black:■} {bright_red:■} {bright_green:■} {bright_yellow:■} {bright_blue:■} {bright_magenta:■} {bright_cyan:■} {bright_white:■}
+
+Since {code:bright_black} is effectively grey, we define two aliases for it:
+{code:grey} and {code:gray} to allow for regional spelling differences.
+
+To flip the foreground and background colors of some text, you can use the
+{code:inverse} face, for example: {magenta:some {inverse:inverse} text}.
+
+The intent-based basic faces are {shadow:shadow} (for dim but visible text),
+{region:region} for selections, {emphasis:emphasis}, and {highlight:highlight}.
+As above, {code:code} is used for code-like text.
+
+Lastly, we have the 'message severity' faces: {error:error}, {warning:warning},
+{success:success}, {info:info}, {note:note}, and {tip:tip}.
+
+Remember that all these faces (and any user or package-defined ones), can
+arbitrarily nest and overlap, {region,tip:like {bold,italic:so}}.")
+```
+
+```@raw comment
+Documenter doesn't properly represent all the styling above, so I've converted it manually to HTML and LaTeX.
+```
+
+```@raw html
+<pre>
+ The basic font-style attributes are <span style="font-weight: 700;">bold</span>, <span style="font-weight: 300;">light</span>, <span style="font-style: italic;">italic</span>,
+ <span style="text-decoration: underline;">underline</span>, and <span style="text-decoration: line-through">strikethrough</span>.
+
+ In terms of color, we have named faces for the 16 standard terminal colors:
+  <span style="color: #1c1a23;">■</span> <span style="color: #a51c2c;">■</span> <span style="color: #25a268;">■</span> <span style="color: #e5a509;">■</span> <span style="color: #195eb3;">■</span> <span style="color: #803d9b;">■</span> <span style="color: #0097a7;">■</span> <span style="color: #dddcd9;">■</span>
+  <span style="color: #76757a;">■</span> <span style="color: #ed333b;">■</span> <span style="color: #33d079;">■</span> <span style="color: #f6d22c;">■</span> <span style="color: #3583e4;">■</span> <span style="color: #bf60ca;">■</span> <span style="color: #26c6da;">■</span> <span style="color: #f6f5f4;">■</span>
+
+ Since <span style="color: #0097a7;">bright_black</span> is effectively grey, we define two aliases for it:
+ <span style="color: #0097a7;">grey</span> and <span style="color: #0097a7;">gray</span> to allow for regional spelling differences.
+
+ To flip the foreground and background colors of some text, you can use the
+ <span style="color: #0097a7;">inverse</span> face, for example: <span style="color: #803d9b;">some </span><span style="background-color: #803d9b;">inverse</span><span style="color: #803d9b;"> text</span>.
+
+ The intent-based basic faces are <span style="color: #76757a;">shadow</span> (for dim but visible text),
+ <span style="background-color: #3a3a3a;">region</span> for selections, <span style="color: #195eb3;">emphasis</span>, and <span style="background-color: #195eb3;">highlight</span>.
+ As above, <span style="color: #0097a7;">code</span> is used for code-like text.
+
+ Lastly, we have the 'message severity' faces: <span style="color: #ed333b;">error</span>, <span style="color: #e5a509;">warning</span>,
+ <span style="color: #25a268;">success</span>, <span style="color: #26c6da;">info</span>, <span style="color: #76757a;">note</span>, and <span style="color: #33d079;">tip</span>.
+
+ Remember that all these faces (and any user or package-defined ones), can
+ arbitrarily nest and overlap, <span style="color: #33d079;background-color: #3a3a3a;">like <span style="font-weight: 700;font-style: italic;">so</span></span>.</pre>
+```
+
+```@raw latex
+\begingroup
+\ttfamily
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{\baselineskip}
+
+The basic font-style attributes are {\fontseries{b}\selectfont bold}, {\fontseries{l}\selectfont light}, {\fontshape{it}\selectfont italic},\\
+\underline{underline}, and {strikethrough}.
+
+In terms of color, we have named faces for the 16 standard terminal colors:\\
+{\color[HTML]{1c1a23}\(\blacksquare\)} {\color[HTML]{a51c2c}\(\blacksquare\)} {\color[HTML]{25a268}\(\blacksquare\)}
+{\color[HTML]{e5a509}\(\blacksquare\)} {\color[HTML]{195eb3}\(\blacksquare\)} {\color[HTML]{803d9b}\(\blacksquare\)}
+{\color[HTML]{0097a7}\(\blacksquare\)} {\color[HTML]{dddcd9}\(\blacksquare\)} \\
+{\color[HTML]{76757a}\(\blacksquare\)} {\color[HTML]{ed333b}\(\blacksquare\)} {\color[HTML]{33d079}\(\blacksquare\)} {\color[HTML]{f6d22c}\(\blacksquare\)} {\color[HTML]{3583e4}\(\blacksquare\)} {\color[HTML]{bf60ca}\(\blacksquare\)} {\color[HTML]{26c6da}\(\blacksquare\)} {\color[HTML]{f6f5f4}\(\blacksquare\)}
+
+Since {\color[HTML]{0097a7}bright\_black} is effectively grey, we define two aliases for it:\\
+{\color[HTML]{0097a7}grey} and {\color[HTML]{0097a7}gray} to allow for regional spelling differences.
+
+To flip the foreground and background colors of some text, you can use the\\
+{\color[HTML]{0097a7}inverse} face, for example: {\color[HTML]{803d9b}some \colorbox[HTML]{803d9b}{\color[HTML]{000000}inverse} text}.
+
+The intent-based basic faces are {\color[HTML]{76757a}shadow} (for dim but visible text),\\
+\colorbox[HTML]{3a3a3a}{region} for selections, {\color[HTML]{195eb3}emphasis}, and \colorbox[HTML]{195eb3}{highlight}.\\
+As above, {\color[HTML]{0097a7}code} is used for code-like text.
+
+Lastly, we have the 'message severity' faces: {\color[HTML]{ed333b}error}, {\color[HTML]{e5a509}warning},\\
+{\color[HTML]{25a268}success}, {\color[HTML]{26c6da}info}, {\color[HTML]{76757a}note}, and {\color[HTML]{33d079}tip}.
+
+Remember that all these faces (and any user or package-defined ones), can\\
+arbitrarily nest and overlap, \colorbox[HTML]{3a3a3a}{\color[HTML]{33d079}like
+  {\fontseries{b}\fontshape{it}\selectfont so}}.
+\endgroup
+```
 
 ## [API reference](@id stdlib-styledstrings-api)
 

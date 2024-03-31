@@ -8,7 +8,7 @@ makedocs(;
     sitename = "Styled Strings",
     authors = "tecosaur <contact@tecosaur.net> and contributors",
     repo = "https://github.com/JuliaLang/StyledStrings.jl/blob/{commit}{path}#{line}",
-    format = Documenter.HTML(),
+    format = Documenter.HTML(ansicolor = true),
     pages = [
         "StyledStrings" => "index.md",
         "Internals" => "internals.md",
