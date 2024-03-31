@@ -16,4 +16,5 @@ makedocs(;
     warnonly = [:cross_references],
 )
 
-deploydocs(repo="github.com/JuliaLang/StyledStrings.jl")
+deploydocs(repo="github.com/JuliaLang/StyledStrings.jl",
+           push_preview = true)
