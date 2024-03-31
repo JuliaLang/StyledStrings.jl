@@ -13,7 +13,7 @@ makedocs(;
         "StyledStrings" => "index.md",
         "Internals" => "internals.md",
     ],
-    warnonly=true
+    warnonly= [:cross_references],
 )
 
 deploydocs(repo="github.com/JuliaLang/StyledStrings.jl",
