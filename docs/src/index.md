@@ -32,9 +32,9 @@ Along with these capabilities, we also provide a convenient way for constructing
 [`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
 Literals](@ref stdlib-styledstring-literals).
 
-```julia-repl
-julia> styled"{yellow:hello} {blue:there}"
-"hello there" # prints with colour in the REPL
+```@repl intro
+using StyledStrings
+styled"{yellow:hello} {blue:there}" # prints with colour in the REPL
 ```
 
 ## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
@@ -56,6 +56,25 @@ namely:
 - `strikethrough`
 - `inverse`
 - `inherit`
+
+Some examples:
+
+```@repl intro
+println(styled"
+- {bold:bold}
+- {italic:italic}
+- {underline:underline}
+- ...
+- {red:red}
+- {green:green}
+- ...
+- {region:region}
+- {emphasis:emphasis}
+- {highlight:highlight}
+- {code:code}
+- ...
+")
+```
 
 For details on the particular forms these attributes take, see the
 [`Face`](@ref StyledStrings.Face) docstring, but of particular interest is `inherit` as it allows
@@ -141,21 +160,13 @@ We can supply `:face` attributes to a `AnnotatedString` during construction, add
 them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
-```jldoctest; setup = :(import StyledStrings: Face, @styled_str)
-julia> str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
-"blue text"
-
-julia> str2 = styled"{blue:blue text}"
-"blue text"
-
-julia> str1 == str2
-true
-
-julia> sprint(print, str1, context = :color => true)
-"\e[34mblue text\e[39m"
-
-julia> sprint(show, MIME("text/html"), str1, context = :color => true)
-"<pre><span style=\"color: #195eb3;\">blue text</span></pre>"
+```@repl intro
+import StyledStrings: Face, @styled_str
+str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
+str2 = styled"{blue:blue text}"
+str1 == str2
+sprint(print, str1, context = :color => true)
+sprint(show, MIME("text/html"), str1, context = :color => true)
 ```
 
 ## [Styled String Literals](@id stdlib-styledstring-literals)
