@@ -42,7 +42,7 @@ end
 const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
                           "height", "weight", "slant", "underline",
                           "strikethrough", "inverse", "inherit")
-const LIKELY_FUTURE_FACE_ATTRS = ("shape", "style", "variant", "features", "alpha")
+const LIKELY_FUTURE_FACE_ATTRS = (:shape, :style, :variant, :features, :alpha)
 const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
                        "medium", "semibold", "bold", "extrabold", "black")
 const VALID_SLANTS = ("italic", "oblique", "normal")
@@ -471,9 +471,14 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         elseif key == :inherit
             inherit, lastchar = read_inherit!(state, lastchar)
             inherit
+        elseif key in LIKELY_FUTURE_FACE_ATTRS
+            # Do nothing so that if the face keys are populated in the future,
+            # they only soft-error (i.e. do nothing). This is somewhat
+            # consistent with the way the `Faces(...)` constructor works.
         else
-            styerr!(state, AnnotatedString("Uses unrecognised face key '$key'",
-                                            [(29:28+ncodeunits(String(key)), :face => :warning)]),
+            styerr!(state, AnnotatedString(
+                "Uses unrecognised face key '$key'. Recognised keys are: $(join(VALID_FACE_ATTRS, ", ", ", and "))",
+                [(29:28+ncodeunits(String(key)), :face => :warning)]),
                     -length(str_key) - 2)
         end
         if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
