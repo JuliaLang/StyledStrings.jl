@@ -23,10 +23,10 @@ tackled head-on by the introduction of a special string type
 [`AbstractString`](@ref) type and allows for formating information to be applied to regions (e.g.
 characters 1 through to 7 are bold and red).
 
-Regions of a string are styled by applying [`Face`](@ref StyledStrings.Face)s to them —a
-structure that holds styling information— (think "typeface"). As a
-convenience, it is possible to name a face in the global faces dictionary
-instead of giving the [`Face`](@ref StyledStrings.Face) directly.
+Regions of a string are styled by applying [`Face`](@ref StyledStrings.Face)s
+(think "typeface") to them — a structure that holds styling information . As a
+convenience, faces in the global faces dictionary (e.g. `shadow`) can just be
+named instead of giving the [`Face`](@ref StyledStrings.Face) directly.
 
 Along with these capabilities, we also provide a convenient way for constructing
 [`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
