@@ -5,17 +5,17 @@
 When working with strings, formatting and styling often appear as a secondary
 concern.
 
-!!! note
-    For instance, when printing to a terminal you might want to sprinkle [ANSI
-    escape sequences](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters)
-    in the output, when outputting HTML styling constructs (`<span style="...">`,
-    etc.) serve a similar purpose, and so on. It is possible to simply insert the
-    raw styling constructs into the string next to the content itself, but it
-    quickly becomes apparent that this is not well suited for anything but the most
-    basic use-cases. Not all terminals support the same ANSI codes, the styling
-    constructs need to be painstakingly removed when calculating the width of
-    already-styled content, and that's before you even get into handling
-    multiple output formats.
+For instance, when printing to a terminal you might want to sprinkle [ANSI
+escape
+sequences](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters)
+in the output, when outputting HTML styling constructs (`<span style="...">`,
+etc.) serve a similar purpose, and so on. It is possible to simply insert the
+raw styling constructs into the string next to the content itself, but it
+quickly becomes apparent that this is not well suited for anything but the most
+basic use-cases. Not all terminals support the same ANSI codes, the styling
+constructs need to be painstakingly removed when calculating the width of
+already-styled content, and that's before you even get into handling multiple
+output formats.
 
 Instead of leaving this headache to be widely experienced downstream, it is
 tackled head-on by the introduction of a special string type
