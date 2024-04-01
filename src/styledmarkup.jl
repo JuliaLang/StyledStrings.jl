@@ -288,22 +288,47 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         end
         lastchar
     end
-    function read_underline!(state, lastchar)
+    function read_underline!(state, lastchar, needseval)
         if isnextchar(state, '(')
             ustart, _ = popfirst!(state.s)
             skipwhitespace!(state)
-            ucolor_str, ucolor = if isnextchar(state, ',')
+            ucolor = if isnextchar(state, ',')
                 lastchar = last(popfirst!(state.s))
-                "", nothing
+                nothing
+            elseif isnextchar(state, '$') && ismacro(state)
+                expr, _ = readexpr!(state)
+                lastchar = last(popfirst!(state.s))
+                state.interpolated[] = true
+                needseval = true
+                esc(expr)
             else
                 word, lastchar = readsymbol!(state, lastchar)
-                word, parsecolor(word)
+                parsecolor(word)
             end
             lastchar = nextnonwhitespace!(state, lastchar)
+            ustyle = :straight
             if !isempty(state.s) && lastchar == ','
                 skipwhitespace!(state)
-                ustyle, lastchar = readalph!(state, lastchar)
-                lastchar = nextnonwhitespace!(state, lastchar)
+                if isnextchar(state, '$') && ismacro(state)
+                    expr, _ = readexpr!(state)
+                    lastchar = last(popfirst!(state.s))
+                    state.interpolated[] = true
+                    needseval = true
+                    ustyle = esc(expr)
+                else
+                    ustyle_word, lastchar = readalph!(state, lastchar)
+                    if ustyle_word ∉ VALID_UNDERLINE_STYLES
+                        valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
+                        styerr!(state,
+                                AnnotatedString("Invalid underline style '$ustyle_word' (should be $valid_options)",
+                                                [(26:25+ncodeunits(ustyle_word), :face => :warning)
+                                                    (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
+                                                    :face => :light)]),
+                                -length(ustyle_word) - 3)
+                    end
+                    ustyle = Symbol(ustyle_word)
+                    lastchar = nextnonwhitespace!(state, lastchar)
+                end
                 if lastchar == ')'
                     lastchar = last(popfirst!(state.s))
                 else
@@ -313,21 +338,11 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             else
                 styerr!(state, "Malformed underline value, should be (<color>, <style>)",
                         -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
-                ustyle = "straight"
-            end
-            if ustyle ∉ VALID_UNDERLINE_STYLES
-                valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
-                styerr!(state,
-                        AnnotatedString("Invalid underline style '$ustyle' (should be $valid_options)",
-                                        [(26:25+ncodeunits(ustyle), :face => :warning)
-                                            (28+ncodeunits(ustyle):39+ncodeunits(ustyle)+ncodeunits(valid_options),
-                                            :face => :light)]),
-                        -length(ustyle) - 3)
             end
             if ismacro(state)
-                Expr(:tuple, ucolor, QuoteNode(Symbol(ustyle)))
+                Expr(:tuple, ucolor, if ustyle isa Symbol QuoteNode(ustyle) else ustyle end)
             else
-                (ucolor, Symbol(ustyle))
+                (ucolor, ustyle)
             end
         else
             word, lastchar = readsymbol!(state, lastchar)
@@ -341,7 +356,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             else
                 parsecolor(word)
             end
-        end, lastchar
+        end, lastchar, needseval
     end
     function read_inherit!(state, lastchar)
         inherit = Symbol[]
@@ -466,7 +481,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 false
             end
         elseif key == :underline
-            ul, lastchar = read_underline!(state, lastchar)
+            ul, lastchar, needseval = read_underline!(state, lastchar, needseval)
             ul
         elseif key == :inherit
             inherit, lastchar = read_inherit!(state, lastchar)
@@ -704,8 +719,8 @@ hexcolor = ('#' | '0x'), [0-9a-f]{6} ;
 simplecolor = hexcolor | symbol | nothing ;
 
 underline = nothing | bool | simplecolor | underlinestyled;
-underlinestyled = '(', ws, ('' | nothing | simplecolor), ws,
-                  ',', ws, symbol, ws ')' ;
+underlinestyled = '(', ws, ('' | nothing | simplecolor | interpolated), ws,
+                  ',', ws, ( symbol | interpolated ), ws ')' ;
 
 inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval;
 inheritval = ws, ':'?, symbol ;
