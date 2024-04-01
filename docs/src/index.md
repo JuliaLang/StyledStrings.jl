@@ -20,7 +20,7 @@ output formats.
 Instead of leaving this headache to be widely experienced downstream, it is
 tackled head-on by the introduction of a special string type
 ([`AnnotatedString`](@ref Base.AnnotatedString)). This string type wraps any other
-string type and allows for formating information to be applied to regions (e.g.
+[`AbstractString`](@ref) type and allows for formating information to be applied to regions (e.g.
 characters 1 through to 7 are bold and red).
 
 Regions of a string are styled by applying [`Face`](@ref StyledStrings.Face)s to them —a
