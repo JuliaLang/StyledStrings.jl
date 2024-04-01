@@ -47,6 +47,7 @@ A [`Face`](@ref StyledStrings.Face) specifies details of a typeface that text ca
 covers a set of basic attributes that generalise well across different formats,
 namely:
 
+- `font`
 - `height`
 - `weight`
 - `slant`
