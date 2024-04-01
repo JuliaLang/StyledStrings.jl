@@ -70,7 +70,7 @@ referred to simply by name. Packages can add faces to this dictionary via the
 [`addface!`](@ref StyledStrings.addface!) function, and the loaded faces can be
 easily [customised](@ref stdlib-styledstrings-face-toml).
 
-!!! warning
+!!! warning "Appropriate face naming"
     Any package registering new faces should ensure that they are prefixed
     by the package name, i.e. follow the format `mypackage_myface`.
     This is important for predictability, and to prevent name clashes.

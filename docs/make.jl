@@ -11,6 +11,7 @@ makedocs(;
     format = Documenter.HTML(ansicolor = true),
     pages = [
         "StyledStrings" => "index.md",
+        "Example Usage" => "examples.md",
         "Internals" => "internals.md",
     ],
     warnonly = [:cross_references],
