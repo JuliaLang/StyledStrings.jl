@@ -433,12 +433,15 @@ end
 
 """
     withfaces(f, kv::Pair...)
+    withfaces(f, kvpair_itr)
 
-Execute `f` with `FACES``.current` temporarily modified by zero or more
-`:name => val` arguments `kv`. `withfaces` is generally used via the
-`withfaces(kv...) do ... end` syntax. A value of `nothing` can be used to
-temporarily unset an face (if if has been set). When `withfaces` returns, the
-original `FACES``.current` has been restored.
+Execute `f` with `FACES``.current` temporarily modified by zero or more `:name
+=> val` arguments `kv`, or `kvpair_itr` which produces `kv`-form values.
+
+`withfaces` is generally used via the `withfaces(kv...) do ... end` syntax. A
+value of `nothing` can be used to temporarily unset a face (if it has been
+set). When `withfaces` returns, the original `FACES``.current` has been
+restored.
 
 # Examples
 
@@ -449,13 +452,18 @@ julia> withfaces(:yellow => Face(foreground=:red), :green => :blue) do
 red and blue mixed make purple
 ```
 """
-function withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Nothing}}...)
+function withfaces(f, keyvals_itr)
+    if !(eltype(keyvals_itr) <: Pair{Symbol})
+        throw(MethodError(withfaces, (f, keyvals_itr)))
+    end
     newfaces = copy(FACES.current[])
-    for (name, face) in keyvals
+    for (name, face) in keyvals_itr
         if face isa Face
             newfaces[name] = face
         elseif face isa Symbol
-            newfaces[name] =get(FACES.current[], face, Face())
+            newfaces[name] = get(FACES.current[], face, Face())
+        elseif face isa Vector{Symbol}
+            newfaces[name] = Face(inherit=face)
         elseif haskey(newfaces, name)
             delete!(newfaces, name)
         end
@@ -463,15 +471,8 @@ function withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Nothing}}...)
     @with(FACES.current => newfaces, f())
 end
 
-"""
-    withfaces(f, altfaces::Dict{Symbol, Face})
-
-Execute `f` with `FACES``.current` temporarily swapped out with `altfaces`
-When `withfaces` returns, the original `FACES``.current` has been restored.
-"""
-function withfaces(f, altfaces::Dict{Symbol, Face})
-    @with(FACES.current => altfaces, f())
-end
+withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Vector{Symbol}, Nothing}}...) =
+    withfaces(f, keyvals)
 
 withfaces(f) = f()
 

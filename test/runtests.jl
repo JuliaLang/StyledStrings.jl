@@ -159,13 +159,15 @@ end
     @test StyledStrings.withfaces(:red => :green) do
         get(FACES.current[], :red, nothing)
     end == Face(foreground=:green)
+    @test StyledStrings.withfaces(:red => [:green, :inverse]) do
+        get(FACES.current[], :red, nothing)
+    end == Face(inherit=[:green, :inverse])
     @test StyledStrings.withfaces(:red => nothing) do
         get(FACES.current[], :red, nothing)
     end === nothing
-    @test StyledStrings.withfaces(Dict(:green => Face(foreground=:green))) do
-        get(FACES.current[], :green, nothing),
-        get(FACES.current[], :blue, nothing)
-    end == (Face(foreground=:green), nothing)
+    @test StyledStrings.withfaces(Dict(:green => Face(foreground=:blue))) do
+        get(FACES.current[], :green, nothing)
+    end == Face(foreground=:blue)
     @test StyledStrings.withfaces(() -> 1) == 1
     # Basic merging
     let f1 = Face(height=140, weight=:bold, inherit=[:a])
