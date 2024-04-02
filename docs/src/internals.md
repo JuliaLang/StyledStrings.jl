@@ -24,5 +24,4 @@ StyledStrings.resetfaces!
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
-StyledStrings.withfaces
 ```

@@ -7,7 +7,7 @@ import Base: AnnotatedString, AnnotatedChar, annotations, annotate!,
     ScopedValue, with, @with
 
 export @styled_str
-public Face, addface!, SimpleColor
+public Face, addface!, withfaces, styled, SimpleColor
 
 include("faces.jl")
 include("regioniterator.jl")

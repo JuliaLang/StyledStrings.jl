@@ -186,6 +186,7 @@ StyledStrings.@styled_str
 StyledStrings.styled
 StyledStrings.Face
 StyledStrings.addface!
+StyledStrings.withfaces
 StyledStrings.SimpleColor
 Base.parse(::Type{StyledStrings.SimpleColor}, ::String)
 Base.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
