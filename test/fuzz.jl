@@ -120,8 +120,8 @@ const facename = Data.Text(Data.SampledFrom(alphanum); min_len=1, max_len=20)
 const face = facename #| interpolated
 
 const key = (@composed function k(
-                 start=filter(c -> !(c in "\${},:"), anychar),
-                 next=Data.Text(filter(c -> !(c in "=,:"), anychar); max_len=20))
+                 start=filter(c -> !(c in "\0\${},:"), anychar),
+                 next=Data.Text(filter(c -> !(c in "\0=,:"), anychar); max_len=20))
                  start*next
              end) #| interpolated
 

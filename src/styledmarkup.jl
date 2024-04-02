@@ -688,7 +688,7 @@ inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
 faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
 
 keyvalue = key, ws, '=', ws, value ;
-key = ( [^\${}=,:], [^=,:]* ) | interpolated ;
+key = ( [^\\0\${}=,:], [^\\0=,:]* ) | interpolated ;
 value = simplevalue | curlybraced | interpolated ;
 curlybraced = '{' { escaped | plain } '}' ;
 simplevalue = [^\${},:], [^,:]* ;
