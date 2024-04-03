@@ -12,7 +12,7 @@ in the output, when outputting HTML styling constructs (`<span style="...">`,
 etc.) serve a similar purpose, and so on. It is possible to simply insert the
 raw styling constructs into the string next to the content itself, but it
 quickly becomes apparent that this is not well suited for anything but the most
-basic use-cases. Not all terminals support the same ANSI codes, the styling
+basic use cases. Not all terminals support the same ANSI codes, the styling
 constructs need to be painstakingly removed when calculating the width of
 already-styled content, and that's before you even get into handling multiple
 output formats.
@@ -20,11 +20,11 @@ output formats.
 Instead of leaving this headache to be widely experienced downstream, it is
 tackled head-on by the introduction of a special string type
 ([`AnnotatedString`](@ref Base.AnnotatedString)). This string type wraps any other
-[`AbstractString`](@ref) type and allows for formating information to be applied to regions (e.g.
+[`AbstractString`](@ref) type and allows for formatting information to be applied to regions (e.g.
 characters 1 through to 7 are bold and red).
 
 Regions of a string are styled by applying [`Face`](@ref StyledStrings.Face)s
-(think "typeface") to them — a structure that holds styling information . As a
+(think "typeface") to them — a structure that holds styling information. As a
 convenience, faces in the global faces dictionary (e.g. `shadow`) can just be
 named instead of giving the [`Face`](@ref StyledStrings.Face) directly.
 
@@ -44,7 +44,7 @@ styled"{yellow:hello} {blue:there}"
 ### The `Face` type
 
 A [`Face`](@ref StyledStrings.Face) specifies details of a typeface that text can be set in. It
-covers a set of basic attributes that generalise well across different formats,
+covers a set of basic attributes that generalize well across different formats,
 namely:
 
 - `font`
@@ -68,7 +68,7 @@ To make referring to particular styles more convenient, there is a global
 `Dict{Symbol, Face}` that allows for [`Face`](@ref StyledStrings.Face)s to be
 referred to simply by name. Packages can add faces to this dictionary via the
 [`addface!`](@ref StyledStrings.addface!) function, and the loaded faces can be
-easily [customised](@ref stdlib-styledstrings-face-toml).
+easily [customized](@ref stdlib-styledstrings-face-toml).
 
 !!! warning "Appropriate face naming"
     Any package registering new faces should ensure that they are prefixed
@@ -80,12 +80,12 @@ faces that are part of the default value of the faces dictionary.
 
 #### [Basic faces](@id stdlib-styledstrings-basic-faces)
 
-Basic faces are intended represent a general idea, that is widely applicable.
+Basic faces are intended to represent a general idea that is widely applicable.
 
 For setting some text with a certain attribute, we have the `bold`, `light`,
 `italic`, `underline`, `strikethrough`, and `inverse` faces.
 
-There are also named faces for the 16 terminal colours: `black`, `red`, `green`,
+There are also named faces for the 16 terminal colors: `black`, `red`, `green`,
 `yellow`, `blue`, `magenta`, `cyan`, `white`, `bright_black`/`grey`/`gray`,
 `bright_red`, `bright_green`, `bright_blue`, `bright_magenta`, `bright_cyan`,
 and `bright_white`.
@@ -95,7 +95,7 @@ selected region, there is the `region` face. Similarly for emphasis and
 highlighting the `emphasis` and `highlight` faces are defined. There is also
 `code` for code-like text.
 
-For visually indicating the severity of messages the `error`, `warning`,
+For visually indicating the severity of messages, the `error`, `warning`,
 `success`, `info`, `note`, and `tip` faces are defined.
 
 ### [Customisation of faces (`Faces.toml`)](@id stdlib-styledstrings-face-toml)
@@ -124,7 +124,7 @@ like so:
 foreground = "white"
 ```
 
-On initialisation, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
+On initialization, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
 
 ### Applying faces to a `AnnotatedString`
 
@@ -156,7 +156,7 @@ To ease construction of [`AnnotatedString`](@ref Base.AnnotatedString)s with [`F
 the [`styled"..."`](@ref @styled_str) styled string literal allows for the content and
 attributes to be easily expressed together via a custom grammar.
 
-Within a [`styled"..."`](@ref @styled_str) literal, curly parenthesis are considered
+Within a [`styled"..."`](@ref @styled_str) literal, curly braces are considered
 special characters and must be escaped in normal usage (`\{`, `\}`). This allows
 them to be used to express annotations with (nestable) `{annotations...:text}`
 constructs.
@@ -195,7 +195,7 @@ As above, {code:code} is used for code-like text.
 Lastly, we have the 'message severity' faces: {error:error}, {warning:warning},
 {success:success}, {info:info}, {note:note}, and {tip:tip}.
 
-Remember that all these faces (and any user or package-defined ones), can
+Remember that all these faces (and any user or package-defined ones) can
 arbitrarily nest and overlap, {region,tip:like {bold,italic:so}}.")
 ```
 
@@ -225,7 +225,7 @@ Documenter doesn't properly represent all the styling above, so I've converted i
  Lastly, we have the 'message severity' faces: <span style="color: #ed333b;">error</span>, <span style="color: #e5a509;">warning</span>,
  <span style="color: #25a268;">success</span>, <span style="color: #26c6da;">info</span>, <span style="color: #76757a;">note</span>, and <span style="color: #33d079;">tip</span>.
 
- Remember that all these faces (and any user or package-defined ones), can
+ Remember that all these faces (and any user or package-defined ones) can
  arbitrarily nest and overlap, <span style="color: #33d079;background-color: #3a3a3a;">like <span style="font-weight: 700;font-style: italic;">so</span></span>.</pre>
 ```
 
@@ -257,7 +257,7 @@ As above, {\color[HTML]{0097a7}code} is used for code-like text.
 Lastly, we have the 'message severity' faces: {\color[HTML]{ed333b}error}, {\color[HTML]{e5a509}warning},\\
 {\color[HTML]{25a268}success}, {\color[HTML]{26c6da}info}, {\color[HTML]{76757a}note}, and {\color[HTML]{33d079}tip}.
 
-Remember that all these faces (and any user or package-defined ones), can\\
+Remember that all these faces (and any user or package-defined ones) can\\
 arbitrarily nest and overlap, \colorbox[HTML]{3a3a3a}{\color[HTML]{33d079}like
   {\fontseries{b}\fontshape{it}\selectfont so}}.
 \endgroup
