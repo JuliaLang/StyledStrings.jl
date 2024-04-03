@@ -7,7 +7,12 @@ using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
 using .StyledMarkup: MalformedStylingMacro
 using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 
-include("maybefuzz.jl") # For use in the "Styled Markup" testset
+const NON_STDLIB_TESTS = Main == @__MODULE__
+if NON_STDLIB_TESTS
+    include("styfuzz.jl") # For use in the "Styled Markup" testset
+else
+    styfuzz() = nothing
+end
 
 # For output testing
 
@@ -424,7 +429,7 @@ end
 end
 
 # Markup fuzzing!
-maybefuzz()
+styfuzz()
 
 @testset "AnnotatedIOBuffer" begin
     aio = AnnotatedIOBuffer()

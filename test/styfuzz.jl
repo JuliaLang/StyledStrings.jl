@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-const NON_STDLIB_TESTS = Main == @__MODULE__
+# *Not* run as part of the Julia central stdlib testsuite
 
 const IS_CI = lowercase(get(ENV, "CI", "no")) in ("true", "t", "1", "yes", "y")
 const PARSER_FILE = joinpath("src", "styledmarkup.jl")
@@ -22,24 +22,18 @@ function hasparserdiverged()
     !success(Cmd(`git diff --quiet --diff-filter=M $upstream -- $PARSER_FILE`, dir=PROJECT_DIR))
 end
 
-if NON_STDLIB_TESTS
-    using Supposition
-    include("fuzz.jl")
-    using .Fuzzer
-end
+using Supposition
+include("fuzz.jl")
+using .Fuzzer
 
-if NON_STDLIB_TESTS
-    function maybefuzz()
-        isstyled(s) = StyledStrings.styled(s) isa Base.AnnotatedString
-        max_examples = if hasparserdiverged()
-            ifelse(IS_CI, 5_000, 10_000)
-        else
-            1_000
-        end
-        @testset "Fuzz ($max_examples)" begin
-            @check max_examples = max_examples isstyled(Fuzzer.content)
-        end
+function styfuzz()
+    isstyled(s) = StyledStrings.styled(s) isa Base.AnnotatedString
+    max_examples = if hasparserdiverged()
+        ifelse(IS_CI, 5_000, 10_000)
+    else
+        1_000
     end
-else
-    maybefuzz() = nothing
+    @testset "Fuzz ($max_examples)" begin
+        @check max_examples = max_examples isstyled(Fuzzer.content)
+    end
 end
