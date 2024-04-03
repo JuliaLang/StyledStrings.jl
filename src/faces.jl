@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+using TOML
+
 const RGBTuple = NamedTuple{(:r, :g, :b), NTuple{3, UInt8}}
 
 """
@@ -27,7 +29,7 @@ end
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
 SimpleColor(rgb::UInt32) = SimpleColor(reverse(reinterpret(UInt8, [rgb]))[2:end]...)
 
-convert(::Type{SimpleColor}, (; r, g, b)::RGBTuple) = SimpleColor((; r, g, b))
+convert(::Type{SimpleColor}, rgb::RGBTuple) = SimpleColor(rgb)
 convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
 convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
 
@@ -183,7 +185,7 @@ function show(io::IO, ::MIME"text/plain", color::SimpleColor)
         print(io, AnnotatedString("■", [(1:1, :face => Face(foreground=color))]), ' ')
     end
     if color.value isa RGBTuple
-        (; r, g, b) = color.value
+        r, g, b = color.value.r, color.value.g, color.value.b
         print(io, '#',
               rpad(string(r, base=16), 2, '0'),
               rpad(string(g, base=16), 2, '0'),
@@ -199,7 +201,7 @@ function show(io::IO, color::SimpleColor)
     show(io, SimpleColor)
     print(io, '(')
     if color.value isa RGBTuple
-        (; r, g, b) = color.value
+        r, g, b = color.value.r, color.value.g, color.value.b
         print(io, "0x",
               rpad(string(r, base=16), 2, '0'),
               rpad(string(g, base=16), 2, '0'),
@@ -366,7 +368,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
     )
-    (; default, current=ScopedValue(copy(default)), lock=ReentrantLock())
+    (; default=default, current=Ref(copy(default)), lock=ReentrantLock())
 end
 
 ## Adding and resetting faces ##
@@ -390,12 +392,14 @@ Face (sample)
 ```
 """
 function addface!((name, default)::Pair{Symbol, Face})
-    @lock FACES.lock if !haskey(FACES.default, name)
-        FACES.default[name] = default
-        FACES.current[][name] = if haskey(FACES.current[], name)
-            merge(copy(default), FACES.current[][name])
-        else
-            copy(default)
+    lock(FACES.lock) do
+        if !haskey(FACES.default, name)
+            FACES.default[name] = default
+            FACES.current[][name] = if haskey(FACES.current[], name)
+                merge(copy(default), FACES.current[][name])
+            else
+                copy(default)
+            end
         end
     end
 end
@@ -406,7 +410,7 @@ end
 Reset the current global face dictionary to the default value.
 """
 function resetfaces!()
-    @lock FACES.lock begin
+    lock(FACES.lock) do
         current = FACES.current[]
         empty!(current)
         for (key, val) in FACES.default
@@ -426,14 +430,16 @@ In the unlikely event that the face `name` does not have a default value,
 it is deleted, a warning message is printed, and `nothing` returned.
 """
 function resetfaces!(name::Symbol)
-    @lock FACES.lock if !haskey(FACES.current[], name)
-    elseif haskey(FACES.default, name)
-        FACES.current[][name] = copy(FACES.default[name])
-    else # This shouldn't happen
-        delete!(FACES.current[], name)
-        @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
-                 This should not have happened, perhaps the face was added without using `addface!`?"""
-    end
+    lock(FACES.lock) do
+        if !haskey(FACES.current[], name)
+        elseif haskey(FACES.default, name)
+            FACES.current[][name] = copy(FACES.default[name])
+        else # This shouldn't happen
+            delete!(FACES.current[], name)
+            @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
+                    This should not have happened, perhaps the face was added without using `addface!`?"""
+        end
+     end
 end
 
 """
@@ -448,6 +454,9 @@ value of `nothing` can be used to temporarily unset a face (if it has been
 set). When `withfaces` returns, the original `FACES``.current` has been
 restored.
 
+    !!! warning
+    Changing faces is not thread-safe.
+
 # Examples
 
 ```jldoctest; setup = :(import StyledStrings: Face, withfaces)
@@ -461,19 +470,30 @@ function withfaces(f, keyvals_itr)
     if !(eltype(keyvals_itr) <: Pair{Symbol})
         throw(MethodError(withfaces, (f, keyvals_itr)))
     end
-    newfaces = copy(FACES.current[])
+    old = Dict{Symbol, Union{Face, Nothing}}()
     for (name, face) in keyvals_itr
+        old[name] = get(FACES.current[], name, nothing)
         if face isa Face
-            newfaces[name] = face
+            FACES.current[][name] = face
         elseif face isa Symbol
-            newfaces[name] = get(FACES.current[], face, Face())
+            FACES.current[][name] =
+                something(get(old, face, nothing), get(FACES.current[], face, Face()))
         elseif face isa Vector{Symbol}
-            newfaces[name] = Face(inherit=face)
-        elseif haskey(newfaces, name)
-            delete!(newfaces, name)
+            FACES.current[][name] = Face(inherit=face)
+        elseif haskey(FACES.current[], name)
+            delete!(FACES.current[], name)
         end
     end
-    @with(FACES.current => newfaces, f())
+    try f()
+    finally
+        for (name, face) in old
+            if isnothing(face)
+                delete!(FACES.current[], name)
+            else
+                FACES.current[][name] = face
+            end
+        end
+    end
 end
 
 withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Vector{Symbol}, Nothing}}...) =
@@ -606,10 +626,12 @@ Face (sample)
 ```
 """
 function loadface!((name, update)::Pair{Symbol, Face})
-    @lock FACES.lock if haskey(FACES.current[], name)
-        FACES.current[][name] = merge(FACES.current[][name], update)
-    else
-        FACES.current[][name] = update
+    lock(FACES.lock) do
+        if haskey(FACES.current[], name)
+            FACES.current[][name] = merge(FACES.current[][name], update)
+        else
+            FACES.current[][name] = update
+        end
     end
 end
 
@@ -645,7 +667,7 @@ end
 
 Load all faces declared in the Faces.toml file `tomlfile`.
 """
-loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
+loaduserfaces!(tomlfile::String) = loaduserfaces!(open(TOML.parse, tomlfile))
 
 function convert(::Type{Face}, spec::Dict)
     Face(if haskey(spec, "font") && spec["font"] isa String

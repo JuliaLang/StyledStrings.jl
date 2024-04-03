@@ -19,7 +19,7 @@ output formats.
 
 Instead of leaving this headache to be widely experienced downstream, it is
 tackled head-on by the introduction of a special string type
-([`AnnotatedString`](@ref Base.AnnotatedString)). This string type wraps any other
+([`AnnotatedString`](@ref StyledStrings.AnnotatedString)). This string type wraps any other
 [`AbstractString`](@ref) type and allows for formatting information to be applied to regions (e.g.
 characters 1 through to 7 are bold and red).
 
@@ -29,7 +29,7 @@ convenience, faces in the global faces dictionary (e.g. `shadow`) can just be
 named instead of giving the [`Face`](@ref StyledStrings.Face) directly.
 
 Along with these capabilities, we also provide a convenient way for constructing
-[`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
+[`AnnotatedString`](@ref StyledStrings.AnnotatedString)s, detailed in [Styled String
 Literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
@@ -37,7 +37,7 @@ using StyledStrings
 styled"{yellow:hello} {blue:there}"
 ```
 
-## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
+## Styling via [`AnnotatedString`](@ref StyledStrings.AnnotatedString)s
 
 ## [Faces](@id stdlib-styledstrings-faces)
 
@@ -129,7 +129,7 @@ On initialization, the `config/faces.toml` file under the first Julia depot (usu
 ### Applying faces to a `AnnotatedString`
 
 By convention, the `:face` attributes of a [`AnnotatedString`](@ref
-Base.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
+StyledStrings.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
 that currently apply. This can be given in multiple forms, as a single `Symbol`
 naming a [`Face`](@ref StyledStrings.Face)s in the global face dictionary, a
 [`Face`](@ref StyledStrings.Face) itself, or a vector of either.
@@ -143,7 +143,7 @@ them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
-str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
+str1 = StyledStrings.AnnotatedString("blue text", [(1:9, :face => :blue)])
 str2 = styled"{blue:blue text}"
 str1 == str2
 sprint(print, str1, context = :color => true)
@@ -152,7 +152,7 @@ sprint(show, MIME("text/html"), str1, context = :color => true)
 
 ## [Styled String Literals](@id stdlib-styledstring-literals)
 
-To ease construction of [`AnnotatedString`](@ref Base.AnnotatedString)s with [`Face`](@ref StyledStrings.Face)s applied,
+To ease construction of [`AnnotatedString`](@ref StyledStrings.AnnotatedString)s with [`Face`](@ref StyledStrings.Face)s applied,
 the [`styled"..."`](@ref @styled_str) styled string literal allows for the content and
 attributes to be easily expressed together via a custom grammar.
 

@@ -53,7 +53,8 @@ end
 Print to `io` the best 8-bit SGR color code that sets the `category` color to
 be close to `color`.
 """
-function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
+function termcolor8bit(io::IO, rgb::RGBTuple, category::Char)
+    r, g, b = rgb.r, rgb.g, rgb.b
     # RGB values are mapped to a 6x6x6 "colour cube", which (mapped to
     # 24-bit colour space), jumps up from a black level of 0 in each
     # component to 95, then takes 4 steps of 40 to reach 255.
@@ -72,7 +73,7 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
         # There aren't many greys in the 6x6x6 colour cube, so the remaining
         # space in the 256-colour range not taken up by the 16 "named" 4-bit
         # colours and the 6 colour cube is used for 24 shades of grey (`8:10:238`).
-        grey = sum((r, g, b)) ÷ 3
+        grey = (Int(r) + Int(g) + Int(b)) ÷ 3
         grey_level = min(23, (grey - 3) ÷ 10)
         greynear = 8 + 10 * grey_level
         if cdistsq(greynear, greynear, greynear) <= cdistsq(rnear, gnear, bnear)
@@ -113,7 +114,7 @@ If `color` is a `SimpleColor{RGBTuple}` and `get_have_truecolor()` returns true,
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
     if color.value isa RGBTuple
-        if Base.get_have_truecolor()
+        if get_have_truecolor()
             termcolor24bit(io, color.value, category)
         else
             termcolor8bit(io, color.value, category)
@@ -158,6 +159,7 @@ const ANSI_STYLE_CODES = (
 )
 
 function termstyle(io::IO, face::Face, lastface::Face=getface())
+    global current_terminfo
     face.foreground == lastface.foreground ||
         termcolor(io, face.foreground, '3')
     face.background == lastface.background ||
@@ -166,12 +168,12 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
                   ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
-                  get(Base.current_terminfo, :dim, "")
+                  get(current_terminfo, :dim, "")
               else # :normal
                   ANSI_STYLE_CODES.normal_weight
               end)
     face.slant == lastface.slant ||
-        if haskey(Base.current_terminfo, :enter_italics_mode)
+        if haskey(current_terminfo, :enter_italics_mode)
             print(io, ifelse(face.slant ∈ (:italic, :oblique),
                              ANSI_STYLE_CODES.start_italics,
                              ANSI_STYLE_CODES.end_italics))
@@ -183,7 +185,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
     face.underline == lastface.underline ||
-        if haskey(Base.current_terminfo, :set_underline_style)
+        if haskey(current_terminfo, :set_underline_style)
             if face.underline isa Tuple # Color and style
                 color, style = face.underline
                 print(io, "\e[4:",
@@ -212,11 +214,11 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                              ANSI_STYLE_CODES.start_underline,
                              ANSI_STYLE_CODES.end_underline))
         end
-    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo, :smxx) ||
+    face.strikethrough == lastface.strikethrough || !haskey(current_terminfo, :smxx) ||
         print(io, ifelse(face.strikethrough === true,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.inverse == lastface.inverse || !haskey(Base.current_terminfo, :enter_reverse_mode) ||
+    face.inverse == lastface.inverse || !haskey(current_terminfo, :enter_reverse_mode) ||
         print(io, ifelse(face.inverse === true,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
@@ -255,9 +257,13 @@ write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
 print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
-escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-              esc = ""; keep = ()) =
-    (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
+@static if VERSION < v"1.3"
+    escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = "") =
+        (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc)); nothing)
+else
+    escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = ""; keep = ()) =
+        (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep=keep)); nothing)
+end
 
 function write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
@@ -282,7 +288,7 @@ function show(io::IO, c::AnnotatedChar)
     end
 end
 
-function write(io::IO, aio::Base.AnnotatedIOBuffer)
+function write(io::IO, aio::AnnotatedIOBuffer)
     if get(io, :color, false) == true
         # This does introduce an overhead that technically
         # could be avoided, but I'm not sure that it's currently
@@ -330,7 +336,7 @@ function htmlcolor(io::IO, color::SimpleColor)
             htmlcolor(io, get(HTML_BASIC_COLORS, color.value, SimpleColor(:default)))
         end
     else
-        (; r, g, b) = color.value
+        r, g, b = color.value.r, color.value.g, color.value.b
         print(io, '#')
         r < 0x10 && print(io, '0')
         print(io, string(r, base=16))
@@ -425,7 +431,11 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
 end
 
 function show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
-    htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
+    @static if VERSION >= v"1.7"
+        htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
+    else
+        htmlescape(str) = replace(replace(replace(String(str), '&' => "&amp;"), '<' => "&lt;"), '>' => "&gt;")
+    end
     buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
     wrap == :none ||
         print(buf, '<', String(wrap), '>')

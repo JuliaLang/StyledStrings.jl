@@ -27,7 +27,7 @@ include("fuzz.jl")
 using .Fuzzer
 
 function styfuzz()
-    isstyled(s) = StyledStrings.styled(s) isa Base.AnnotatedString
+    isstyled(s) = StyledStrings.styled(s) isa StyledStrings.AnnotatedString
     max_examples = if hasparserdiverged()
         ifelse(IS_CI, 5_000, 10_000)
     else

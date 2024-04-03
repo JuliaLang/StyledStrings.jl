@@ -45,8 +45,11 @@ Of course, as usual, the devil is in the details.
 """
 module StyledMarkup
 
-using Base: AnnotatedString, annotations, annotatedstring
+import ..AnnotatedStrings: AnnotatedString, annotations, annotatedstring
 using ..StyledStrings: Face, SimpleColor
+using ..Compat
+
+const ncodeunits = Compat.ncodeunits
 
 export @styled_str, styled
 
@@ -106,14 +109,15 @@ end
 
 function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
     State(content, Vector{UInt8}(content), # content, bytes
-          Iterators.Stateful(pairs(content)), mod, # s, eval
-          Any[], # parts
+          Iterators.Stateful(pairs(
+              @static if VERSION < v"1.1" deepcopy(content) else content end)),
+          mod, Any[], # eval, parts
           Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[], # active_styles
           Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[], # pending_styles
           Ref(0), Ref(1), # offset, point
           Ref(false), Ref(false), # escape, interpolated
-          NamedTuple{(:message, :position, :hint), # errors
-                     Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}[])
+          Vector{Union{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Int, String}},
+                       NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Nothing, String}}}}())
 end
 
 const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
@@ -168,7 +172,7 @@ function styerr!(state::State, message::AbstractString, position::Union{Nothing,
             end,
             -position)
     end
-    push!(state.errors, (; message=AnnotatedString(message), position, hint))
+    push!(state.errors, (; message=AnnotatedString(message), position=position, hint=hint))
     nothing
 end
 
@@ -181,7 +185,7 @@ just need to manually invoke it due to the particularities around dealing with
 code from a foreign module that we parse ourselves.
 """
 hygienic_eval(state::State, expr) =
-    Core.eval(state.mod, Expr(:var"hygienic-scope", expr, @__MODULE__))
+    Core.eval(state.mod, Expr(Symbol("hygienic-scope"), expr, @__MODULE__))
 
 """
     addpart!(state::State, stop::Int)
@@ -328,7 +332,7 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
                 -1, "right here")
         return "", pos
     end
-    expr, nextpos = Meta.parseatom(state.content, pos)
+    expr, nextpos = parseatom(state.content, pos)
     nchars = length(state.content[pos:prevind(state.content, nextpos)])
     for _ in 1:nchars
         isempty(state.s) && break
@@ -439,14 +443,14 @@ it to `newstyles`.
 function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     # Substructure parsing helper functions
     function readalph!(state, lastchar)
-        Iterators.takewhile(
+        takewhile(
             c -> 'a' <= (lastchar = last(c)) <= 'z', state.s) |>
-                collect .|> last |> String, lastchar
+                collect .|> last |> Vector{Char} |> String, lastchar
     end
     function readsymbol!(state, lastchar)
-        Iterators.takewhile(
+        takewhile(
             c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', '\r', ',', ')'), state.s) |>
-                collect .|> last |> String, lastchar
+                collect .|> last |> Vector{Char} |> String, lastchar
     end
     function parsecolor(color::String)
         if color == "nothing"
@@ -554,7 +558,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     lastchar = last(popfirst!(state.s))
                     break
                 end
-                facename = Iterators.takewhile(
+                facename = takewhile(
                     c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
                         collect .|> last |> String
                 push!(inherit, Symbol(rstrip(facename)))
@@ -563,7 +567,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 end
             end
         else
-            facename = Iterators.takewhile(
+            facename = takewhile(
                 c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
                     collect .|> last |> String
             push!(inherit, Symbol(rstrip(facename)))
@@ -614,7 +618,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first
             else
-                Iterators.takewhile(
+                takewhile(
                     c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
                         collect .|> last |> String
             end
@@ -877,8 +881,7 @@ interpolated with `\$`.
 # Example
 
 ```julia
-styled"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over \
-the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
+styled"The {bold:{italic:quick} {(foreground=#cd853f):brown} fox} jumped over the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
 ```
 
 # Extended help
@@ -951,8 +954,8 @@ macro styled_str(raw_content::String)
     # with single `styled""` markers so this transform is unambiguously
     # reversible and not as `@styled_str "."` or `styled"""."""`), since the
     # `unescape_string` transforms will be a superset of those transforms
-    content = unescape_string(Base.escape_raw_string(raw_content),
-                              ('{', '}', '$', '\n', '\r'))
+    content = Compat.unescape_string(escape_raw_string(raw_content),
+                                     ('{', '}', '$', '\n', '\r'))
     state = State(content, __module__)
     run_state_machine!(state)
     if !isempty(state.errors)
@@ -988,20 +991,22 @@ end
 
 struct MalformedStylingMacro <: Exception
     raw::String
-    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}}
+    problems::Vector{Union{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Int, String}},
+                           NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String}, Nothing, String}}}}
 end
 
 function Base.showerror(io::IO, err::MalformedStylingMacro)
     # We would do "{error:┌ ERROR\:} MalformedStylingMacro" but this is already going
     # to be prefixed with "ERROR: LoadError", so it's better not to.
     println(io, "MalformedStylingMacro")
-    for (; message, position, hint) in err.problems
+    for prob in err.problems
+        message, position, hint = prob.message, prob.position, prob.hint
         posinfo = if isnothing(position)
             println(io, styled"{error:│} $message.")
         else
             infowidth = displaysize(stderr)[2] ÷ 3
             j = clamp(12 * round(Int, position / 12),
-                        firstindex(err.raw):lastindex(err.raw))
+                        firstindex(err.raw), lastindex(err.raw))
             start = if j <= infowidth firstindex(err.raw) else
                 max(prevind(err.raw, j, infowidth), firstindex(err.raw))
             end

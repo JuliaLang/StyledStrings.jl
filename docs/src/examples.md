@@ -9,7 +9,7 @@ failing to actually convey what it can accomplish. With this in mind, examples
 can be particularly useful to show how it can be used.
 
 A styled string can be constructed manually, but the [`styled"..."`](@ref
-@styled_str) literal is almost always a nicer option. We can see what a manual construction would involve by extracting the string and annotation parts of a [`AnnotatedString`](@ref Base.AnnotatedString).
+@styled_str) literal is almost always a nicer option. We can see what a manual construction would involve by extracting the string and annotation parts of a [`AnnotatedString`](@ref StyledStrings.AnnotatedString).
 
 ```@repl examples
 using StyledStrings
@@ -24,7 +24,7 @@ str = styled"{yellow:hello} {blue:there}"
 Base.get(::IOContext, s::Symbol, d::Bool) = s === :color || d
 ```
 
-Most of the examples here will show [`AnnotatedString`](@ref Base.AnnotatedString) in a terminal/REPL context, however they can be trivially adapted to produce HTML with `show(::IO, ::MIME"text/plain", ::AnnotatedString)`, and other packages wanting do deal with styled content in other contexts will likely find integration with StyledStrings worthwhile.
+Most of the examples here will show `AnnotatedString` in a terminal/REPL context, however they can be trivially adapted to produce HTML with `show(::IO, ::MIME"text/plain", ::AnnotatedString)`, and other packages wanting do deal with styled content in other contexts will likely find integration with StyledStrings worthwhile.
 
 ## Basic face application and colouring
 
@@ -172,28 +172,28 @@ styled"It's nice to include $color, and it composes too: {bold,inverse:$color}"
 ```
 
 Sometimes it's useful to compose a string incrementally, or interoperate with
-other `IO`-based code. For these use-cases, the [`AnnotatedIOBuffer`](@ref Base.AnnotatedIOBuffer) is very handy, as you can [`read`](@ref Base.read) an [`AnnotatedString`](@ref Base.AnnotatedString) from it.
+other `IO`-based code. For these use-cases, the [`AnnotatedIOBuffer`](@ref StyledStrings.AnnotatedIOBuffer) is very handy, as you can [`read`](@ref Base.read) an [`AnnotatedString`](@ref StyledStrings.AnnotatedString) from it.
 
 ```@repl examples
-aio = Base.AnnotatedIOBuffer()
+aio = StyledStrings.AnnotatedIOBuffer()
 typ = Int
 print(aio, typ)
 while typ != Any # We'll pretend that `supertypes` doesn't exist.
     typ = supertype(typ)
     print(aio, styled" {bright_red:<:} $typ")
 end
-read(seekstart(aio), Base.AnnotatedString)
+read(seekstart(aio), StyledStrings.AnnotatedString)
 ```
 
 StyledStrings adds a specialised [`printstyled`](@ref) method `printstyled(::AnnotatedIOBuffer, ...)` that means that you can pass an `AnnotatedIOBuffer` as IO to "legacy" code written to use `printstyled`, and extract all the styling as though it had used [`styled"..."`](@ref @styled_str) macros.
 
 ```@repl
-aio = Base.AnnotatedIOBuffer()
+aio = StyledStrings.AnnotatedIOBuffer()
 printstyled(aio, 'c', color=:red)
 printstyled(aio, 'o', color=:yellow)
 printstyled(aio, 'l', color=:green)
 printstyled(aio, 'o', color=:blue)
 printstyled(aio, 'r', color=:magenta)
-read(seekstart(aio), Base.AnnotatedString)
+read(seekstart(aio), StyledStrings.AnnotatedString)
 read(seekstart(aio), String)
 ```

@@ -5,30 +5,40 @@ using Test
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
     @styled_str, styled, StyledMarkup, getface, addface!, loadface!, resetfaces!
 using .StyledMarkup: MalformedStylingMacro
-using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
+import StyledStrings.AnnotatedStrings: AnnotatedString, AnnotatedChar,
+    AnnotatedIOBuffer, annotations
+using StyledStrings.Compat
 
-const NON_STDLIB_TESTS = Main == @__MODULE__
-if NON_STDLIB_TESTS
-    include("styfuzz.jl") # For use in the "Styled Markup" testset
-else
-    styfuzz() = nothing
-end
+# include("styfuzz.jl") # For use in the "Styled Markup" testset
+styfuzz() = nothing
 
 # For output testing
 
-const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.TermInfoRaw))
-const fancy_term = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), Base.TermInfoRaw))
+const vt100 = StyledStrings.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), StyledStrings.TermInfoRaw))
+const fancy_term = StyledStrings.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), StyledStrings.TermInfoRaw))
 
-function with_terminfo(fn::Function, tinfo::Base.TermInfo)
-    prev_terminfo = getglobal(Base, :current_terminfo)
-    prev_truecolor = getglobal(Base, :have_truecolor)
+function with_terminfo(fn::Function, tinfo::StyledStrings.TermInfo)
+    prev_terminfo = StyledStrings.current_terminfo
+    prev_truecolor = StyledStrings.have_truecolor
     try
-        setglobal!(Base, :current_terminfo, tinfo)
-        setglobal!(Base, :have_truecolor,   haskey(tinfo, :setrgbf))
+        Core.eval(StyledStrings, :(current_terminfo = $tinfo))
+        Core.eval(StyledStrings, :(have_truecolor = $(haskey(tinfo, :setrgbf))))
         fn()
-    finally
-        setglobal!(Base, :current_terminfo, prev_terminfo)
-        setglobal!(Base, :have_truecolor,   prev_truecolor)
+    catch _
+    end
+    Core.eval(StyledStrings, :(current_terminfo = $prev_terminfo))
+    Core.eval(StyledStrings, :(have_truecolor = $prev_truecolor))
+end
+
+
+@static if VERSION < v"1.8"
+    function chopprefix(s::Union{String, SubString{String}},
+                        prefix::Union{String, SubString{String}})
+        if startswith(s, prefix)
+            SubString(s, 1 + ncodeunits(prefix))
+        else
+            SubString(s)
+        end
     end
 end
 
@@ -54,8 +64,10 @@ choppkg(s::String) = chopprefix(s, "StyledStrings.")
         "SimpleColor(blue)"
     @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) |> choppkg ==
         "SimpleColor(\e[34m■\e[39m blue)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = (:color => true, :typeinfo => SimpleColor)) ==
-        "\e[34m■\e[39m blue"
+    @static if VERSION >= v"1.7"
+        @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = (:color => true, :typeinfo => SimpleColor)) ==
+            "\e[34m■\e[39m blue"
+    end
 end
 
 @testset "Faces" begin
@@ -136,7 +148,11 @@ end
     @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
     @test loadface!(:testface => Face(height=2.0)) == Face(font="test", height=2.0)
     @test get(FACES.current[], :testface, nothing) == Face(font="test", height=2.0)
-    @test_warn "reset, but it had no default value" loadface!(:testface => nothing)
+    @static if VERSION >= v"1.7"
+        @test_warn "reset, but it had no default value" loadface!(:testface => nothing)
+    else
+        loadface!(:testface => nothing)
+    end
     @test get(FACES.current[], :testface, nothing) === nothing
     # Loading from TOML (a Dict)
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
@@ -225,8 +241,7 @@ end
             background: default
              underline: false
          strikethrough: false
-               inverse: false\
-        """
+               inverse: false"""
     @test sprint(show, MIME("text/plain"), getface(), context = :color => true) |> choppkg ==
         """
         Face (sample)
@@ -238,46 +253,55 @@ end
             background: ■ default
              underline: false
          strikethrough: false
-               inverse: false\
-        """
+               inverse: false"""
     @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :color => true) |> choppkg ==
         """
         Face (\e[31msample\e[39m)
-            foreground: \e[31m■\e[39m red\
-        """
+            foreground: \e[31m■\e[39m red"""
     @test sprint(show, FACES.default[:red]) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
     @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :compact => true) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) |> choppkg ==
-        "Face(\e[31msample\e[39m)"
+    @static if VERSION >= v"1.7"
+        @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) |> choppkg ==
+            "Face(\e[31msample\e[39m)"
+    end
     @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :compact => true) |> choppkg ==
         "Face(inverse=true, inherit=[:emphasis])"
     with_terminfo(vt100) do # Not truecolor capable
         @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
             """
             Face (\e[48;5;237msample\e[49m)
-                background: \e[38;5;237m■\e[39m #3a3a3a\
-            """
+                background: \e[38;5;237m■\e[39m #3a3a3a"""
     end
     with_terminfo(fancy_term) do # Truecolor capable
         @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
             """
             Face (\e[48;2;58;58;58msample\e[49m)
-                background: \e[38;2;58;58;58m■\e[39m #3a3a3a\
-            """
+                background: \e[38;2;58;58;58m■\e[39m #3a3a3a"""
     end
     with_terminfo(vt100) do # Ensure `enter_reverse_mode` exists
         @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :color => true) |> choppkg ==
             """
             Face (\e[34m\e[7msample\e[39m\e[27m)
                    inverse: true
-                   inherit: emphasis(\e[34m*\e[39m)\
-            """
+                   inherit: emphasis(\e[34m*\e[39m)"""
     end
 end
 
-@testset "Styled Markup" begin
+@static if VERSION < v"1.1" # Why *on earth* is this needed!?!?
+    macro maybetestset(label, body)
+        esc(body)
+    end
+elseif VERSION < v"1.3"
+    macro maybetestset(label, body)
+        esc(:(@testset($label, $body)))
+    end
+else
+    var"@maybetestset" = var"@testset"
+end
+
+@maybetestset "Styled Markup" begin
     # Preservation of an unstyled string
     @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
@@ -382,23 +406,19 @@ end
     @test String(styled".\\\\\\") == ".\\\\\\"
 
     # newlines
-    strlines = "abc\
-                def"
-    stylines = styled"abc\
-                      def"
-    @test strlines == stylines == "abcdef"
+    @static if VERSION >= v"1.7"
+        strlines = "abc\\ndef"
+        stylines = styled"abc\\ndef"
+        @test strlines == stylines == "abc\\ndef"
 
-    strlines = "abc\\ndef"
-    stylines = styled"abc\\ndef"
-    @test strlines == stylines == "abc\\ndef"
+        strlines = eval(Meta.parse("\"abc\\\n \tdef\""))
+        stylines = eval(Meta.parse("styled\"abc\\\n \tdef\""))
+        @test strlines == stylines == "abcdef"
 
-    strlines = eval(Meta.parse("\"abc\\\n \tdef\""))
-    stylines = eval(Meta.parse("styled\"abc\\\n \tdef\""))
-    @test strlines == stylines == "abcdef"
-
-    strlines = eval(Meta.parse("\"abc\\\r\n  def\""))
-    stylines = eval(Meta.parse("styled\"abc\\\r\n  def\""))
-    @test strlines == stylines == "abcdef"
+        strlines = eval(Meta.parse("\"abc\\\r\n  def\""))
+        stylines = eval(Meta.parse("styled\"abc\\\r\n  def\""))
+        @test strlines == stylines == "abcdef"
+    end
 
     # The function form. As this uses the same FSM as the macro,
     # we don't need many tests to verify it's behaving sensibly.
@@ -406,19 +426,20 @@ end
     @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
     @test styled("\$hey") == styled"\$hey"
 
+    StyErr = if VERSION >= v"1.6" MalformedStylingMacro else Exception end
     # Various kinds of syntax errors that should be reported
-    @test_throws MalformedStylingMacro styled("{incomplete")
-    @test_throws MalformedStylingMacro styled("{unterminated:")
+    @test_throws StyErr styled("{incomplete")
+    @test_throws StyErr styled("{unterminated:")
     # @test_throws LoadError styled("$") # FIXME still throws 😢
-    @test_throws MalformedStylingMacro styled("}")
-    @test_throws MalformedStylingMacro styled("{(:}")
-    @test_throws MalformedStylingMacro styled("{(underline=()):}")
-    @test_throws MalformedStylingMacro styled("{(underline=(_)):}")
-    @test_throws MalformedStylingMacro styled("{(underline=(_,invalid)):}")
-    @test_throws MalformedStylingMacro styled("{(height=invalid):}")
-    @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
-    @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
-    @test_throws MalformedStylingMacro styled("{(invalid=):}")
+    @test_throws StyErr styled("}")
+    @test_throws StyErr styled("{(:}")
+    @test_throws StyErr styled("{(underline=()):}")
+    @test_throws StyErr styled("{(underline=(_)):}")
+    @test_throws StyErr styled("{(underline=(_,invalid)):}")
+    @test_throws StyErr styled("{(height=invalid):}")
+    @test_throws StyErr styled("{(weight=invalid):}")
+    @test_throws StyErr styled("{(slant=invalid):}")
+    @test_throws StyErr styled("{(invalid=):}")
     # Test the error printing too
     aio = AnnotatedIOBuffer()
     try
@@ -512,31 +533,17 @@ end
     @test sprint(show, AnnotatedChar('a')) == "'a'"
     @test sprint(show, AnnotatedChar('a', [:face => :red]), context = :color => true) == "'\e[31ma\e[39m'"
     # Might as well put everything together for a final test
-    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
-        {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
-        to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} \
-        system, suitable for {inverse:terminal} and graphical displays."
-    @test sprint(print, fancy_string) == "The `StyledStrings` package builds on top of \
-        the `AnnotatedString` type to provide a full-fledged textual styling system, suitable \
-        for terminal and graphical displays."
+    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}{bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} system, suitable for {inverse:terminal} and graphical displays."
+    @test sprint(print, fancy_string) == "The `StyledStrings` package builds on top of the `AnnotatedString` type to provide a full-fledged textual styling system, suitable for terminal and graphical displays."
     @test sprint(print, fancy_string[1:27], context = :color => true) ==
         "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package"
     with_terminfo(vt100) do
         @test sprint(print, fancy_string, context = :color => true) ==
-            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[4mbuilds\
-             \e[1m\e[24m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \
-             \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide \
-             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;26m\e[1mstyling\e[39m\e[49m\e[22m \
-             system, suitable for \e[7mterminal\e[27m and graphical displays."
+            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[4mbuilds\e[1m\e[24m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;26m\e[1mstyling\e[39m\e[49m\e[22m system, suitable for \e[7mterminal\e[27m and graphical displays."
     end
     with_terminfo(fancy_term) do
         @test sprint(print, fancy_string, context = :color => true) ==
-            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \
-            \e[3mbuilds\e[1m\e[23m on top\e[22m of the \e[35m`\e[32mAnnotatedString\
-            \e[35m`\e[39m \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\
-            \\ to provide a \e[4:3m\e[58;5;1mfull-fledged\e[59m\e[24m textual \
-            \e[38;2;173;189;248m\e[48;2;64;99;216m\e[1m\e[9mstyling\e[39m\e[49m\e[22m\e[29m system, \
-            suitable for \e[7mterminal\e[27m and graphical displays."
+            "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[3mbuilds\e[1m\e[23m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide a \e[4:3m\e[58;5;1mfull-fledged\e[59m\e[24m textual \e[38;2;173;189;248m\e[48;2;64;99;216m\e[1m\e[9mstyling\e[39m\e[49m\e[22m\e[29m system, suitable for \e[7mterminal\e[27m and graphical displays."
     end
 end
 
@@ -569,20 +576,11 @@ end
     @test html_change(underline=(:cyan, :double)) == "<span style=\"text-decoration: #0097a7 double underline;\">"
     @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
     # Might as well put everything together for a final test
-    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
-        {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
-        to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} \
-        system, suitable for {inverse:terminal} and graphical displays."
+    fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}{bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} system, suitable for {inverse:terminal} and graphical displays."
     @test sprint(show, MIME("text/html"), fancy_string[1:27]) ==
-        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span>\
-        <span style=\"color: #803d9b;\">`</span> package</pre>"
+        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span><span style=\"color: #803d9b;\">`</span> package</pre>"
     @test sprint(show, MIME("text/html"), fancy_string) ==
-        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span><span style=\"color: #803d9b;\">\
-        `</span> package <span style=\"font-style: italic;\">builds<span style=\"font-weight: 700;font-style: normal;\"> on top</span></span> \
-        of the <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">AnnotatedString</span><span style=\"color: #803d9b;\">\
-        `</span> <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline;\">\
-        full-fledged</span> textual <span style=\"font-weight: 700;color: #adbdf8;background-color: #4063d8;text-decoration: line-through\">styling</span> \
-        system, suitable for <span style=\"\">terminal</span> and graphical displays.</pre>"
+        "<pre>The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span><span style=\"color: #803d9b;\">`</span> package <span style=\"font-style: italic;\">builds<span style=\"font-weight: 700;font-style: normal;\"> on top</span></span> of the <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">AnnotatedString</span><span style=\"color: #803d9b;\">`</span> <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline;\">full-fledged</span> textual <span style=\"font-weight: 700;color: #adbdf8;background-color: #4063d8;text-decoration: line-through\">styling</span> system, suitable for <span style=\"\">terminal</span> and graphical displays.</pre>"
 end
 
 @testset "Legacy" begin

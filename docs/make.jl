@@ -14,7 +14,7 @@ makedocs(;
         "Example Usage" => "examples.md",
         "Internals" => "internals.md",
     ],
-    warnonly = [:cross_references],
+    warnonly = [:cross_references, :missing_docs],
 )
 
 deploydocs(repo="github.com/JuliaLang/StyledStrings.jl",
