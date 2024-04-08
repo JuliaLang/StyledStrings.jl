@@ -262,10 +262,11 @@ escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
 function write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
-        print(io, c.char)
+        bytes = write(io, c.char)
         termstyle(io, getface(), getface(c))
+        bytes
     else
-        print(io, c.char)
+        write(io, c.char)
     end
 end
 
