@@ -32,6 +32,9 @@ function with_terminfo(fn::Function, tinfo::Base.TermInfo)
     end
 end
 
+# When tested as part of the stdlib, the package prefix can start appearing in show methods.
+choppkg(s::String) = chopprefix(s, "StyledStrings.")
+
 @testset "SimpleColor" begin
     @test SimpleColor(:hey).value == :hey # no error
     @test SimpleColor(0x01, 0x02, 0x03).value == (r=0x01, g=0x02, b=0x03)
@@ -43,13 +46,13 @@ end
     @test tryparse(SimpleColor, "!not a color") === nothing
     @test parse(SimpleColor, "blue") == SimpleColor(:blue)
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
-    @test sprint(show, SimpleColor(:blue)) ==
+    @test sprint(show, SimpleColor(:blue)) |> choppkg ==
         "SimpleColor(:blue)"
-    @test sprint(show, SimpleColor(0x123456)) ==
+    @test sprint(show, SimpleColor(0x123456)) |> choppkg ==
         "SimpleColor(0x123456)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue)) ==
+    @test sprint(show, MIME("text/plain"), SimpleColor(:blue)) |> choppkg ==
         "SimpleColor(blue)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) ==
+    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) |> choppkg ==
         "SimpleColor(\e[34m■\e[39m blue)"
     @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = (:color => true, :typeinfo => SimpleColor)) ==
         "\e[34m■\e[39m blue"
@@ -211,7 +214,7 @@ end
         StyledStrings.resetfaces!()
     end
     # Pretty display
-    @test sprint(show, MIME("text/plain"), getface()) ==
+    @test sprint(show, MIME("text/plain"), getface()) |> choppkg ==
         """
         Face (sample)
                   font: monospace
@@ -224,7 +227,7 @@ end
          strikethrough: false
                inverse: false\
         """
-    @test sprint(show, MIME("text/plain"), getface(), context = :color => true) ==
+    @test sprint(show, MIME("text/plain"), getface(), context = :color => true) |> choppkg ==
         """
         Face (sample)
                   font: monospace
@@ -237,35 +240,35 @@ end
          strikethrough: false
                inverse: false\
         """
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :color => true) ==
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :color => true) |> choppkg ==
         """
         Face (\e[31msample\e[39m)
             foreground: \e[31m■\e[39m red\
         """
-    @test sprint(show, FACES.default[:red]) ==
+    @test sprint(show, FACES.default[:red]) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :compact => true) ==
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :compact => true) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) ==
+    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) |> choppkg ==
         "Face(\e[31msample\e[39m)"
-    @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :compact => true) ==
+    @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :compact => true) |> choppkg ==
         "Face(inverse=true, inherit=[:emphasis])"
     with_terminfo(vt100) do # Not truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) ==
+        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
             """
             Face (\e[48;5;237msample\e[49m)
                 background: \e[38;5;237m■\e[39m #3a3a3a\
             """
     end
     with_terminfo(fancy_term) do # Truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) ==
+        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
             """
             Face (\e[48;2;58;58;58msample\e[49m)
                 background: \e[38;2;58;58;58m■\e[39m #3a3a3a\
             """
     end
     with_terminfo(vt100) do # Ensure `enter_reverse_mode` exists
-        @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :color => true) ==
+        @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :color => true) |> choppkg ==
             """
             Face (\e[34m\e[7msample\e[39m\e[27m)
                    inverse: true
