@@ -642,6 +642,36 @@ function run_state_machine!(state::State)
 end
 
 """
+    annotatedstring_optimize!(str::AnnotatedString)
+
+Merge contiguous identical annotations in `str`.
+"""
+function annotatedstring_optimize!(s::AnnotatedString)
+    last_seen = Dict{Pair{Symbol, Any}, Int}()
+    i = 1
+    while i <= length(s.annotations)
+        region, keyval = s.annotations[i]
+        prev = get(last_seen, keyval, 0)
+        if prev > 0
+            lregion, _ = s.annotations[prev]
+            if last(lregion) + 1 == first(region)
+                s.annotations[prev] =
+                    setindex(s.annotations[prev],
+                             first(lregion):last(region),
+                             1)
+                deleteat!(s.annotations, i)
+            else
+                delete!(last_seen, keyval)
+            end
+        else
+            last_seen[keyval] = i
+            i += 1
+        end
+    end
+    s
+end
+
+"""
     @styled_str -> AnnotatedString
 
 Construct a styled string. Within the string, `{<specs>:<content>}` structures
@@ -740,7 +770,7 @@ macro styled_str(raw_content::String)
     elseif state.interpolated[]
         :(annotatedstring($(state.parts...)))
     else
-        annotatedstring(map(Base.Fix1(hygienic_eval, state), state.parts)...) |> Base.annotatedstring_optimize!
+        annotatedstring(map(Base.Fix1(hygienic_eval, state), state.parts)...) |> annotatedstring_optimize!
     end
 end
 
@@ -762,7 +792,7 @@ function styled(content::AbstractString)
     if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))
     else
-        annotatedstring(state.parts...) |> Base.annotatedstring_optimize!
+        annotatedstring(state.parts...) |> annotatedstring_optimize!
     end
 end
 
