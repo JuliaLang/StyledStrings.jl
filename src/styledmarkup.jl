@@ -5,7 +5,7 @@
 
 module StyledMarkup
 
-using Base: AnnotatedString, annotatedstring
+using Base: AnnotatedString, annotations, annotatedstring
 using ..StyledStrings: Face, SimpleColor
 
 export @styled_str, styled
@@ -97,7 +97,7 @@ function addpart!(state::State, stop::Int)
                     range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
                     push!(styles, tupl(range, annot))
                 end
-                sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # see `Base._annot_sortkey`
+                sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # Prioritise the most specific styles
                 for (range, annot) in state.pending_styles
                     if !isempty(range)
                         push!(styles, tupl(range .- state.point[], annot))
@@ -135,11 +135,15 @@ function addpart!(state::State, start::Int, expr, stop::Int)
         else
             push!(state.parts,
                 :(let $str = string($expr)
-                      if isempty($str)
-                          ""
+                      $len = ncodeunits($str) # Used in `annots`.
+                      if $str isa AnnotatedString && !isempty($str)
+                          AnnotatedString(String($str), vcat($annots, annotations($str)))
                       else
-                          $len = ncodeunits($str)
-                          AnnotatedString($str, $annots)
+                          if isempty($str)
+                              ""
+                          else
+                              AnnotatedString($str, $annots)
+                          end
                       end
                   end))
         end
