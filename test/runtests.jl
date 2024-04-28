@@ -342,28 +342,34 @@ end
     # Interpolation
     let annotatedstring = GlobalRef(StyledMarkup, :annotatedstring)
         AnnotatedString = GlobalRef(StyledMarkup, :AnnotatedString)
+        annotatedstring_optimize! = GlobalRef(StyledMarkup, :annotatedstring_optimize!)
+        chain = GlobalRef(StyledMarkup, :|>)
         Pair            = GlobalRef(StyledMarkup, :Pair)
         Symbol          = GlobalRef(StyledMarkup, :Symbol)
         Any             = GlobalRef(StyledMarkup, :Any)
-        @test :($annotatedstring(val)) == @macroexpand styled"$val"
-        @test :($annotatedstring("a", val)) == @macroexpand styled"a$val"
-        @test :($annotatedstring("a", val, "b")) == @macroexpand styled"a$(val)b"
+        @test :($chain($annotatedstring(val), $annotatedstring_optimize!)) == @macroexpand styled"$val"
+        @test :($chain($annotatedstring("a", val), $annotatedstring_optimize!)) == @macroexpand styled"a$val"
+        @test :($chain($annotatedstring("a", val, "b"), $annotatedstring_optimize!)) == @macroexpand styled"a$(val)b"
         # @test :($annotatedstring(StyledStrings.AnnotatedString(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
         #     @macroexpand styled"{style:$val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))]))) ==
+        @test :($chain($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))])),
+                       $annotatedstring_optimize!)) ==
             @macroexpand styled"{$face:val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))]))) ==
+        @test :($chain($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))])),
+                       $annotatedstring_optimize!)) ==
             @macroexpand styled"{$key=val:val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(key, val))]))) ==
+        @test :($chain($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(key, val))])),
+                       $annotatedstring_optimize!)) ==
             @macroexpand styled"{$key=$val:val}"
         # @test :($annotatedstring($AnnotatedString(
         #     string(val), $Pair{$Symbol, $Any}(key, val)))) ==
         #     @macroexpand styled"{$key=$val:$val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))]))) ==
+        @test :($chain($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))])),
+                       $annotatedstring_optimize!)) ==
             @macroexpand styled"{(foreground=$color):val}"
     end
 
@@ -421,7 +427,6 @@ end
         showerror(aio, err)
     end
     errstr = read(seekstart(aio), AnnotatedString)
-    sort!(annotations(errstr), by=first) # Remove when julialang/julia/#53800 is merged.
     @test errstr ==
         styled"MalformedStylingMacro\n\
                {error:│} Incomplete annotation declaration:\n\

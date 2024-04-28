@@ -958,7 +958,7 @@ macro styled_str(raw_content::String)
     if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))
     elseif state.interpolated[]
-        :(annotatedstring($(state.parts...)))
+        :(annotatedstring($(state.parts...)) |> annotatedstring_optimize!)
     else
         annotatedstring(map(Base.Fix1(hygienic_eval, state), state.parts)...) |> annotatedstring_optimize!
     end
