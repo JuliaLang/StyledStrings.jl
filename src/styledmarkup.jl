@@ -3,6 +3,46 @@
 # When updating any part of the parsing code in this file, it is highly
 # recommended to also check and/or update `../test/fuzz.jl`.
 
+"""
+    StyledMarkup
+
+A sub-module of `StyledStrings` that specifically deals with parsing styled
+markup strings. To this end, two entrypoints are provided:
+
+- The [`styled""`](@ref @styled_str) string macro, which is generally preferred.
+- They [`styled`](@ref styled) function, which allows for use with runtime-provided strings,
+  when needed.
+
+Overall, this module essentially functions as a state machine with a few extra
+niceties (like detailed error reporting) sprinkled on top. The overall design
+can be largely summed up with the following diagram:
+
+```text
+╭String─────────╮
+│ Styled markup │
+╰──────┬────────╯
+       │╭╴[module]
+       ││
+      ╭┴┴State─╮
+      ╰┬───────╯
+       │
+ ╭╴run_state_machine!╶╮
+ │              ╭─────┼─╼ escaped!
+ │ Apply rules: │     │
+ │  "\\\\" ▶──────╯ ╭───┼─╼[interpolated!] ──▶ readexpr!, addpart!
+ │  "\$" ▶────────╯   │
+ │  "{"  ▶────────────┼─╼ begin_style! ──▶ read_annotation!
+ │  "}"  ▶─────╮      │                     ├─╼ read_inlineface! [readexpr!]
+ │             ╰──────┼─╼ end_style!        ╰─╼ read_face_or_keyval!
+ │ addpart!(...)      │
+ ╰╌╌╌╌╌┬╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+       │
+       ▼
+     Result
+```
+
+Of course, as usual, the devil is in the details.
+"""
 module StyledMarkup
 
 using Base: AnnotatedString, annotations, annotatedstring
@@ -10,21 +50,58 @@ using ..StyledStrings: Face, SimpleColor
 
 export @styled_str, styled
 
+"""
+    State
+
+A struct representing of the parser state (if you squint, a state monad even).
+
+To create the initial state, use the constructor:
+    State(content::AbstractString, mod::Union{Module, Nothing}=nothing) -> State
+
+Its fields are as follows:
+- `content::String`, the (unescaped) input string
+- `bytes::Vector{UInt8}`, the codeunits of `content`. This is a `Vector{UInt8}` instead of a
+  `CodeUnits{UInt8}` because we need to be able to modify the array, for instance when erasing
+  escape characters.
+- `s::Iterators.Stateful`, an `(index, char)` iterator of `content`
+- `mod::Union{Module, Nothing}`, the (optional) context with which to evaluate inline
+  expressions in. This should be provided iff the styled markup comes from a macro invocation.
+- `parts::Vector{Any}`, the result of the parsing, a list of elements that when passed to
+  `annotatedstring` produce the styled markup string. The types of its values are highly diverse,
+  hence the `Any` element type.
+- `active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}}`,
+  A list of batches of styles that have yet to be applied to any content. Entries of a batch
+  consist of `(source_position, start_position, style)` tuples, where `style` may be just
+  a symbol (referring to a face), a `Pair{Symbol, Any}` annotation, or an `Expr` that evaluates
+  to a valid annotation (when `mod` is set).
+- `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}`,
+  A list of styles that have been terminated, and so are known to occur over a certain range,
+  but have yet to be applied.
+- `offset::Ref{Int}`, a record of the between the `content` index and the index in the resulting
+  styled string, as markup structures are absorbed.
+- `point::Ref{Int}`, the current index in `content`.
+- `escape::Ref{Bool}`, whether the last character seen was an escape character.
+- `interpolated::Ref{Bool}`, whether any interpolated values have been seen. Knowing whether or not
+  anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
+  when possible.
+- `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
+  so that we can list as many issues as possible at once, instead of forcing the author of the invalid
+  styled markup to resolve each issue one at a time. This is expected to be populated by invocations of
+  `styerr!`.
+"""
 struct State
-    content::String         # the (unescaped) input string
-    bytes::Vector{UInt8}    # bytes of `content`
-    s::Iterators.Stateful   # (index, char) interator of `content`
-    mod::Union{Module, Nothing} # the context to evaluate in (when part of a macro)
-    parts::Vector{Any}      # the final result
-    active_styles::Vector{  # unterminated batches of styles, [(source_pos, start, style), ...]
-        Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
-    pending_styles::Vector{ # terminated styles that have yet to be applied, [(range, style), ...]
-        Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
-    offset::Ref{Int}        # drift in the `content` index as structures are absorbed
-    point::Ref{Int}         # current index in `content`
-    escape::Ref{Bool}       # whether the last char was an escape char
-    interpolated::Ref{Bool} # whether any string interpolation occurs
-    errors::Vector          # any errors raised during parsing
+    content::String
+    bytes::Vector{UInt8}
+    s::Iterators.Stateful
+    mod::Union{Module, Nothing}
+    parts::Vector{Any}
+    active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
+    pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
+    offset::Ref{Int}
+    point::Ref{Int}
+    escape::Ref{Bool}
+    interpolated::Ref{Bool}
+    errors::Vector
 end
 
 function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
@@ -48,15 +125,39 @@ const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
 const VALID_SLANTS = ("italic", "oblique", "normal")
 const VALID_UNDERLINE_STYLES = ("straight", "double", "curly", "dotted", "dashed")
 
+"""
+    isnextchar(state::State, char::Char) -> Bool
+    isnextchar(state::State, chars::NTuple{N, Char}) -> Bool
+
+Check if `state` has a next character, and if so whether it is `char` or one of `chars`.
+"""
+function isnextchar end
+
 isnextchar(state::State, c::Char) =
     !isempty(state.s) && last(peek(state.s)) == c
 
 isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
     !isempty(state.s) && last(peek(state.s)) ∈ cs
 
+"""
+    ismacro(state::State) -> Bool
+
+Check whether `state` is indicated to come from a macro invocation,
+according to whether `state.mod` is set or not.
+
+While this function is rather trivial, it clarifies the intent when used instead
+of just checking `state.mod`.
+"""
 ismacro(state::State) = !isnothing(state.mod)
 
-function styerr!(state::State, message, position::Union{Nothing, Int}=nothing, hint::String="around here")
+"""
+    styerr!(state::State, message::AbstractString, position::Union{Nothing, Int}=nothing, hint::String="around here")
+
+Register an error in `state` based on erroneous content at or around `position`
+(if known, and with a certain `hint` as to the location), with the nature of the
+error given by `message`.
+"""
+function styerr!(state::State, message::AbstractString, position::Union{Nothing, Int}=nothing, hint::String="around here")
     if !isnothing(position) && position < 0
         position = prevind(
             state.content,
@@ -71,9 +172,25 @@ function styerr!(state::State, message, position::Union{Nothing, Int}=nothing, h
     nothing
 end
 
+"""
+    hygienic_eval(state::State, expr)
+
+Evaluate `expr` within the scope of `state`'s module.
+This replicates part of the behind-the-scenes behaviour of macro expansion, we
+just need to manually invoke it due to the particularities around dealing with
+code from a foreign module that we parse ourselves.
+"""
 hygienic_eval(state::State, expr) =
     Core.eval(state.mod, Expr(:var"hygienic-scope", expr, @__MODULE__))
 
+"""
+    addpart!(state::State, stop::Int)
+
+Create a new part from `state.point` to `stop`, applying all pending styles.
+
+This consumes all the content between `state.point` and  `stop`, and shifts
+`state.point` to be the index after `stop`.
+"""
 function addpart!(state::State, stop::Int)
     if state.point[] > stop+state.offset[]+ncodeunits(state.content[stop])-1
         return state.point[] = nextind(state.content, stop) + state.offset[]
@@ -115,6 +232,12 @@ function addpart!(state::State, stop::Int)
     state.point[] = nextind(state.content, stop) + state.offset[]
 end
 
+"""
+    addpart!(state::State, start::Int, expr, stop::Int)
+
+Create a new part based on (the eventual evaluation of) `expr`, running from
+`start` to `stop`, taking the currently active styles into account.
+"""
 function addpart!(state::State, start::Int, expr, stop::Int)
     if state.point[] < start
         addpart!(state, start)
@@ -152,6 +275,11 @@ function addpart!(state::State, start::Int, expr, stop::Int)
     end
 end
 
+"""
+    escaped!(state::State, i::Int, char::Char)
+
+Parse the escaped character `char`, at index `i`, into `state`
+"""
 function escaped!(state::State, i::Int, char::Char)
     if char in ('{', '}', '\\') || (char == '$' && ismacro(state))
         deleteat!(state.bytes, i + state.offset[] - 1)
@@ -172,6 +300,11 @@ function escaped!(state::State, i::Int, char::Char)
     state.escape[] = false
 end
 
+"""
+    interpolated!(state::State, i::Int, _)
+
+Interpolate the expression starting at `i`, and add it as a part to `state`.
+"""
 function interpolated!(state::State, i::Int, _)
     expr, nexti = readexpr!(state, i + ncodeunits('$'))
     deleteat!(state.bytes, i + state.offset[])
@@ -181,6 +314,12 @@ function interpolated!(state::State, i::Int, _)
     state.interpolated[] = true
 end
 
+"""
+    readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
+
+Read the expression starting at `pos` in `state.content`, and consume `state.s`
+as appropriate to align the iterator to the end of the expression.
+"""
 function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     if isempty(state.s)
         styerr!(state,
@@ -198,13 +337,23 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     expr, nextpos
 end
 
+"""
+    skipwhitespace!(state::State)
 
+Skip forwards all space, tab, and newline characters in `state.s`
+"""
 function skipwhitespace!(state::State)
     while isnextchar(state, (' ', '\t', '\n', '\r'))
         popfirst!(state.s)
     end
 end
 
+"""
+    begin_style!(state::State, i::Int, char::Char)
+
+Parse the style declaration beginning at `i` (`char`) with `read_annotation!`,
+and register it in the active styles list.
+"""
 function begin_style!(state::State, i::Int, char::Char)
     hasvalue = false
     newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
@@ -220,8 +369,12 @@ function begin_style!(state::State, i::Int, char::Char)
     end
 end
 
+"""
+    end_style!(state::State, i::Int, char::Char)
+
+Close of the most recent active style in `state`, making it a pending style.
+"""
 function end_style!(state::State, i::Int, char::Char)
-    # Close off most recent active style
     for (_, start, annot) in pop!(state.active_styles)
         pushfirst!(state.pending_styles, (start:i+state.offset[], annot))
     end
@@ -229,7 +382,22 @@ function end_style!(state::State, i::Int, char::Char)
     state.offset[] -= ncodeunits('}')
 end
 
-function read_annotation!(state::State, i::Int, char::Char, newstyles)
+"""
+    read_annotation!(state::State, i::Int, char::Char, newstyles::Vector) -> Bool
+
+Read the annotations at `i` (`char`), and push the style read to `newstyles`.
+
+This skips whitespace and checks what the next character in `state.s` is,
+detects the form of the annotation, and parses it using the appropriate
+specialised function like so:
+- `:`, end of annotation, do nothing
+- `(`, inline face declaration, use `read_inlineface!`
+- otherwise, use `read_face_or_keyval!`
+
+After parsing the annotation, returns a boolean value signifying whether there
+is an immediately subsequent annotation to be read.
+"""
+function read_annotation!(state::State, i::Int, char::Char, newstyles::Vector)
     skipwhitespace!(state)
     if isempty(state.s)
         isempty(newstyles) &&
@@ -262,6 +430,12 @@ function read_annotation!(state::State, i::Int, char::Char, newstyles)
     end
 end
 
+"""
+    read_inlineface!(state::State, i::Int, char::Char, newstyles)
+
+Read an inline face declaration from `state`, at position `i` (`char`), and add
+it to `newstyles`.
+"""
 function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     # Substructure parsing helper functions
     function readalph!(state, lastchar)
@@ -529,6 +703,12 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
            end))
 end
 
+"""
+    read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
+
+Read an inline face or key-value pair from `state` at position `i` (`char`), and
+add it to `newstyles`.
+"""
 function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     function read_curlywrapped!(state)
         popfirst!(state.s) # first '{'
@@ -612,6 +792,15 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     end
 end
 
+"""
+    run_state_machine!(state::State)
+
+Iterate through `state.s`, applying the parsing rules for the top-level of
+syntax and calling the relevant specialised functions.
+
+Upon completion, `state.s` should be fully consumed and `state.parts` fully
+populated (along with `state.errors`).
+"""
 function run_state_machine!(state::State)
     # Run the state machine
     for (i, char) in state.s
