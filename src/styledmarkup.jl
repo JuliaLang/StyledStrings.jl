@@ -201,7 +201,7 @@ end
 readexpr!(state) = readexpr!(state, first(popfirst!(state.s)) + 1)
 
 function skipwhitespace!(state::State)
-    while isnextchar(state, (' ', '\t', '\n'))
+    while isnextchar(state, (' ', '\t', '\n', '\r'))
         popfirst!(state.s)
     end
 end
@@ -254,7 +254,7 @@ function read_annotation!(state::State, i::Int, char::Char, newstyles)
         true
     elseif nextchar == ':'
         true
-    elseif nextchar ∈ (' ', '\t', '\n')
+    elseif nextchar ∈ (' ', '\t', '\n', '\r')
         skipwhitespace!(state)
         true
     else
@@ -272,7 +272,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     end
     function readsymbol!(state, lastchar)
         Iterators.takewhile(
-            c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', ',', ')'), state.s) |>
+            c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', '\r', ',', ')'), state.s) |>
                 collect .|> last |> String, lastchar
     end
     function parsecolor(color::String)
@@ -286,7 +286,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         end
     end
     function nextnonwhitespace!(state, lastchar)
-        if lastchar ∈ (' ', '\t', '\n')
+        if lastchar ∈ (' ', '\t', '\n', '\r')
             skipwhitespace!(state)
             _, lastchar = popfirst!(state.s)
         end
@@ -571,9 +571,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     if isempty(state.s)
     elseif last(peek(state.s)) == '='
         popfirst!(state.s)
-        if isnextchar(state, (' ', '\t', '\n'))
-            skipwhitespace!(state)
-        end
+        skipwhitespace!(state)
         nextchar = if !isempty(state.s) last(peek(state.s)) else '\0' end
         value = if isempty(state.s) ""
         elseif nextchar == '{'
@@ -610,7 +608,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
                     Pair{Symbol, Any}(:face, Symbol(key))
                 end))
     end
-    if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', ',', ':')
+    if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', '\r', ',', ':')
         styerr!(state, "Incomplete annotation declaration", prevind(state.content, i), "starts here")
     end
 end
