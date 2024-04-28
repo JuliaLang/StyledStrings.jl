@@ -846,9 +846,9 @@ function annotatedstring_optimize!(s::AnnotatedString)
             lregion, _ = s.annotations[prev]
             if last(lregion) + 1 == first(region)
                 s.annotations[prev] =
-                    setindex(s.annotations[prev],
-                             first(lregion):last(region),
-                             1)
+                    Base.setindex(s.annotations[prev],
+                                  first(lregion):last(region),
+                                  1)
                 deleteat!(s.annotations, i)
             else
                 delete!(last_seen, keyval)
