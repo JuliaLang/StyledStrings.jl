@@ -181,7 +181,7 @@ function interpolated!(state::State, i::Int, _)
     state.interpolated[] = true
 end
 
-function readexpr!(state::State, pos::Int)
+function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     if isempty(state.s)
         styerr!(state,
                 AnnotatedString("Identifier or parenthesised expression expected after \$ in string",
@@ -198,7 +198,6 @@ function readexpr!(state::State, pos::Int)
     expr, nextpos
 end
 
-readexpr!(state) = readexpr!(state, first(popfirst!(state.s)) + 1)
 
 function skipwhitespace!(state::State)
     while isnextchar(state, (' ', '\t', '\n', '\r'))
