@@ -421,7 +421,6 @@ end
         showerror(aio, err)
     end
     errstr = read(seekstart(aio), AnnotatedString)
-    Base.annotatedstring_optimize!(errstr) # Remove when julialang/julia/#53801 is merged.
     sort!(annotations(errstr), by=first) # Remove when julialang/julia/#53800 is merged.
     @test errstr ==
         styled"MalformedStylingMacro\n\
