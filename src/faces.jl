@@ -172,7 +172,7 @@ Base.:(==)(a::Face, b::Face) =
 
 Base.copy(f::Face) =
     Face(f.font, f.height, f.weight, f.slant,
-         f.foreground, f.background, f.underline
+         f.foreground, f.background, f.underline,
          f.strikethrough, f.inverse, copy(f.inherit))
 
 function show(io::IO, ::MIME"text/plain", color::SimpleColor)
