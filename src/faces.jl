@@ -170,6 +170,11 @@ Base.:(==)(a::Face, b::Face) =
     getfield.(Ref(a), fieldnames(Face)) ==
     getfield.(Ref(b), fieldnames(Face))
 
+Base.copy(f::Face) =
+    Face(f.font, f.height, f.weight, f.slant,
+         f.foreground, f.background, f.underline
+         f.strikethrough, f.inverse, copy(f.inherit))
+
 function show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype = get(io, :typeinfo, nothing) === SimpleColor
     skiptype || show(io, SimpleColor)
@@ -388,9 +393,9 @@ function addface!((name, default)::Pair{Symbol, Face})
     @lock FACES.lock if !haskey(FACES.default, name)
         FACES.default[name] = default
         FACES.current[][name] = if haskey(FACES.current[], name)
-            merge(deepcopy(default), FACES.current[][name])
+            merge(copy(default), FACES.current[][name])
         else
-            deepcopy(default)
+            copy(default)
         end
     end
 end
@@ -423,7 +428,7 @@ it is deleted, a warning message is printed, and `nothing` returned.
 function resetfaces!(name::Symbol)
     @lock FACES.lock if !haskey(FACES.current[], name)
     elseif haskey(FACES.default, name)
-        FACES.current[][name] = deepcopy(FACES.default[name])
+        FACES.current[][name] = copy(FACES.default[name])
     else # This shouldn't happen
         delete!(FACES.current[], name)
         @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
