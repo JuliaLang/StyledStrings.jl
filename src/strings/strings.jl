@@ -15,12 +15,14 @@ include(joinpath(dirname(@__DIR__), "compat.jl"))
 include("annotated.jl")
 
 include("unicode.jl")
+include("basic.jl")
+include("io.jl")
+include("regex.jl")
 
 function __init__()
     # Method overwriting
-    eval(:(include(joinpath($@__DIR__, "basic.jl"))))
-    eval(:(include(joinpath($@__DIR__, "io.jl"))))
-    eval(:(include(joinpath($@__DIR__, "regex.jl"))))
+    ccall(:jl_generating_output, Cint, ()) == 0 &&
+        eval(:(include(joinpath($@__DIR__, "overrides.jl"))))
 end
 
 end

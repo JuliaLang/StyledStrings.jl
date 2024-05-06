@@ -10,10 +10,6 @@ function _join_preserve_annotations(iterator, args...)
     end
 end
 
-join(iterator) = _join_preserve_annotations(iterator)
-join(iterator, delim) = _join_preserve_annotations(iterator, delim)
-join(iterator, delim, last) = _join_preserve_annotations(iterator, delim, last)
-
 function AnnotatedString(chars::AbstractVector{C}) where {C<:AbstractChar}
     str = if C <: AnnotatedChar
         String(getfield.(chars, :char))
