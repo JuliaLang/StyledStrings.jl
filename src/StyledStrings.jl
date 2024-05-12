@@ -18,8 +18,10 @@ include("legacy.jl")
 using .StyledMarkup
 
 function __init__()
-    userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
-    isfile(userfaces) && loaduserfaces!(userfaces)
+    if !isempty(DEPOT_PATH)
+        userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
+        isfile(userfaces) && loaduserfaces!(userfaces)
+    end
     Legacy.load_env_colors!()
 end
 
