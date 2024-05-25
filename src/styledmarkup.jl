@@ -349,6 +349,50 @@ function skipwhitespace!(state::State)
 end
 
 """
+    read_while!(f::Function, state::Base.Stateful, lastchar::Char)
+
+Read `state` until `f(::Char)` is `false`.
+
+Given a `Stateful` that iterates `(_, char::Char)` pairs, and a predicate
+`f(::Char)::Bool`, return `(str, lastchar)`, where `str::String` contains all the
+`char` for which `f(char) == true`, and `lastchar` the last `char` element seen,
+or the input `lastchar` there are no elements of `state`.
+
+# Examples
+
+```julia-repl
+julia> s = Base.Stateful(pairs("abc"));
+
+julia> read_while!(isnumeric, s, 'w')
+("", 'a')
+
+julia> first(s) # s is mutated
+2 => 'b'
+
+julia> read_while!(isascii, Base.Stateful(pairs("123Σω")), 'k')
+("123", 'Σ')
+
+julia> read_while!(isascii, Base.Stateful(pairs("abcde")), 'α')
+("abcde", 'e')
+
+julia> read_while!(isascii , Base.Stateful(pairs("")), 'k')
+("", 'k')
+```
+"""
+function read_while!(f::Function, state::Base.Stateful, lastchar::Char)
+    v = Char[]
+    for (_, char::Char) in state
+        lastchar = char
+        if f(char)
+            push!(v, char)
+        else
+            break
+        end
+    end
+    if isempty(v) "" else String(v) end, lastchar
+end
+
+"""
     begin_style!(state::State, i::Int, char::Char)
 
 Parse the style declaration beginning at `i` (`char`) with `read_annotation!`,
@@ -438,16 +482,8 @@ it to `newstyles`.
 """
 function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     # Substructure parsing helper functions
-    function readalph!(state, lastchar)
-        Iterators.takewhile(
-            c -> 'a' <= (lastchar = last(c)) <= 'z', state.s) |>
-                collect .|> last |> String, lastchar
-    end
-    function readsymbol!(state, lastchar)
-        Iterators.takewhile(
-            c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', '\r', ',', ')'), state.s) |>
-                collect .|> last |> String, lastchar
-    end
+    readalph!(state, lastchar) = read_while!(c -> 'a' <= c <= 'z', state.s, lastchar)
+    readsymbol!(state, lastchar) = read_while!(∉((' ', '\t', '\n', '\r', ',', ')')), state.s, lastchar)
     function parsecolor(color::String)
         if color == "nothing"
         elseif startswith(color, '#') && length(color) == 7
@@ -554,18 +590,14 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     lastchar = last(popfirst!(state.s))
                     break
                 end
-                facename = Iterators.takewhile(
-                    c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
-                        collect .|> last |> String
+                facename, lastchar = read_while!(∉((',', ']', ')')), state.s, lastchar)
                 push!(inherit, Symbol(rstrip(facename)))
                 if lastchar != ','
                     break
                 end
             end
         else
-            facename = Iterators.takewhile(
-                c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
-                    collect .|> last |> String
+            facename, lastchar = read_while!(∉((',', ']', ')')), state.s, lastchar)
             push!(inherit, Symbol(rstrip(facename)))
         end
         inherit, lastchar
@@ -614,9 +646,8 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first
             else
-                Iterators.takewhile(
-                    c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
-                        collect .|> last |> String
+                str, lastchar = read_while!(∉((',', ')')), state.s, lastchar)
+                str
             end
         elseif key == :height
             if isnextchar(state, ('.', '0':'9'...))

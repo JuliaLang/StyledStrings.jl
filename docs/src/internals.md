@@ -49,6 +49,7 @@ StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!
 StyledStrings.StyledMarkup.skipwhitespace!
+StyledStrings.StyledMarkup.read_while!
 StyledStrings.StyledMarkup.begin_style!
 StyledStrings.StyledMarkup.end_style!
 StyledStrings.StyledMarkup.read_annotation!
