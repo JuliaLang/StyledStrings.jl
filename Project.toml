@@ -1,7 +1,7 @@
 name = "StyledStrings"
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 authors = ["TEC <git@tecosaur.net>"]
-version = "1.0.1"
+version = "1.0.2"
 
 [deps]
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
