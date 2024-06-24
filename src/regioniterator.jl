@@ -46,7 +46,7 @@ function eachregion(s::AnnotatedString, region::UnitRange{Int}=firstindex(s):las
                                             for region in first.(s.annotations)) |>
                                                 unique |> sort)
     isempty(changepoints) &&
-        return RegionIterator(s.string, [region], [map(last, annotations(s, first(region)))])
+        return RegionIterator(s.string, UnitRange{Int}[region], Vector{Pair{Symbol, Any}}[map(last, annotations(s, first(region)))])
     function registerchange!(start, stop)
         push!(regions, start:stop)
         push!(annots, map(last, annotations(s, start)))
