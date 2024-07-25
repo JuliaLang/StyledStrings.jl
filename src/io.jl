@@ -253,6 +253,11 @@ write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     _ansi_writer(io, s, write)::Int
 
 print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+    (_ansi_writer(io, s, print); nothing)
+
+# We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
+# so we get the specialised handling that `_ansi_writer` doesn't provide.
+print(io::Base.AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
 escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
