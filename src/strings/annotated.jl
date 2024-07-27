@@ -206,16 +206,16 @@ cmp(a::AnnotatedString, b::AnnotatedString) = cmp(a.string, b.string)
 # To prevent substring equality from hitting the generic fallback
 
 function ==(a::SubString{<:AnnotatedString}, b::SubString{<:AnnotatedString})
-    SubString(a.string.string, a.offset, a.ncodeunits, Val(:noshift)) ==
-        SubString(b.string.string, b.offset, b.ncodeunits, Val(:noshift)) &&
+    eval(Expr(:new, SubString{typeof(a.string.string)}, a.string.string, a.offset, a.ncodeunits)) ==
+        eval(Expr(:new, SubString{typeof(b.string.string)}, b.string.string, b.offset, b.ncodeunits)) &&
         annotations(a) == annotations(b)
 end
 
 ==(a::SubString{<:AnnotatedString}, b::AnnotatedString) =
-    annotations(a) == annotations(b) && SubString(a.string.string, a.offset, a.ncodeunits, Val(:noshift)) == b.string
+    annotations(a) == annotations(b) && eval(Expr(:new, SubString{typeof(a.string.string)}, a.string.string, a.offset, a.ncodeunits)) == b.string
 
 ==(a::SubString{<:AnnotatedString}, b::AbstractString) =
-    isempty(annotations(a)) && SubString(a.string.string, a.offset, a.ncodeunits, Val(:noshift)) == b
+    isempty(annotations(a)) && eval(Expr(:new, SubString{typeof(a.string.string)}, a.string.string, a.offset, a.ncodeunits)) == b
 
 ==(a::AbstractString, b::SubString{<:AnnotatedString}) = b == a
 
@@ -264,7 +264,7 @@ function annotatedstring(xs...)
                     push!(annotations, (rstart:rstop, annot))
                 end
             end
-            print(s, SubString(x.string.string, x.offset, x.ncodeunits, Val(:noshift)))
+            print(s, eval(Expr(:new, SubString{typeof(x.string.string)}, x.string.string, x.offset, x.ncodeunits)))
         elseif x isa AnnotatedChar
             for annot in x.annotations
                 push!(annotations, (1+size:1+size, annot))
