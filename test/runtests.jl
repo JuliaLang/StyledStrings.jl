@@ -257,6 +257,15 @@ end
         @test getface(:f).foreground.value == :blue
         StyledStrings.resetfaces!()
     end
+    # Equality/hashing equivalence
+    let testfaces = [Face(foreground=:blue),
+                     Face(background=:blue),
+                     Face(inherit=:something),
+                     Face(inherit=:something)]
+        for f1 in testfaces, f2 in testfaces
+            @test (f1 == f2) == (hash(f1) == hash(f2))
+        end
+    end
     # Pretty display
     @test sprint(show, MIME("text/plain"), getface()) |> choppkg ==
         """
