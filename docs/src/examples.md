@@ -69,6 +69,12 @@ styled"{(underline=warning):this is some minor/slight warning text}"
 styled"A very major {(fg=error,bg=warning),bold:warning!}"
 ```
 
+!!! tip "Focus on semantics, and let style follow"
+    Note that when using faces, it is generally recommended to focus on the
+    *semantic intent*, not the specific styling (`cyan`, `bold`, etc.),
+    introducing new faces when there is no pre-existing semantically appropriate
+    face.
+
 ## Inline face attributes
 
 Should you want to use a particular color just once, the `foreground`/`fg` and `background`/`bg` inline face attributes can be set to hex codes.

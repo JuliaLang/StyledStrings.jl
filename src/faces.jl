@@ -29,9 +29,9 @@ end
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
 SimpleColor(rgb::UInt32) = SimpleColor(reverse(reinterpret(UInt8, [rgb]))[2:end]...)
 
-convert(::Type{SimpleColor}, rgb::RGBTuple) = SimpleColor(rgb)
-convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
-convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
+Base.convert(::Type{SimpleColor}, rgb::RGBTuple) = SimpleColor(rgb)
+Base.convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
+Base.convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
 
 """
     tryparse(::Type{SimpleColor}, rgb::String)
@@ -177,7 +177,7 @@ Base.copy(f::Face) =
          f.foreground, f.background, f.underline,
          f.strikethrough, f.inverse, copy(f.inherit))
 
-function show(io::IO, ::MIME"text/plain", color::SimpleColor)
+function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype = get(io, :typeinfo, nothing) === SimpleColor
     skiptype || show(io, SimpleColor)
     skiptype || print(io, '(')
@@ -197,7 +197,7 @@ function show(io::IO, ::MIME"text/plain", color::SimpleColor)
     nothing
 end
 
-function show(io::IO, color::SimpleColor)
+function Base.show(io::IO, color::SimpleColor)
     show(io, SimpleColor)
     print(io, '(')
     if color.value isa RGBTuple
@@ -212,7 +212,7 @@ function show(io::IO, color::SimpleColor)
     print(io, ')')
 end
 
-function show(io::IO, ::MIME"text/plain", face::Face)
+function Base.show(io::IO, ::MIME"text/plain", face::Face)
     if get(io, :compact, false)::Bool
         show(io, Face)
         if get(io, :color, false)::Bool
@@ -287,7 +287,7 @@ function show(io::IO, ::MIME"text/plain", face::Face)
     end
 end
 
-function show(io::IO, face::Face)
+function Base.show(io::IO, face::Face)
     show(IOContext(io, :compact => true), MIME("text/plain"), face)
 end
 
@@ -509,7 +509,7 @@ withfaces(f) = f()
 Merge the properties of the `initial` face and `others`, with
 later faces taking priority.
 """
-function merge(a::Face, b::Face)
+function Base.merge(a::Face, b::Face)
     if isempty(b.inherit)
         Face(ifelse(isnothing(b.font),          a.font,          b.font),
              if isnothing(b.height)      a.height
@@ -535,7 +535,7 @@ function merge(a::Face, b::Face)
     end
 end
 
-merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
+Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 ## Getting the combined face from a set of properties ##
 
@@ -669,7 +669,7 @@ Load all faces declared in the Faces.toml file `tomlfile`.
 """
 loaduserfaces!(tomlfile::String) = loaduserfaces!(open(TOML.parse, tomlfile))
 
-function convert(::Type{Face}, spec::Dict)
+function Base.convert(::Type{Face}, spec::Dict)
     Face(if haskey(spec, "font") && spec["font"] isa String
              spec["font"] end,
          if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)

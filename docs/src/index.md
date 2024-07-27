@@ -75,8 +75,14 @@ easily [customized](@ref stdlib-styledstrings-face-toml).
     by the package name, i.e. follow the format `mypackage_myface`.
     This is important for predictability, and to prevent name clashes.
 
-There is one set of exemptions to the package-prefix rule, the set of basic
-faces that are part of the default value of the faces dictionary.
+    Furthermore, packages should take care to use (and introduce) *semantic*
+    faces (like `code`) over direct colours and styles (like `cyan`). This is helpful
+    in a number of ways, from making the intent in usage more obvious, aiding
+    composability, and making user customisation more intuitive.
+
+There are two set of exemptions to the package-prefix rule:
+- the set of basic faces that are part of the default value of the faces dictionary
+- faces introduced by Julia's own standard library, namely `JuliaSyntaxHighlighting`
 
 #### [Basic faces](@id stdlib-styledstrings-basic-faces)
 

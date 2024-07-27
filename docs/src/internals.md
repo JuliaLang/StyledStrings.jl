@@ -16,6 +16,7 @@ StyledStrings.Legacy.legacy_color
 StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit_color_code
 StyledStrings.eachregion
+StyledStrings.annotation_events
 StyledStrings.face!
 StyledStrings.getface
 StyledStrings.loadface!
@@ -49,6 +50,7 @@ StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!
 StyledStrings.StyledMarkup.skipwhitespace!
+StyledStrings.StyledMarkup.read_while!
 StyledStrings.StyledMarkup.begin_style!
 StyledStrings.StyledMarkup.end_style!
 StyledStrings.StyledMarkup.read_annotation!

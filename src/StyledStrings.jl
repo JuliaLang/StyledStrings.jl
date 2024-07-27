@@ -2,8 +2,6 @@
 
 module StyledStrings
 
-import Base: convert, merge, show, print, write
-
 export @styled_str
 
 include("compat.jl")
@@ -14,7 +12,7 @@ const ncodeunits = Compat.ncodeunits
 include("strings/strings.jl")
 include("terminfo.jl")
 
-import .AnnotatedStrings: AnnotatedString, AnnotatedChar, annotations,
+using .AnnotatedStrings: AnnotatedString, AnnotatedChar, annotations,
     annotate!, annotatedstring, AnnotatedIOBuffer
 
 include("faces.jl")
@@ -28,8 +26,10 @@ using .StyledMarkup
 function __init__()
     term_env = get(ENV, "TERM", @static Sys.iswindows() ? "" : "dumb")
     global current_terminfo = load_terminfo(term_env)
-    userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
-    isfile(userfaces) && loaduserfaces!(userfaces)
+    if !isempty(DEPOT_PATH)
+        userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
+        isfile(userfaces) && loaduserfaces!(userfaces)
+    end
     Legacy.load_env_colors!()
 end
 

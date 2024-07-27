@@ -36,37 +36,71 @@ julia> collect(StyledStrings.eachregion(StyledStrings.AnnotatedString(
  ("there", [:face => :italic])
 ```
 """
-function eachregion(s::AnnotatedString, region::UnitRange{Int}=firstindex(s):lastindex(s))
-    isempty(s) || isempty(region) &&
-        return RegionIterator(s, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
+function eachregion(s::AnnotatedString, subregion::UnitRange{Int}=firstindex(s):lastindex(s))
+    isempty(s) || isempty(subregion) &&
+        return RegionIterator(s.string, UnitRange{Int}[], Vector{Pair{Symbol, Any}}[])
+    events = annotation_events(s, subregion)
+    isempty(events) && return RegionIterator(s.string, [subregion], [Pair{Symbol, Any}[]])
+    annotvals = last.(annotations(s))
     regions = Vector{UnitRange{Int}}()
     annots = Vector{Vector{Pair{Symbol, Any}}}()
-    changepoints = filter(c -> c in region,
-                          Iterators.flatten((first(region), nextind(s, last(region)))
-                                            for region in first.(s.annotations)) |>
-                                                unique |> sort)
-    isempty(changepoints) &&
-        return RegionIterator(s.string, [region], [map(last, annotations(s, first(region)))])
-    function registerchange!(start, stop)
-        push!(regions, start:stop)
-        push!(annots, map(last, annotations(s, start)))
+    pos = first(events).pos
+    if pos > first(subregion)
+        push!(regions, first(subregion):pos-1)
+        push!(annots, [])
     end
-    if first(region) < first(changepoints)
-        registerchange!(first(region), prevind(s, first(changepoints)))
+    activelist = Int[]
+    for event in events
+        if event.pos != pos
+            push!(regions, pos:prevind(s, event.pos))
+            push!(annots, annotvals[activelist])
+            pos = event.pos
+        end
+        if event.active
+            insert!(activelist, searchsortedfirst(activelist, event.index), event.index)
+        else
+            deleteat!(activelist, searchsortedfirst(activelist, event.index))
+        end
     end
-    for (start, stop) in zip(changepoints, changepoints[2:end])
-        registerchange!(start, prevind(s, stop))
-    end
-    if last(changepoints) <= last(region)
-        registerchange!(last(changepoints), last(region))
+    if last(events).pos < nextind(s, last(subregion))
+        push!(regions, last(events).pos:last(subregion))
+        push!(annots, [])
     end
     RegionIterator(s.string, regions, annots)
 end
 
-function eachregion(s::SubString{<:AnnotatedString}, region::UnitRange{Int}=firstindex(s):lastindex(s))
+function eachregion(s::SubString{<:AnnotatedString}, pos::UnitRange{Int}=firstindex(s):lastindex(s))
     if isempty(s)
-        RegionIterator(s, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
+        RegionIterator(s.string, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
     else
-        eachregion(s.string, first(region)+s.offset:last(region)+s.offset)
+        eachregion(s.string, first(pos)+s.offset:last(pos)+s.offset)
     end
 end
+
+"""
+    annotation_events(string::AbstractString, annots::Vector{Tuple{UnitRange{Int64}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+    annotation_events(string::AnnotatedString, subregion::UnitRange{Int})
+
+Find all annotation "change events" that occur within a `subregion` of `annots`,
+with respect to `string`. When `string` is styled, `annots` is inferred.
+
+Each change event is given in the form of a `@NamedTuple{pos::Int, active::Bool,
+index::Int}` where `pos` is the position of the event, `active` is a boolean
+indicating whether the annotation is being activated or deactivated, and `index`
+is the index of the annotation in question.
+"""
+function annotation_events(s::AbstractString, annots::Vector{Tuple{UnitRange{Int64}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+    events = Vector{NamedTuple{(:pos, :active, :index), Tuple{Int, Bool, Int}}}() # Position, Active?, Annotation index
+    for (i, (region, _)) in enumerate(annots)
+        if !isempty(intersect(subregion, region))
+            start, stop = max(first(subregion), first(region)), min(last(subregion), last(region))
+            start <= stop || continue # Currently can't handle empty regions
+            push!(events, (pos=start, active=true, index=i))
+            push!(events, (pos=nextind(s, stop), active=false, index=i))
+        end
+    end
+    sort(events, by=e -> e.pos)
+end
+
+annotation_events(s::AnnotatedString, subregion::UnitRange{Int}) =
+    annotation_events(s.string, annotations(s), subregion)
