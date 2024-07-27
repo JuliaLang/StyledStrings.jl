@@ -180,6 +180,9 @@ Base.:(==)(a::Face, b::Face) =
     getfield.(Ref(a), fieldnames(Face)) ==
     getfield.(Ref(b), fieldnames(Face))
 
+Base.hash(f::Face, h::UInt) =
+    mapfoldr(Base.Fix1(getfield, f), hash, fieldnames(Face), init=hash(Face, h))
+
 Base.copy(f::Face) =
     Face(f.font, f.height, f.weight, f.slant,
          f.foreground, f.background, f.underline,
