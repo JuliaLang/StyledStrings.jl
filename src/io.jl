@@ -185,7 +185,8 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
     face.underline == lastface.underline ||
-        if haskey(current_terminfo, :set_underline_style)
+        if haskey(current_terminfo, :set_underline_style) ||
+           get(current_terminfo, :can_style_underline, false)
             if face.underline isa Tuple # Color and style
                 color, style = face.underline
                 print(io, "\e[4:",
@@ -251,21 +252,26 @@ function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedS
     end
 end
 
-write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     _ansi_writer(io, s, write)::Int
 
-print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+    (_ansi_writer(io, s, print); nothing)
+
+# We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
+# so we get the specialised handling that `_ansi_writer` doesn't provide.
+Base.print(io::AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
-@static if VERSION < v"1.3"
-    escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = "") =
+@static if VERSION < v"1.7"
+    Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = "") =
         (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc)); nothing)
 else
-    escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = ""; keep = ()) =
+    Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}, esc = ""; keep = ()) =
         (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep=keep)); nothing)
 end
 
-function write(io::IO, c::AnnotatedChar)
+function Base.write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
         bytes = write(io, c.char)
@@ -276,9 +282,9 @@ function write(io::IO, c::AnnotatedChar)
     end
 end
 
-print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
+Base.print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
 
-function show(io::IO, c::AnnotatedChar)
+function Base.show(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
@@ -288,7 +294,7 @@ function show(io::IO, c::AnnotatedChar)
     end
 end
 
-function write(io::IO, aio::AnnotatedIOBuffer)
+function Base.write(io::IO, aio::AnnotatedIOBuffer)
     if get(io, :color, false) == true
         # This does introduce an overhead that technically
         # could be avoided, but I'm not sure that it's currently
@@ -430,7 +436,7 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "\">")
 end
 
-function show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
+function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
     @static if VERSION >= v"1.7"
         htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     else

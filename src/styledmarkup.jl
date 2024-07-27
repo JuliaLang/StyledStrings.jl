@@ -80,11 +80,11 @@ Its fields are as follows:
 - `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}`,
   A list of styles that have been terminated, and so are known to occur over a certain range,
   but have yet to be applied.
-- `offset::Ref{Int}`, a record of the between the `content` index and the index in the resulting
+- `offset::RefValue{Int}`, a record of the between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
-- `point::Ref{Int}`, the current index in `content`.
-- `escape::Ref{Bool}`, whether the last character seen was an escape character.
-- `interpolated::Ref{Bool}`, whether any interpolated values have been seen. Knowing whether or not
+- `point::RefValue{Int}`, the current index in `content`.
+- `escape::RefValue{Bool}`, whether the last character seen was an escape character.
+- `interpolated::RefValue{Bool}`, whether any interpolated values have been seen. Knowing whether or not
   anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
   when possible.
 - `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
@@ -100,10 +100,10 @@ struct State
     parts::Vector{Any}
     active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
     pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
-    offset::Ref{Int}
-    point::Ref{Int}
-    escape::Ref{Bool}
-    interpolated::Ref{Bool}
+    offset::Base.RefValue{Int}
+    point::Base.RefValue{Int}
+    escape::Base.RefValue{Bool}
+    interpolated::Base.RefValue{Bool}
     errors::Vector
 end
 
@@ -353,6 +353,50 @@ function skipwhitespace!(state::State)
 end
 
 """
+    read_while!(f::Function, state::Base.Stateful, lastchar::Char)
+
+Read `state` until `f(::Char)` is `false`.
+
+Given a `Stateful` that iterates `(_, char::Char)` pairs, and a predicate
+`f(::Char)::Bool`, return `(str, lastchar)`, where `str::String` contains all the
+`char` for which `f(char) == true`, and `lastchar` the last `char` element seen,
+or the input `lastchar` there are no elements of `state`.
+
+# Examples
+
+```julia-repl
+julia> s = Base.Stateful(pairs("abc"));
+
+julia> read_while!(isnumeric, s, 'w')
+("", 'a')
+
+julia> first(s) # s is mutated
+2 => 'b'
+
+julia> read_while!(isascii, Base.Stateful(pairs("123Σω")), 'k')
+("123", 'Σ')
+
+julia> read_while!(isascii, Base.Stateful(pairs("abcde")), 'α')
+("abcde", 'e')
+
+julia> read_while!(isascii , Base.Stateful(pairs("")), 'k')
+("", 'k')
+```
+"""
+function read_while!(f::Function, state::Base.Stateful, lastchar::Char)
+    v = Char[]
+    for (_, char::Char) in state
+        lastchar = char
+        if f(char)
+            push!(v, char)
+        else
+            break
+        end
+    end
+    if isempty(v) "" else String(v) end, lastchar
+end
+
+"""
     begin_style!(state::State, i::Int, char::Char)
 
 Parse the style declaration beginning at `i` (`char`) with `read_annotation!`,
@@ -442,16 +486,8 @@ it to `newstyles`.
 """
 function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     # Substructure parsing helper functions
-    function readalph!(state, lastchar)
-        takewhile(
-            c -> 'a' <= (lastchar = last(c)) <= 'z', state.s) |>
-                collect .|> last |> Vector{Char} |> String, lastchar
-    end
-    function readsymbol!(state, lastchar)
-        takewhile(
-            c -> (lastchar = last(c)) ∉ (' ', '\t', '\n', '\r', ',', ')'), state.s) |>
-                collect .|> last |> Vector{Char} |> String, lastchar
-    end
+    readalph!(state, lastchar) = read_while!(c -> 'a' <= c <= 'z', state.s, lastchar)
+    readsymbol!(state, lastchar) = read_while!(c -> c ∉(' ', '\t', '\n', '\r', ',', ')'), state.s, lastchar)
     function parsecolor(color::String)
         if color == "nothing"
         elseif startswith(color, '#') && length(color) == 7
@@ -558,18 +594,14 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     lastchar = last(popfirst!(state.s))
                     break
                 end
-                facename = takewhile(
-                    c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
-                        collect .|> last |> String
+                facename, lastchar = read_while!(c -> c ∉ (',', ']', ')'), state.s, lastchar)
                 push!(inherit, Symbol(rstrip(facename)))
                 if lastchar != ','
                     break
                 end
             end
         else
-            facename = takewhile(
-                c -> (lastchar = last(c)) ∉ (',', ']', ')'), state.s) |>
-                    collect .|> last |> String
+            facename, lastchar = read_while!(c -> c ∉ (',', ']', ')'), state.s, lastchar)
             push!(inherit, Symbol(rstrip(facename)))
         end
         inherit, lastchar
@@ -618,9 +650,8 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first
             else
-                takewhile(
-                    c -> (lastchar = last(c)) ∉ (',', ')'), state.s) |>
-                        collect .|> last |> String
+                str, lastchar = read_while!(c ->c ∉ (',', ')'), state.s, lastchar)
+                str
             end
         elseif key == :height
             if isnextchar(state, ('.', '0':'9'...))
