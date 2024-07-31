@@ -77,11 +77,11 @@ Its fields are as follows:
 - `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}`,
   A list of styles that have been terminated, and so are known to occur over a certain range,
   but have yet to be applied.
-- `offset::Ref{Int}`, a record of the between the `content` index and the index in the resulting
+- `offset::RefValue{Int}`, a record of the between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
-- `point::Ref{Int}`, the current index in `content`.
-- `escape::Ref{Bool}`, whether the last character seen was an escape character.
-- `interpolated::Ref{Bool}`, whether any interpolated values have been seen. Knowing whether or not
+- `point::RefValue{Int}`, the current index in `content`.
+- `escape::RefValue{Bool}`, whether the last character seen was an escape character.
+- `interpolated::RefValue{Bool}`, whether any interpolated values have been seen. Knowing whether or not
   anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
   when possible.
 - `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
@@ -97,10 +97,10 @@ struct State
     parts::Vector{Any}
     active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
     pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
-    offset::Ref{Int}
-    point::Ref{Int}
-    escape::Ref{Bool}
-    interpolated::Ref{Bool}
+    offset::Base.RefValue{Int}
+    point::Base.RefValue{Int}
+    escape::Base.RefValue{Bool}
+    interpolated::Base.RefValue{Bool}
     errors::Vector
 end
 
