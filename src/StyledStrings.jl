@@ -2,9 +2,8 @@
 
 module StyledStrings
 
-import Base: AnnotatedString, AnnotatedChar, annotations, annotate!,
-    annotatedstring, convert, merge, show, print, write,
-    ScopedValue, with, @with
+using Base: AnnotatedString, AnnotatedChar, annotations, annotate!, annotatedstring,
+      ScopedValue, with, @with
 
 export @styled_str
 public Face, addface!, withfaces, styled, SimpleColor

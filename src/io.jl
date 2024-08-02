@@ -250,22 +250,22 @@ function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedS
     end
 end
 
-write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     _ansi_writer(io, s, write)::Int
 
-print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (_ansi_writer(io, s, print); nothing)
 
 # We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
 # so we get the specialised handling that `_ansi_writer` doesn't provide.
-print(io::Base.AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.print(io::Base.AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
 escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
               esc = ""; keep = ()) =
     (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
 
-function write(io::IO, c::AnnotatedChar)
+function Base.write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
         bytes = write(io, c.char)
@@ -276,9 +276,9 @@ function write(io::IO, c::AnnotatedChar)
     end
 end
 
-print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
+Base.print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
 
-function show(io::IO, c::AnnotatedChar)
+function Base.show(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
@@ -288,7 +288,7 @@ function show(io::IO, c::AnnotatedChar)
     end
 end
 
-function write(io::IO, aio::Base.AnnotatedIOBuffer)
+function Base.write(io::IO, aio::Base.AnnotatedIOBuffer)
     if get(io, :color, false) == true
         # This does introduce an overhead that technically
         # could be avoided, but I'm not sure that it's currently
@@ -430,7 +430,7 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "\">")
 end
 
-function show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
+function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
     htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
     wrap == :none ||
