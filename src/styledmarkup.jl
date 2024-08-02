@@ -77,11 +77,11 @@ Its fields are as follows:
 - `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}`,
   A list of styles that have been terminated, and so are known to occur over a certain range,
   but have yet to be applied.
-- `offset::RefValue{Int}`, a record of the between the `content` index and the index in the resulting
+- `offset::Int`, a record of the between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
-- `point::RefValue{Int}`, the current index in `content`.
-- `escape::RefValue{Bool}`, whether the last character seen was an escape character.
-- `interpolated::RefValue{Bool}`, whether any interpolated values have been seen. Knowing whether or not
+- `point::Int`, the current index in `content`.
+- `escape::Bool`, whether the last character seen was an escape character.
+- `interpolated::Bool`, whether any interpolated values have been seen. Knowing whether or not
   anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
   when possible.
 - `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
@@ -89,19 +89,19 @@ Its fields are as follows:
   styled markup to resolve each issue one at a time. This is expected to be populated by invocations of
   `styerr!`.
 """
-struct State
-    content::String
-    bytes::Vector{UInt8}
-    s::Iterators.Stateful
-    mod::Union{Module, Nothing}
-    parts::Vector{Any}
-    active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
-    pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
-    offset::Base.RefValue{Int}
-    point::Base.RefValue{Int}
-    escape::Base.RefValue{Bool}
-    interpolated::Base.RefValue{Bool}
-    errors::Vector
+mutable struct State
+    const content::String
+    const bytes::Vector{UInt8}
+    const s::Iterators.Stateful
+    const mod::Union{Module, Nothing}
+    const parts::Vector{Any}
+    const active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
+    const pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
+    offset::Int
+    point::Int
+    escape::Bool
+    interpolated::Bool
+    const errors::Vector
 end
 
 function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
@@ -110,8 +110,8 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
           Any[], # parts
           Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[], # active_styles
           Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[], # pending_styles
-          Ref(0), Ref(1), # offset, point
-          Ref(false), Ref(false), # escape, interpolated
+          0, 1, # offset, point
+          false, false, # escape, interpolated
           NamedTuple{(:message, :position, :hint), # errors
                      Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}[])
 end
@@ -192,11 +192,11 @@ This consumes all the content between `state.point` and  `stop`, and shifts
 `state.point` to be the index after `stop`.
 """
 function addpart!(state::State, stop::Int)
-    if state.point[] > stop+state.offset[]+ncodeunits(state.content[stop])-1
-        return state.point[] = nextind(state.content, stop) + state.offset[]
+    if state.point > stop+state.offset+ncodeunits(state.content[stop])-1
+        return state.point = nextind(state.content, stop) + state.offset
     end
     str = String(state.bytes[
-        state.point[]:stop+state.offset[]+ncodeunits(state.content[stop])-1])
+        state.point:stop+state.offset+ncodeunits(state.content[stop])-1])
     sty_type, tupl = if ismacro(state)
         Expr, (a, b) -> Expr(:tuple, a, b)
     else
@@ -210,15 +210,15 @@ function addpart!(state::State, stop::Int)
                 sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # Prioritise the most specific styles
                 for (range, annot) in state.pending_styles
                     if !isempty(range)
-                        push!(styles, tupl(range .- state.point[], annot))
+                        push!(styles, tupl(range .- state.point, annot))
                     end
                 end
                 empty!(state.pending_styles)
                 relevant_styles = Iterators.filter(
-                    (_, start, _)::Tuple -> start <= stop + state.offset[] + 1,
+                    (_, start, _)::Tuple -> start <= stop + state.offset + 1,
                     Iterators.flatten(map(reverse, state.active_styles)))
                 for (_, start, annot) in relevant_styles
-                    range = (start - state.point[]):(stop - state.point[] + state.offset[] + 1)
+                    range = (start - state.point):(stop - state.point + state.offset + 1)
                     push!(styles, tupl(range, annot))
                 end
                 if isempty(styles)
@@ -229,7 +229,7 @@ function addpart!(state::State, stop::Int)
                     :(AnnotatedString($str, $(Expr(:vect, styles...))))
                 end
             end)
-    state.point[] = nextind(state.content, stop) + state.offset[]
+    state.point = nextind(state.content, stop) + state.offset
 end
 
 """
@@ -239,7 +239,7 @@ Create a new part based on (the eventual evaluation of) `expr`, running from
 `start` to `stop`, taking the currently active styles into account.
 """
 function addpart!(state::State, start::Int, expr, stop::Int)
-    if state.point[] < start
+    if state.point < start
         addpart!(state, start)
     end
     if isempty(state.active_styles)
@@ -270,7 +270,7 @@ function addpart!(state::State, start::Int, expr, stop::Int)
                       end
                   end))
         end
-        map!.((i, _, annot)::Tuple -> (i, stop + state.offset[] + 1, annot),
+        map!.((i, _, annot)::Tuple -> (i, stop + state.offset + 1, annot),
                 state.active_styles, state.active_styles)
     end
 end
@@ -282,8 +282,8 @@ Parse the escaped character `char`, at index `i`, into `state`
 """
 function escaped!(state::State, i::Int, char::Char)
     if char in ('{', '}', '\\') || (char == '$' && ismacro(state))
-        deleteat!(state.bytes, i + state.offset[] - 1)
-        state.offset[] -= ncodeunits('\\')
+        deleteat!(state.bytes, i + state.offset - 1)
+        state.offset -= ncodeunits('\\')
     elseif char ∈ ('\n', '\r') && !isempty(state.s)
         skipped = 0
         if char == '\r' && isnextchar(state, '\n')
@@ -294,10 +294,10 @@ function escaped!(state::State, i::Int, char::Char)
             popfirst!(state.s)
             skipped += 1
         end
-        deleteat!(state.bytes, i+state.offset[]-1:i+skipped+state.offset[])
-        state.offset[] -= skipped + ncodeunits("\\\n")
+        deleteat!(state.bytes, i+state.offset-1:i+skipped+state.offset)
+        state.offset -= skipped + ncodeunits("\\\n")
     end
-    state.escape[] = false
+    state.escape = false
 end
 
 """
@@ -307,11 +307,11 @@ Interpolate the expression starting at `i`, and add it as a part to `state`.
 """
 function interpolated!(state::State, i::Int, _)
     expr, nexti = readexpr!(state, i + ncodeunits('$'))
-    deleteat!(state.bytes, i + state.offset[])
-    state.offset[] -= ncodeunits('$')
+    deleteat!(state.bytes, i + state.offset)
+    state.offset -= ncodeunits('$')
     addpart!(state, i, esc(expr), nexti)
-    state.point[] = nexti + state.offset[]
-    state.interpolated[] = true
+    state.point = nexti + state.offset
+    state.interpolated = true
 end
 
 """
@@ -408,8 +408,8 @@ function begin_style!(state::State, i::Int, char::Char)
     # style declaration(s).
     if !isempty(state.s)
         nexti = first(peek(state.s))
-        deleteat!(state.bytes, i+state.offset[]:nexti+state.offset[]-1)
-        state.offset[] -= nexti - i
+        deleteat!(state.bytes, i+state.offset:nexti+state.offset-1)
+        state.offset -= nexti - i
     end
 end
 
@@ -420,10 +420,10 @@ Close of the most recent active style in `state`, making it a pending style.
 """
 function end_style!(state::State, i::Int, char::Char)
     for (_, start, annot) in pop!(state.active_styles)
-        pushfirst!(state.pending_styles, (start:i+state.offset[], annot))
+        pushfirst!(state.pending_styles, (start:i+state.offset, annot))
     end
-    deleteat!(state.bytes, i + state.offset[])
-    state.offset[] -= ncodeunits('}')
+    deleteat!(state.bytes, i + state.offset)
+    state.offset -= ncodeunits('}')
 end
 
 """
@@ -511,7 +511,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             elseif isnextchar(state, '$') && ismacro(state)
                 expr, _ = readexpr!(state)
                 lastchar = last(popfirst!(state.s))
-                state.interpolated[] = true
+                state.interpolated = true
                 needseval = true
                 esc(expr)
             else
@@ -525,7 +525,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 if isnextchar(state, '$') && ismacro(state)
                     expr, _ = readexpr!(state)
                     lastchar = last(popfirst!(state.s))
-                    state.interpolated[] = true
+                    state.interpolated = true
                     needseval = true
                     ustyle = esc(expr)
                 else
@@ -639,7 +639,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
-            state.interpolated[] = true
+            state.interpolated = true
             needseval = true
             esc(expr)
         elseif key == :font
@@ -724,7 +724,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     end
     face = Expr(:call, Face, kwargs...)
     push!(newstyles,
-          (i, i + state.offset[] + 1,
+          (i, i + state.offset + 1,
            if !ismacro(state)
                Pair{Symbol, Any}(:face, Face(; NamedTuple(kwargs)...))
            elseif needseval
@@ -766,7 +766,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
-        state.interpolated[] = true
+        state.interpolated = true
         needseval = true
         esc(expr)
     else
@@ -788,7 +788,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
             read_curlywrapped!(state)
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
-            state.interpolated[] = true
+            state.interpolated = true
             needseval = true
             esc(expr)
         else
@@ -800,7 +800,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
             String(chars)
         end
         push!(newstyles,
-                (i, i + state.offset[] + ncodeunits('{'),
+                (i, i + state.offset + ncodeunits('{'),
                 if key isa String && !(value isa Symbol || value isa Expr)
                     Pair{Symbol, Any}(Symbol(key), value)
                 elseif key isa Expr || key isa Symbol
@@ -811,7 +811,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
                 end))
     elseif key !== ""
         push!(newstyles,
-                (i, i + state.offset[] + ncodeunits('{'),
+                (i, i + state.offset + ncodeunits('{'),
                 if key isa Symbol || key isa Expr
                     :(Pair{Symbol, Any}(:face, $key))
                 else # Face symbol
@@ -836,8 +836,8 @@ function run_state_machine!(state::State)
     # Run the state machine
     for (i, char) in state.s
         if char == '\\'
-            state.escape[] = true
-        elseif state.escape[]
+            state.escape = true
+        elseif state.escape
             escaped!(state, i, char)
         elseif ismacro(state) && char == '$'
             interpolated!(state, i, char)
@@ -852,7 +852,7 @@ function run_state_machine!(state::State)
         end
     end
     # Ensure that any trailing unstyled content is added
-    if state.point[] <= lastindex(state.content) + state.offset[]
+    if state.point <= lastindex(state.content) + state.offset
         addpart!(state, lastindex(state.content))
     end
     for incomplete in Iterators.flatten(state.active_styles)
@@ -988,7 +988,7 @@ macro styled_str(raw_content::String)
     run_state_machine!(state)
     if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))
-    elseif state.interpolated[]
+    elseif state.interpolated
         :(annotatedstring($(state.parts...)) |> annotatedstring_optimize!)
     else
         annotatedstring(map(Base.Fix1(hygienic_eval, state), state.parts)...) |> annotatedstring_optimize!
