@@ -25,7 +25,11 @@ struct SimpleColor
 end
 
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
-SimpleColor(rgb::UInt32) = SimpleColor(reverse(reinterpret(UInt8, [rgb]))[2:end]...)
+
+function SimpleColor(rgb::UInt32)
+    _, g, b, r = reinterpret(NTuple{4, UInt8}, rgb)
+    SimpleColor(r, g, b)
+end
 
 Base.convert(::Type{SimpleColor}, (; r, g, b)::RGBTuple) = SimpleColor((; r, g, b))
 Base.convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
