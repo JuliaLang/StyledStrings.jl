@@ -25,6 +25,7 @@ StyledStrings.resetfaces!
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
+StyledStrings.load_customisations!
 ```
 
 ## Styled Markup parsing

@@ -27,7 +27,15 @@ struct SimpleColor
 end
 
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
-SimpleColor(rgb::UInt32) = SimpleColor(reverse(reinterpret(UInt8, [rgb]))[2:end]...)
+
+function SimpleColor(rgb::UInt32)
+    b, g, r, _ = @static if VERSION >= v"1.10"
+        reinterpret(UInt8, [htol(rgb)])
+    else
+        reinterpret(UInt8, [htol(rgb)])
+    end
+    SimpleColor(r, g, b)
+end
 
 Base.convert(::Type{SimpleColor}, rgb::RGBTuple) = SimpleColor(rgb)
 Base.convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
@@ -477,7 +485,7 @@ function withfaces(f, keyvals_itr)
             FACES.current[][name] = face
         elseif face isa Symbol
             FACES.current[][name] =
-                something(get(old, face, nothing), get(FACES.current[], face, Face()))
+                something(get(old, face, nothing), get(Face, FACES.current[], face))
         elseif face isa Vector{Symbol}
             FACES.current[][name] = Face(inherit=face)
         elseif haskey(FACES.current[], name)
@@ -511,25 +519,30 @@ later faces taking priority.
 """
 function Base.merge(a::Face, b::Face)
     if isempty(b.inherit)
-        Face(ifelse(isnothing(b.font),          a.font,          b.font),
-             if isnothing(b.height)      a.height
-             elseif isnothing(a.height)  b.height
-             elseif b.height isa Int     b.height
-             elseif a.height isa Int     round(Int, a.height * b.height)
-             else a.height * b.height end,
-             ifelse(isnothing(b.weight),        a.weight,        b.weight),
-             ifelse(isnothing(b.slant),         a.slant,         b.slant),
-             ifelse(isnothing(b.foreground),    a.foreground,    b.foreground),
-             ifelse(isnothing(b.background),    a.background,    b.background),
-             ifelse(isnothing(b.underline),     a.underline,     b.underline),
-             ifelse(isnothing(b.strikethrough), a.strikethrough, b.strikethrough),
-             ifelse(isnothing(b.inverse),       a.inverse,       b.inverse),
+        # Extract the heights to help type inference a bit to be able
+        # to narrow the types in e.g. `aheight * bheight`
+        aheight = a.height
+        bheight = b.height
+        abheight = if isnothing(bheight) aheight
+        elseif isnothing(aheight) bheight
+        elseif bheight isa Int bheight
+        elseif aheight isa Int round(Int, aheight * bheight)
+        else aheight * bheight end
+        Face(if isnothing(b.font)          a.font          else b.font          end,
+             abheight,
+             if isnothing(b.weight)        a.weight        else b.weight        end,
+             if isnothing(b.slant)         a.slant         else b.slant         end,
+             if isnothing(b.foreground)    a.foreground    else b.foreground    end,
+             if isnothing(b.background)    a.background    else b.background    end,
+             if isnothing(b.underline)     a.underline     else b.underline     end,
+             if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
+             if isnothing(b.inverse)       a.inverse       else b.inverse       end,
              a.inherit)
     else
         b_noinherit = Face(
             b.font, b.height, b.weight, b.slant, b.foreground, b.background,
             b.underline, b.strikethrough, b.inverse, Symbol[])
-        b_inheritance = map(fname -> get(FACES.current[], fname, Face()), Iterators.reverse(b.inherit))
+        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(b.inherit))
         b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
         merge(a, b_resolved)
     end
@@ -539,6 +552,11 @@ Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 ## Getting the combined face from a set of properties ##
 
+# Putting these inside `getface` causes the julia compiler to box it
+_mergedface(face::Face) = face
+_mergedface(face::Symbol) = get(Face, FACES.current[], face)
+_mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
+
 """
     getface(faces)
 
@@ -547,10 +565,7 @@ Obtain the final merged face from `faces`, an iterator of
 """
 function getface(faces)
     isempty(faces) && return FACES.current[][:default]
-    mergedface(face::Face) = face
-    mergedface(face::Symbol) = get(FACES.current[], face, Face())
-    mergedface(faces::Vector) = mapfoldl(mergedface, merge, Iterators.reverse(faces))
-    combined = mapfoldl(mergedface, merge, faces)::Face
+    combined = mapfoldl(_mergedface, merge, faces)::Face
     if !isempty(combined.inherit)
         combined = merge(Face(), combined)
     end
@@ -568,7 +583,7 @@ function getface(annotations::Vector{Pair{Symbol, Any}})
 end
 
 getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
-getface(face::Symbol) = getface(get(FACES.current[], face, Face()))
+getface(face::Symbol) = getface(get(Face, FACES.current[], face))
 
 """
     getface()

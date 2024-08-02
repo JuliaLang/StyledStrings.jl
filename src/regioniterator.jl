@@ -78,7 +78,7 @@ function eachregion(s::SubString{<:AnnotatedString}, pos::UnitRange{Int}=firstin
 end
 
 """
-    annotation_events(string::AbstractString, annots::Vector{Tuple{UnitRange{Int64}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+    annotation_events(string::AbstractString, annots::Vector{Tuple{UnitRange{Int}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
     annotation_events(string::AnnotatedString, subregion::UnitRange{Int})
 
 Find all annotation "change events" that occur within a `subregion` of `annots`,
@@ -89,7 +89,7 @@ index::Int}` where `pos` is the position of the event, `active` is a boolean
 indicating whether the annotation is being activated or deactivated, and `index`
 is the index of the annotation in question.
 """
-function annotation_events(s::AbstractString, annots::Vector{Tuple{UnitRange{Int64}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+function annotation_events(s::AbstractString, annots::Vector{Tuple{UnitRange{Int}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
     events = Vector{NamedTuple{(:pos, :active, :index), Tuple{Int, Bool, Int}}}() # Position, Active?, Annotation index
     for (i, (region, _)) in enumerate(annots)
         if !isempty(intersect(subregion, region))
