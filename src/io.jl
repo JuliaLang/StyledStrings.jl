@@ -261,7 +261,7 @@ Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
 Base.print(io::Base.AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
-escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
+Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
               esc = ""; keep = ()) =
     (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
 
