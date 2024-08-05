@@ -42,3 +42,46 @@ function match(re::Regex, str::AnnotatedString, idx::Integer, add_opts::UInt32=U
         _annotatedmatch(m, str)
     end
 end
+
+struct AnnotatedRegexMatchIterator{S <: AnnotatedString}
+    regex::Regex
+    string::S
+    overlap::Bool
+end
+
+compile(itr::AnnotatedRegexMatchIterator) = (compile(itr.regex); itr)
+eltype(::Type{AnnotatedRegexMatchIterator{S}}) where {S} = AnnotatedRegexMatch{S}
+IteratorSize(::Type{<:AnnotatedRegexMatchIterator}) = SizeUnknown()
+
+function iterate(itr::AnnotatedRegexMatchIterator, (offset,prevempty)=(1,false))
+    opts_nonempty = UInt32(Base.PCRE.ANCHORED | Base.PCRE.NOTEMPTY_ATSTART)
+    while true
+        mat = match(itr.regex, itr.string, offset,
+                    prevempty ? opts_nonempty : UInt32(0))
+
+        if mat === nothing
+            if prevempty && offset <= sizeof(itr.string)
+                offset = nextind(itr.string, offset)
+                prevempty = false
+                continue
+            else
+                break
+            end
+        else
+            if itr.overlap
+                if !isempty(mat.match)
+                    offset = nextind(itr.string, mat.offset)
+                else
+                    offset = mat.offset
+                end
+            else
+                offset = mat.offset + ncodeunits(mat.match)
+            end
+            return (mat, (offset, isempty(mat.match)))
+        end
+    end
+    nothing
+end
+
+eachmatch(re::Regex, str::AnnotatedString; overlap = false) =
+    AnnotatedRegexMatchIterator(re, str, overlap)
