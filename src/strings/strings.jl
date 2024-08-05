@@ -11,6 +11,12 @@ import Base: @propagate_inbounds, AbstractPipe, TTY, String, cmp, codepoint,
 
 using ..Compat
 
+# It's surprisingly annoying to clone a substring,
+# thanks to that pesky inner constructor.
+macro raw_substring(T, str, offset, ncu)
+    esc(Expr(:new, Expr(:curly, :SubString, T), str, offset, ncu))
+end
+
 include(joinpath(dirname(@__DIR__), "compat.jl"))
 include("annotated.jl")
 

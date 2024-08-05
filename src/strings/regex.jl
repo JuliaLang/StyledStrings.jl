@@ -20,14 +20,11 @@ end
 
 function _annotatedmatch(m::RegexMatch, str::AnnotatedString{S}) where {S<:AbstractString}
     AnnotatedRegexMatch{AnnotatedString{S}}(
-        # It's surprisingly annoying to clone a substring,
-        # thanks to that pesky inner constructor.
-        eval(Expr(:new, SubString{AnnotatedString{S}}(
-            str, m.match.offset, m.match.ncodeunits))),
+        @raw_substring(AnnotatedString{S}, str, m.match.offset, m.match.ncodeunits),
         Union{Nothing,SubString{AnnotatedString{S}}}[
             if !isnothing(cap)
-                eval(Expr(:new, SubString{AnnotatedString{S}}(
-                    str, cap.offset, cap.ncodeunits)))
+                @raw_substring(AnnotatedString{S},
+                               str, cap.offset, cap.ncodeunits)
             end for cap in m.captures],
         m.offset, m.offsets, m.regex)
 end

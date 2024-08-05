@@ -248,7 +248,7 @@ function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedS
         string_writer(io, s.string)
     elseif s isa SubString
         string_writer(
-            io, eval(Expr(:new, SubString{typeof(s.string.string)}, s.string.string, s.offset, s.ncodeunits)))
+            io, AnnotatedStrings.@raw_substring(typeof(s.string.string), s.string.string, s.offset, s.ncodeunits))
     end
 end
 
