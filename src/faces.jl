@@ -495,12 +495,16 @@ later faces taking priority.
 """
 function Base.merge(a::Face, b::Face)
     if isempty(b.inherit)
+        # Extract the heights to help type inference a bit to be able
+        # to narrow the types in e.g. `aheight * bheight`
+        aheight = a.height
+        bheight = b.height
         Face(ifelse(isnothing(b.font),          a.font,          b.font),
-             if isnothing(b.height)      a.height
-             elseif isnothing(a.height)  b.height
-             elseif b.height isa Int     b.height
-             elseif a.height isa Int     round(Int, a.height * b.height)
-             else a.height * b.height end,
+             if isnothing(bheight)      aheight
+             elseif isnothing(aheight)  bheight
+             elseif bheight isa Int     bheight
+             elseif aheight isa Int     round(Int, aheight * bheight)
+             else aheight * bheight end,
              ifelse(isnothing(b.weight),        a.weight,        b.weight),
              ifelse(isnothing(b.slant),         a.slant,         b.slant),
              ifelse(isnothing(b.foreground),    a.foreground,    b.foreground),
