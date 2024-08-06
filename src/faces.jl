@@ -499,19 +499,20 @@ function Base.merge(a::Face, b::Face)
         # to narrow the types in e.g. `aheight * bheight`
         aheight = a.height
         bheight = b.height
-        Face(ifelse(isnothing(b.font),          a.font,          b.font),
-             if isnothing(bheight)      aheight
-             elseif isnothing(aheight)  bheight
-             elseif bheight isa Int     bheight
-             elseif aheight isa Int     round(Int, aheight * bheight)
-             else aheight * bheight end,
-             ifelse(isnothing(b.weight),        a.weight,        b.weight),
-             ifelse(isnothing(b.slant),         a.slant,         b.slant),
-             ifelse(isnothing(b.foreground),    a.foreground,    b.foreground),
-             ifelse(isnothing(b.background),    a.background,    b.background),
-             ifelse(isnothing(b.underline),     a.underline,     b.underline),
-             ifelse(isnothing(b.strikethrough), a.strikethrough, b.strikethrough),
-             ifelse(isnothing(b.inverse),       a.inverse,       b.inverse),
+        abheight = if isnothing(bheight) aheight
+        elseif isnothing(aheight) bheight
+        elseif bheight isa Int bheight
+        elseif aheight isa Int round(Int, aheight * bheight)
+        else aheight * bheight end
+        Face(if isnothing(b.font)          a.font          else b.font          end,
+             abheight,
+             if isnothing(b.weight)        a.weight        else b.weight        end,
+             if isnothing(b.slant)         a.slant         else b.slant         end,
+             if isnothing(b.foreground)    a.foreground    else b.foreground    end,
+             if isnothing(b.background)    a.background    else b.background    end,
+             if isnothing(b.underline)     a.underline     else b.underline     end,
+             if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
+             if isnothing(b.inverse)       a.inverse       else b.inverse       end,
              a.inherit)
     else
         b_noinherit = Face(
