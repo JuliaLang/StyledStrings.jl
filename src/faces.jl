@@ -527,6 +527,11 @@ Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 ## Getting the combined face from a set of properties ##
 
+# Putting these inside `getface` causes the julia compiler to box it
+_mergedface(face::Face) = face
+_mergedface(face::Symbol) = get(FACES.current[], face, Face())
+_mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
+
 """
     getface(faces)
 
@@ -535,10 +540,7 @@ Obtain the final merged face from `faces`, an iterator of
 """
 function getface(faces)
     isempty(faces) && return FACES.current[][:default]
-    mergedface(face::Face) = face
-    mergedface(face::Symbol) = get(FACES.current[], face, Face())
-    mergedface(faces::Vector) = mapfoldl(mergedface, merge, Iterators.reverse(faces))
-    combined = mapfoldl(mergedface, merge, faces)::Face
+    combined = mapfoldl(_mergedface, merge, faces)::Face
     if !isempty(combined.inherit)
         combined = merge(Face(), combined)
     end
