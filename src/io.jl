@@ -32,18 +32,18 @@ const ANSI_4BIT_COLORS = Dict{Symbol, Int}(
 """
     ansi_4bit_color_code(color::Symbol, background::Bool=false)
 
-Provide the color code (30-37, 40-47, 90-97, 100-107) for `color`, as a string.
+Provide the color code (30-37, 40-47, 90-97, 100-107) for `color`, as an integer.
 When `background` is set the background variant will be provided, otherwise
 the provided code is for setting the foreground color.
 """
 function ansi_4bit_color_code(color::Symbol, background::Bool=false)
-    if haskey(ANSI_4BIT_COLORS, color)
-        code = ANSI_4BIT_COLORS[color]
+    code = get(ANSI_4BIT_COLORS, color, nothing)
+    if code !== nothing
         code >= 8 && (code += 52)
         background && (code += 10)
-        string(code + 30)
+        code + 30
     else
-        ifelse(background, "49", "39")
+        ifelse(background, 49, 39)
     end
 end
 
@@ -123,15 +123,17 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
     elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
         termcolor(io, fg, category)
     else
-        print(io, "\e[",
-              if category == '3' || category == '4'
-                  ansi_4bit_color_code(color.value, category == '4')
-              elseif category == '5'
-                  if haskey(ANSI_4BIT_COLORS, color.value)
-                      string("58;5;", ANSI_4BIT_COLORS[color.value])
-                  else "59" end
-              end,
-              'm')
+        print(io, "\e[")
+        if category == '3' || category == '4'
+            print(io, ansi_4bit_color_code(color.value, category == '4'))
+        elseif category == '5'
+            if haskey(ANSI_4BIT_COLORS, color.value)
+                print(io, "58;5;", ANSI_4BIT_COLORS[color.value])
+            else
+                print(io, "59")
+            end
+         end
+         print(io, "m")
     end
 end
 

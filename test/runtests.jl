@@ -495,11 +495,11 @@ end
 
 @testset "ANSI encoding" begin
     # 4-bit color
-    @test StyledStrings.ansi_4bit_color_code(:cyan, false) == "36"
-    @test StyledStrings.ansi_4bit_color_code(:cyan, true) == "46"
-    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, false) == "96"
-    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, true) == "106"
-    @test StyledStrings.ansi_4bit_color_code(:nonexistant) == "39"
+    @test StyledStrings.ansi_4bit_color_code(:cyan, false) == 36
+    @test StyledStrings.ansi_4bit_color_code(:cyan, true) == 46
+    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, false) == 96
+    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, true) == 106
+    @test StyledStrings.ansi_4bit_color_code(:nonexistant) == 39
     # 8-bit color
     @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;26m"
     @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;28m"
