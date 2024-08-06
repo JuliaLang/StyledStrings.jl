@@ -27,7 +27,7 @@ end
 SimpleColor(r::Integer, g::Integer, b::Integer) = SimpleColor((; r=UInt8(r), g=UInt8(g), b=UInt8(b)))
 
 function SimpleColor(rgb::UInt32)
-    _, g, b, r = reinterpret(NTuple{4, UInt8}, rgb)
+    b, g, r, _ = reinterpret(NTuple{4, UInt8}, htol(rgb))
     SimpleColor(r, g, b)
 end
 
