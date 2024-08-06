@@ -470,7 +470,7 @@ function withfaces(f, keyvals_itr)
         if face isa Face
             newfaces[name] = face
         elseif face isa Symbol
-            newfaces[name] = get(FACES.current[], face, Face())
+            newfaces[name] = get(Face, FACES.current[], face)
         elseif face isa Vector{Symbol}
             newfaces[name] = Face(inherit=face)
         elseif haskey(newfaces, name)
@@ -517,7 +517,7 @@ function Base.merge(a::Face, b::Face)
         b_noinherit = Face(
             b.font, b.height, b.weight, b.slant, b.foreground, b.background,
             b.underline, b.strikethrough, b.inverse, Symbol[])
-        b_inheritance = map(fname -> get(FACES.current[], fname, Face()), Iterators.reverse(b.inherit))
+        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(b.inherit))
         b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
         merge(a, b_resolved)
     end
@@ -529,7 +529,7 @@ Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 # Putting these inside `getface` causes the julia compiler to box it
 _mergedface(face::Face) = face
-_mergedface(face::Symbol) = get(FACES.current[], face, Face())
+_mergedface(face::Symbol) = get(Face, FACES.current[], face)
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
 
 """
@@ -558,7 +558,7 @@ function getface(annotations::Vector{Pair{Symbol, Any}})
 end
 
 getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
-getface(face::Symbol) = getface(get(FACES.current[], face, Face()))
+getface(face::Symbol) = getface(get(Face, FACES.current[], face))
 
 """
     getface()
