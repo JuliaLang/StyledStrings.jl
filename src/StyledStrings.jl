@@ -2,8 +2,8 @@
 
 module StyledStrings
 
-using Base: AnnotatedString, AnnotatedChar, annotations, annotate!, annotatedstring,
-      ScopedValue, with, @with
+using Base: AnnotatedString, AnnotatedChar, annotations, annotate!, annotatedstring
+using Base.ScopedValues: ScopedValue, with, @with
 
 export @styled_str
 public Face, addface!, withfaces, styled, SimpleColor
