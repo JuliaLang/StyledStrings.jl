@@ -263,7 +263,7 @@ Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
 
 # We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
 # so we get the specialised handling that `_ansi_writer` doesn't provide.
-Base.print(io::Base.AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.print(io::AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     (write(io, s); nothing)
 
 Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
@@ -293,7 +293,7 @@ function Base.show(io::IO, c::AnnotatedChar)
     end
 end
 
-function Base.write(io::IO, aio::Base.AnnotatedIOBuffer)
+function Base.write(io::IO, aio::AnnotatedIOBuffer)
     if get(io, :color, false) == true
         # This does introduce an overhead that technically
         # could be avoided, but I'm not sure that it's currently

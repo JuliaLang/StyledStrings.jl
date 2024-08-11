@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, Face, loadface!, face!
+using ..StyledStrings: SimpleColor, Face, loadface!, face!, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -123,11 +123,11 @@ function load_env_colors!()
     end
 end
 
-function Base.printstyled(io::Base.AnnotatedIOBuffer, msg...;
+function Base.printstyled(io::AnnotatedIOBuffer, msg...;
                           bold::Bool=false, italic::Bool=false, underline::Bool=false,
                           blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
                           color::Union{Symbol, Int}=:normal)
-    str = Base.annotatedstring(msg...)
+    str = annotatedstring(msg...)
     bold && face!(str, :bold)
     italic && face!(str, :italic)
     underline && face!(str, :underline)

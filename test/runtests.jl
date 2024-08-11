@@ -3,9 +3,9 @@
 using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
-    @styled_str, styled, StyledMarkup, eachregion, getface, addface!, loadface!, resetfaces!
+    @styled_str, styled, StyledMarkup, eachregion, getface, addface!, loadface!, resetfaces!,
+    AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
-using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 
 const NON_STDLIB_TESTS = Main == @__MODULE__
 if NON_STDLIB_TESTS

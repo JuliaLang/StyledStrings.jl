@@ -14,7 +14,7 @@ A styled string can be constructed manually, but the [`styled"..."`](@ref
 ```@repl examples
 using StyledStrings
 str = styled"{yellow:hello} {blue:there}"
-(String(str), Base.annotations(str))
+(String(str), annotations(str))
 ```
 
 ```@setup example
@@ -181,25 +181,25 @@ Sometimes it's useful to compose a string incrementally, or interoperate with
 other `IO`-based code. For these use-cases, the [`AnnotatedIOBuffer`](@ref Base.AnnotatedIOBuffer) is very handy, as you can [`read`](@ref Base.read) an [`AnnotatedString`](@ref Base.AnnotatedString) from it.
 
 ```@repl examples
-aio = Base.AnnotatedIOBuffer()
+aio = AnnotatedIOBuffer()
 typ = Int
 print(aio, typ)
 while typ != Any # We'll pretend that `supertypes` doesn't exist.
     typ = supertype(typ)
     print(aio, styled" {bright_red:<:} $typ")
 end
-read(seekstart(aio), Base.AnnotatedString)
+read(seekstart(aio), AnnotatedString)
 ```
 
 StyledStrings adds a specialised [`printstyled`](@ref) method `printstyled(::AnnotatedIOBuffer, ...)` that means that you can pass an `AnnotatedIOBuffer` as IO to "legacy" code written to use `printstyled`, and extract all the styling as though it had used [`styled"..."`](@ref @styled_str) macros.
 
 ```@repl
-aio = Base.AnnotatedIOBuffer()
+aio = AnnotatedIOBuffer()
 printstyled(aio, 'c', color=:red)
 printstyled(aio, 'o', color=:yellow)
 printstyled(aio, 'l', color=:green)
 printstyled(aio, 'o', color=:blue)
 printstyled(aio, 'r', color=:magenta)
-read(seekstart(aio), Base.AnnotatedString)
+read(seekstart(aio), AnnotatedString)
 read(seekstart(aio), String)
 ```

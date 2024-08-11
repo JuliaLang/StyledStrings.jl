@@ -1,5 +1,12 @@
 # [StyledStrings](@id stdlib-styledstrings)
 
+```@meta
+CurrentModule = StyledStrings
+DocTestSetup = quote
+    using StyledStrings
+end
+```
+
 !!! note
     The API for StyledStrings and AnnotatedStrings is considered experimental and is subject to change between
     Julia versions.
@@ -40,6 +47,52 @@ Literals](@ref stdlib-styledstring-literals).
 using StyledStrings
 styled"{yellow:hello} {blue:there}"
 ```
+
+## [Annotated Strings](@id man-annotated-strings)
+
+It is sometimes useful to be able to hold metadata relating to regions of a
+string. A [`AnnotatedString`](@ref Base.AnnotatedString) wraps another string and
+allows for regions of it to be annotated with labelled values (`:label => value`).
+All generic string operations are applied to the underlying string. However,
+when possible, styling information is preserved. This means you can manipulate a
+[`AnnotatedString`](@ref Base.AnnotatedString) —taking substrings, padding them,
+concatenating them with other strings— and the metadata annotations will "come
+along for the ride".
+
+This string type is fundamental to the [StyledStrings stdlib](@ref
+stdlib-styledstrings), which uses `:face`-labelled annotations to hold styling
+information.
+
+When concatenating a [`AnnotatedString`](@ref Base.AnnotatedString), take care to use
+[`annotatedstring`](@ref StyledStrings.annotatedstring) instead of [`string`](@ref) if you want
+to keep the string annotations.
+
+```jldoctest
+julia> str = AnnotatedString("hello there", [(1:5, :word => :greeting), (7:11, :label => 1)])
+"hello there"
+
+julia> length(str)
+11
+
+julia> lpad(str, 14)
+"   hello there"
+
+julia> typeof(lpad(str, 7))
+AnnotatedString{String}
+
+julia> str2 = AnnotatedString(" julia", [(2:6, :face => :magenta)])
+" julia"
+
+julia> annotatedstring(str, str2)
+"hello there julia"
+
+julia> str * str2 == annotatedstring(str, str2) # *-concatenation works
+true
+```
+
+The annotations of a [`AnnotatedString`](@ref Base.AnnotatedString) can be accessed
+and modified via the [`annotations`](@ref StyledStrings.annotations) and
+[`annotate!`](@ref StyledStrings.annotate!) functions.
 
 ## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
 
@@ -153,7 +206,7 @@ them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
-str1 = Base.AnnotatedString("blue text", [(1:9, :face => :blue)])
+str1 = AnnotatedString("blue text", [(1:9, :face => :blue)])
 str2 = styled"{blue:blue text}"
 str1 == str2
 sprint(print, str1, context = :color => true)
@@ -275,6 +328,9 @@ arbitrarily nest and overlap, \colorbox[HTML]{3a3a3a}{\color[HTML]{33d079}like
 
 ## [API reference](@id stdlib-styledstrings-api)
 
+
+### Styling and Faces
+
 ```@docs
 StyledStrings.@styled_str
 StyledStrings.styled
@@ -282,7 +338,7 @@ StyledStrings.Face
 StyledStrings.addface!
 StyledStrings.withfaces
 StyledStrings.SimpleColor
-Base.parse(::Type{StyledStrings.SimpleColor}, ::String)
-Base.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
-Base.merge(::StyledStrings.Face, ::StyledStrings.Face)
+StyledStrings.parse(::Type{StyledStrings.SimpleColor}, ::String)
+StyledStrings.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
+StyledStrings.merge(::StyledStrings.Face, ::StyledStrings.Face)
 ```
