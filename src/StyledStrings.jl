@@ -2,6 +2,8 @@
 
 module StyledStrings
 
+# While these are imported from Base, we claim them as part of the `StyledStrings` API.
+export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring
 
 export @styled_str
 
@@ -13,8 +15,7 @@ const ncodeunits = Compat.ncodeunits
 include("strings/strings.jl")
 include("terminfo.jl")
 
-using .AnnotatedStrings: AnnotatedString, AnnotatedChar, annotations,
-    annotate!, annotatedstring, AnnotatedIOBuffer
+using .AnnotatedStrings: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring,
 
 include("faces.jl")
 include("regioniterator.jl")

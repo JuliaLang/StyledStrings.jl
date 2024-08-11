@@ -3,7 +3,8 @@
 using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
-    @styled_str, styled, StyledMarkup, eachregion, getface, addface!, loadface!, resetfaces!
+    @styled_str, styled, StyledMarkup, eachregion, getface, addface!, loadface!, resetfaces!,
+    AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 import StyledStrings.AnnotatedStrings: AnnotatedString, AnnotatedChar,
     AnnotatedIOBuffer, annotations
