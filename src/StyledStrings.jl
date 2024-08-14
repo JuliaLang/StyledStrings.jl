@@ -2,6 +2,7 @@
 
 module StyledStrings
 
+
 export @styled_str
 
 include("compat.jl")
@@ -54,8 +55,6 @@ function __init__()
     load_customisations!()
 end
 
-if generating_output()
-    include("precompile.jl")
-end
+include("precompile.jl")
 
 end
