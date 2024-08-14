@@ -5,10 +5,9 @@ module AnnotatedStrings
 import Base: @propagate_inbounds, AbstractPipe, IteratorSize, TTY, String, cmp,
     codepoint, codeunit, codeunits, compile, convert, copy, eachmatch, eltype,
     empty, firstindex, get, getindex, haskey, in, isvalid, invoke, iterate,
-    join, keys, keys, lastindex, length, ncodeunits, match, merge, parse,
-    pipe_reader, pipe_writer, position, print, promote_rule, read, repeat,
-    reverse, seek, seekend, setindex, show, skip, truncate, tryparse, write,
-    *, ==
+    keys, keys, lastindex, length, ncodeunits, match, merge, parse, pipe_reader,
+    pipe_writer, position, print, promote_rule, read, repeat, reverse, seek,
+    seekend, setindex, show, skip, truncate, tryparse, write, ==
 
 using ..Compat
 
@@ -25,11 +24,5 @@ include("unicode.jl")
 include("basic.jl")
 include("io.jl")
 include("regex.jl")
-
-function __init__()
-    # Method overwriting
-    ccall(:jl_generating_output, Cint, ()) == 0 &&
-        eval(:(include(joinpath($@__DIR__, "overrides.jl"))))
-end
 
 end
