@@ -1,7 +1,7 @@
 name = "StyledStrings"
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 authors = ["TEC <git@tecosaur.net>"]
-version = "1.0.2"
+version = "1.0.3"
 
 [deps]
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
