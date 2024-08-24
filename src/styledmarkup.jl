@@ -267,7 +267,7 @@ function addpart!(state::State, start::Int, expr, stop::Int)
                           AnnotatedString(String($str), vcat($annots, annotations($str)))
                       else
                           if isempty($str)
-                              ""
+                              AnnotatedString("")
                           else
                               AnnotatedString($str, $annots)
                           end
