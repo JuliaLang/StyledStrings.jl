@@ -81,9 +81,9 @@ Its fields are as follows:
   styled string, as markup structures are absorbed.
 - `point::Int`, the current index in `content`.
 - `escape::Bool`, whether the last character seen was an escape character.
-- `interpolated::Bool`, whether any interpolated values have been seen. Knowing whether or not
+- `interpolations::Int`, how many interpolated values have been seen. Knowing whether or not
   anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
-  when possible.
+  when possible, and knowing how many allows for some micro-optimisations.
 - `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
   so that we can list as many issues as possible at once, instead of forcing the author of the invalid
   styled markup to resolve each issue one at a time. This is expected to be populated by invocations of
@@ -100,7 +100,7 @@ mutable struct State
     offset::Int
     point::Int
     escape::Bool
-    interpolated::Bool
+    interpolations::Int
     const errors::Vector
 end
 
@@ -111,7 +111,7 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
           Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[], # active_styles
           Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[], # pending_styles
           0, 1, # offset, point
-          false, false, # escape, interpolated
+          false, 0, # escape, interpolations
           NamedTuple{(:message, :position, :hint), # errors
                      Tuple{AnnotatedString{String}, <:Union{Int, Nothing}, String}}[])
 end
@@ -311,7 +311,7 @@ function interpolated!(state::State, i::Int, _)
     state.offset -= ncodeunits('$')
     addpart!(state, i, esc(expr), nexti)
     state.point = nexti + state.offset
-    state.interpolated = true
+    state.interpolations += 1
 end
 
 """
@@ -511,7 +511,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             elseif isnextchar(state, '$') && ismacro(state)
                 expr, _ = readexpr!(state)
                 lastchar = last(popfirst!(state.s))
-                state.interpolated = true
+                state.interpolations += 1
                 needseval = true
                 esc(expr)
             else
@@ -525,7 +525,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 if isnextchar(state, '$') && ismacro(state)
                     expr, _ = readexpr!(state)
                     lastchar = last(popfirst!(state.s))
-                    state.interpolated = true
+                    state.interpolations += 1
                     needseval = true
                     ustyle = esc(expr)
                 else
@@ -639,7 +639,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
-            state.interpolated = true
+            state.interpolations += 1
             needseval = true
             esc(expr)
         elseif key == :font
@@ -766,7 +766,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
-        state.interpolated = true
+        state.interpolations += 1
         needseval = true
         esc(expr)
     else
@@ -788,7 +788,7 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
             read_curlywrapped!(state)
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
-            state.interpolated = true
+            state.interpolations += 1
             needseval = true
             esc(expr)
         else
@@ -868,6 +868,7 @@ end
 Merge contiguous identical annotations in `str`.
 """
 function annotatedstring_optimize!(s::AnnotatedString)
+    length(s.annotations) <= 1 && return s
     last_seen = Dict{Pair{Symbol, Any}, Int}()
     i = 1
     while i <= length(s.annotations)
@@ -988,7 +989,9 @@ macro styled_str(raw_content::String)
     run_state_machine!(state)
     if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))
-    elseif state.interpolated
+    elseif state.interpolations == 1 && length(state.parts) == 1
+        :(annotatedstring($(first(state.parts))))
+    elseif !iszero(state.interpolations)
         :(annotatedstring($(state.parts...)) |> annotatedstring_optimize!)
     else
         annotatedstring(map(Base.Fix1(hygienic_eval, state), state.parts)...) |> annotatedstring_optimize!

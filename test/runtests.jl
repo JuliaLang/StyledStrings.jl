@@ -404,18 +404,21 @@ end
         Pair            = GlobalRef(StyledMarkup, :Pair)
         Symbol          = GlobalRef(StyledMarkup, :Symbol)
         Any             = GlobalRef(StyledMarkup, :Any)
-        @test :($chain($annotatedstring(val), $annotatedstring_optimize!)) == @macroexpand styled"$val"
+        @test :($annotatedstring(val)) == @macroexpand styled"$val"
         @test :($chain($annotatedstring("a", val), $annotatedstring_optimize!)) == @macroexpand styled"a$val"
         @test :($chain($annotatedstring("a", val, "b"), $annotatedstring_optimize!)) == @macroexpand styled"a$(val)b"
         # @test :($annotatedstring(StyledStrings.AnnotatedString(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
         #     @macroexpand styled"{style:$val}"
-        @test :($chain($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))])),
-                       $annotatedstring_optimize!)) ==
+        @test :($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))]))) ==
             @macroexpand styled"{$face:val}"
         @test :($chain($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))])),
+            "v1v2", [($(1:2), $Pair{$Symbol, $Any}(:face, f1)),
+                     ($(3:4), $Pair{$Symbol, $Any}(:face, f2))])),
                        $annotatedstring_optimize!)) ==
+            @macroexpand styled"{$f1:v1}{$f2:v2}"
+        @test :($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))]))) ==
             @macroexpand styled"{$key=val:val}"
         @test :($chain($annotatedstring($AnnotatedString(
             "val", [($(1:3), $Pair{$Symbol, $Any}(key, val))])),
@@ -424,9 +427,8 @@ end
         # @test :($annotatedstring($AnnotatedString(
         #     string(val), $Pair{$Symbol, $Any}(key, val)))) ==
         #     @macroexpand styled"{$key=$val:$val}"
-        @test :($chain($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))])),
-                       $annotatedstring_optimize!)) ==
+        @test :($annotatedstring($AnnotatedString(
+            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))]))) ==
             @macroexpand styled"{(foreground=$color):val}"
     end
 
