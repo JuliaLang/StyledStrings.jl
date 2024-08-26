@@ -46,7 +46,7 @@ function eachregion(s::AnnotatedString, subregion::UnitRange{Int}=firstindex(s):
     annots = Vector{Vector{Pair{Symbol, Any}}}()
     pos = first(events).pos
     if pos > first(subregion)
-        push!(regions, first(subregion):pos-1)
+        push!(regions, thisind(s, first(subregion)):prevind(s, pos))
         push!(annots, [])
     end
     activelist = Int[]
@@ -63,7 +63,7 @@ function eachregion(s::AnnotatedString, subregion::UnitRange{Int}=firstindex(s):
         end
     end
     if last(events).pos < nextind(s, last(subregion))
-        push!(regions, last(events).pos:last(subregion))
+        push!(regions, last(events).pos:thisind(s, last(subregion)))
         push!(annots, [])
     end
     RegionIterator(s.string, regions, annots)
@@ -95,7 +95,7 @@ function annotation_events(s::AbstractString, annots::Vector{Tuple{UnitRange{Int
         if !isempty(intersect(subregion, region))
             start, stop = max(first(subregion), first(region)), min(last(subregion), last(region))
             start <= stop || continue # Currently can't handle empty regions
-            push!(events, (pos=start, active=true, index=i))
+            push!(events, (pos=thisind(s, start), active=true, index=i))
             push!(events, (pos=nextind(s, stop), active=false, index=i))
         end
     end

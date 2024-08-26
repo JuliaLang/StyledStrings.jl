@@ -77,6 +77,10 @@ choppkg(s::String) = chopprefix(s, "StyledStrings.")
          ("b", [:face => :blue, :face => :red, :face => :green, :face => :yellow]),
          ("c", [:face => :blue, :face => :red, :face => :green]),
          ("d", [:face => :blue])]
+    # Region starting after a character spanning multiple codepoints.
+    @test annregions("𝟏x", [(1:4, :face => :red)]) ==
+        [("𝟏", [:face => :red]),
+         ("x", [])]
 end
 
 @testset "SimpleColor" begin
