@@ -361,17 +361,26 @@ const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
     :extrabold => 800,
     :black => 900)
 
-function htmlstyle(io::IO, face::Face, lastface::Face=getface())
-    print(io, "<span style=\"")
+function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bool=true)
+    priorattr = false
+    function printattr(io, attr, valparts...)
+        if priorattr
+            print(io, "; ")
+        else
+            priorattr = true
+        end
+        print(io, attr, ": ", valparts...)
+    end
     face.font == lastface.font ||
-        print(io, "font-family: \"",
-              replace(face.font, '"' => "&quot;", ''' => "&#39;"), '"')
+        printattr(io, "font-family", ifelse(escapequotes, "&quot;", "\""),
+                  replace(face.font, '"' => "\\&quot;", ''' => "&#39;"),
+                  ifelse(escapequotes, "&quot;", "\""))
     face.height == lastface.height ||
-        print(io, "font-size: ", string(face.height ÷ 10), "pt;")
+        printattr(io, "font-size", string(face.height ÷ 10), "pt")
     face.weight == lastface.weight ||
-        print(io, "font-weight: ", get(HTML_WEIGHT_MAP, face.weight, 400), ';')
+        printattr(io, "font-weight", get(HTML_WEIGHT_MAP, face.weight, 400))
     face.slant == lastface.slant ||
-        print(io, "font-style: ", String(face.slant), ';')
+        printattr(io, "font-style", String(face.slant))
     foreground, background =
         ifelse(face.inverse === true,
                (face.background, face.foreground),
@@ -381,19 +390,17 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
                (lastface.background, lastface.foreground),
                (lastface.foreground, lastface.background))
     if foreground != lastforeground
-        print(io, "color: ")
+        printattr(io, "color")
         htmlcolor(io, foreground)
-        print(io, ';')
     end
     if background != lastbackground
-        print(io, "background-color: ")
+        printattr(io, "background-color")
         htmlcolor(io, background)
-        print(io, ';')
     end
     face.underline == lastface.underline ||
         if face.underline isa Tuple # Color and style
             color, style = face.underline
-            print(io, "text-decoration: ")
+            printattr(io, "text-decoration")
             if !isnothing(color)
                 htmlcolor(io, color)
                 print(io, ' ')
@@ -403,17 +410,16 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
                   elseif style == :curly    "wavy "
                   elseif style == :dotted   "dotted "
                   elseif style == :dashed   "dashed "
-                  else "" end)
-            print(io, "underline;")
+                  else "" end, "underline")
         elseif face.underline isa SimpleColor
-            print(io, "text-decoration: ")
+            printattr(io, "text-decoration")
             htmlcolor(io, face.underline)
             if lastface.underline isa Tuple && last(lastface.underline) != :straight
                 print(io, " solid")
             end
-            print(io, " underline;")
+            print(io, " underline")
         else # must be a Bool
-            print(io, "text-decoration: ")
+            printattr(io, "text-decoration")
             if lastface.underline isa SimpleColor
                 print(io, "currentcolor ")
             elseif lastface.underline isa Tuple
@@ -422,13 +428,16 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
                 last(lastface.underline) != :straight &&
                     print(io, "straight ")
             end
-            print(io, ifelse(face.underline, "underline;", "none;"))
+            print(io, ifelse(face.underline, "underline", "none"))
         end
     face.strikethrough == lastface.strikethrough ||
-        print(io, ifelse(face.strikethrough,
-                         "text-decoration: line-through",
-                         ifelse(face.underline === false,
-                                "text-decoration: none", "")))
+        !face.strikethrough && face.underline !== false ||
+        printattr(io, "text-decoration", ifelse(face.strikethrough, "line-through", "none"))
+end
+
+function htmlstyle(io::IO, face::Face, lastface::Face=getface())
+    print(io, "<span style=\"")
+    cssattrs(io, face, lastface, true)
     print(io, "\">")
 end
 
