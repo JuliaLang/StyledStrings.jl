@@ -438,15 +438,13 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "\">")
 end
 
-function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}; wrap::Symbol=:pre)
+function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}})
     @static if VERSION >= v"1.7"
         htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     else
         htmlescape(str) = replace(replace(replace(String(str), '&' => "&amp;"), '<' => "&lt;"), '>' => "&gt;")
     end
     buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
-    wrap == :none ||
-        print(buf, '<', String(wrap), '>')
     lastface::Face = getface()
     stylestackdepth = 0
     for (str, styles) in eachregion(s)
@@ -469,22 +467,11 @@ function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubStr
             htmlstyle(buf, face, lastface)
             stylestackdepth += 1
         end
-        if wrap == :p
-            newpara = false
-            for para in eachsplit(str, "\n\n")
-                newpara && print(buf, "</p>\n<p>")
-                print(buf, htmlescape(para))
-                newpara = true
-            end
-        else
-            print(buf, htmlescape(str))
-        end
+        print(buf, htmlescape(str))
         !isnothing(link) && print(buf, "</a>")
         lastface = face
     end
     print(buf, "</span>" ^ stylestackdepth)
-    wrap == :none ||
-        print(buf, "</", String(wrap), '>')
     write(io, take!(buf))
     nothing
 end
