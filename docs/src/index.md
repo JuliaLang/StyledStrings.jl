@@ -1,8 +1,8 @@
 # [StyledStrings](@id stdlib-styledstrings)
 
 !!! note
-  The API for StyledStrings and AnnotatedStrings is considered experimental and is subject to change between
-  Julia versions.
+    The API for StyledStrings and AnnotatedStrings is considered experimental and is subject to change between
+    Julia versions.
 
 ## [Styling](@id stdlib-styledstrings-styling)
 
