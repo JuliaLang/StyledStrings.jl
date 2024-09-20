@@ -465,6 +465,9 @@ red and blue mixed make purple
 ```
 """
 function withfaces(f, keyvals_itr)
+    # Before modifying the current `FACES`, we should ensure
+    # that we've loaded the user's customisations.
+    load_customisations!()
     if !(eltype(keyvals_itr) <: Pair{Symbol})
         throw(MethodError(withfaces, (f, keyvals_itr)))
     end
