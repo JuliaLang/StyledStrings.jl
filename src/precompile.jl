@@ -48,3 +48,5 @@ using PrecompileTools: @compile_workload, @setup_workload
     end
     StyledStrings.FACES.current[] = copy(StyledStrings.FACES.default)
 end
+
+StyledStrings.HAVE_LOADED_CUSTOMISATIONS[] = false

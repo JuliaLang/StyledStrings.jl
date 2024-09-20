@@ -229,6 +229,9 @@ end
 
 function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
                       string_writer::F) where {F <: Function}
+    # We need to make sure that the customisations are loaded
+    # before we start outputting any styled content.
+    load_customisations!()
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatadly printing to `stdout`
         lastface::Face = FACES.default[:default]
@@ -453,6 +456,7 @@ function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubStr
     else
         htmlescape(str) = replace(replace(replace(String(str), '&' => "&amp;"), '<' => "&lt;"), '>' => "&gt;")
     end
+    load_customisations!()
     buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
     lastface::Face = getface()
     stylestackdepth = 0
