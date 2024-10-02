@@ -287,7 +287,10 @@ function Base.show(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
-        print(io, ''', AnnotatedString(String(take!(out)[2:end-1]), map(a -> (1:ncodeunits(c), a), c.annotations)), ''')
+        cstr = AnnotatedString(
+            String(take!(out)[2:end-1]),
+            [(1:ncodeunits(c), a...) for a in c.annotations])
+        print(io, ''', cstr, ''')
     else
         show(io, c.char)
     end

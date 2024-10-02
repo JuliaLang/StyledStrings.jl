@@ -3,7 +3,7 @@
 struct RegionIterator{S <: AbstractString}
     str::S
     regions::Vector{UnitRange{Int}}
-    annotations::Vector{Vector{Pair{Symbol, Any}}}
+    annotations::Vector{Vector{@NamedTuple{label::Symbol, value::Any}}}
 end
 
 Base.length(si::RegionIterator) = length(si.regions)
@@ -15,7 +15,7 @@ Base.@propagate_inbounds function Base.iterate(si::RegionIterator, i::Integer=1)
 end
 
 Base.eltype(::RegionIterator{S}) where { S <: AbstractString} =
-    Tuple{SubString{S}, Vector{Pair{Symbol, Any}}}
+    Tuple{SubString{S}, Vector{@NamedTuple{label::Symbol, value::Any}}}
 
 """
     eachregion(s::AnnotatedString{S})
@@ -23,27 +23,28 @@ Base.eltype(::RegionIterator{S}) where { S <: AbstractString} =
 
 Identify the contiguous substrings of `s` with a constant annotations, and return
 an iterator which provides each substring and the applicable annotations as a
-`Tuple{SubString{S}, Vector{Pair{Symbol, Any}}}`.
+`Tuple{SubString{S}, Vector{@NamedTuple{label::Symbol, value::Any}}}`.
 
 # Examples
 
 ```jldoctest
 julia> collect(StyledStrings.eachregion(AnnotatedString(
-           "hey there", [(1:3, :face => :bold), (5:9, :face => :italic)])))
-3-element Vector{Tuple{SubString{String}, Vector{Pair{Symbol, Any}}}}:
- ("hey", [:face => :bold])
+           "hey there", [(1:3, :face, :bold), (5:9, :face, :italic)])))
+3-element Vector{Tuple{SubString{String}, Vector{@NamedTuple{label::Symbol, value}}}}:
+ ("hey", [@NamedTuple{label::Symbol, value}((:face, :bold))])
  (" ", [])
- ("there", [:face => :italic])
+ ("there", [@NamedTuple{label::Symbol, value}((:face, :italic))])
 ```
 """
 function eachregion(s::AnnotatedString, subregion::UnitRange{Int}=firstindex(s):lastindex(s))
     isempty(s) || isempty(subregion) &&
-        return RegionIterator(s.string, UnitRange{Int}[], Vector{Pair{Symbol, Any}}[])
+        return RegionIterator(s.string, UnitRange{Int}[], Vector{@NamedTuple{label::Symbol, value::Any}}[])
     events = annotation_events(s, subregion)
-    isempty(events) && return RegionIterator(s.string, [subregion], [Pair{Symbol, Any}[]])
-    annotvals = last.(annotations(s))
+    isempty(events) && return RegionIterator(s.string, [subregion], [@NamedTuple{label::Symbol, value::Any}[]])
+    annotvals = @NamedTuple{label::Symbol, value::Any}[
+        (; label, value) for (; label, value) in annotations(s)]
     regions = Vector{UnitRange{Int}}()
-    annots = Vector{Vector{Pair{Symbol, Any}}}()
+    annots = Vector{Vector{@NamedTuple{label::Symbol, value::Any}}}()
     pos = first(events).pos
     if pos > first(subregion)
         push!(regions, thisind(s, first(subregion)):prevind(s, pos))
@@ -71,14 +72,14 @@ end
 
 function eachregion(s::SubString{<:AnnotatedString}, pos::UnitRange{Int}=firstindex(s):lastindex(s))
     if isempty(s)
-        RegionIterator(s.string, Vector{UnitRange{Int}}(), Vector{Vector{Pair{Symbol, Any}}}())
+        RegionIterator(s.string, Vector{UnitRange{Int}}(), Vector{Vector{@NamedTuple{label::Symbol, value::Any}}}())
     else
         eachregion(s.string, first(pos)+s.offset:last(pos)+s.offset)
     end
 end
 
 """
-    annotation_events(string::AbstractString, annots::Vector{Tuple{UnitRange{Int}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+    annotation_events(string::AbstractString, annots::Vector{@NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}}, subregion::UnitRange{Int})
     annotation_events(string::AnnotatedString, subregion::UnitRange{Int})
 
 Find all annotation "change events" that occur within a `subregion` of `annots`,
@@ -89,9 +90,9 @@ index::Int}` where `pos` is the position of the event, `active` is a boolean
 indicating whether the annotation is being activated or deactivated, and `index`
 is the index of the annotation in question.
 """
-function annotation_events(s::AbstractString, annots::Vector{Tuple{UnitRange{Int}, Pair{Symbol, Any}}}, subregion::UnitRange{Int})
+function annotation_events(s::AbstractString, annots::Vector{@NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}}, subregion::UnitRange{Int})
     events = Vector{NamedTuple{(:pos, :active, :index), Tuple{Int, Bool, Int}}}() # Position, Active?, Annotation index
-    for (i, (region, _)) in enumerate(annots)
+    for (i, (; region)) in enumerate(annots)
         if !isempty(intersect(subregion, region))
             start, stop = max(first(subregion), first(region)), min(last(subregion), last(region))
             start <= stop || continue # Currently can't handle empty regions

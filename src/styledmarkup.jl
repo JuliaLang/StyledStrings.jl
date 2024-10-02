@@ -69,12 +69,12 @@ Its fields are as follows:
 - `parts::Vector{Any}`, the result of the parsing, a list of elements that when passed to
   `annotatedstring` produce the styled markup string. The types of its values are highly diverse,
   hence the `Any` element type.
-- `active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}}`,
+- `active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}}}`,
   A list of batches of styles that have yet to be applied to any content. Entries of a batch
   consist of `(source_position, start_position, style)` tuples, where `style` may be just
-  a symbol (referring to a face), a `Pair{Symbol, Any}` annotation, or an `Expr` that evaluates
+  a symbol (referring to a face), a `Tuple{Symbol, Any}` annotation, or an `Expr` that evaluates
   to a valid annotation (when `mod` is set).
-- `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}`,
+- `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Tuple{Symbol, Any}}}}`,
   A list of styles that have been terminated, and so are known to occur over a certain range,
   but have yet to be applied.
 - `offset::Int`, a record of the between the `content` index and the index in the resulting
@@ -95,8 +95,8 @@ mutable struct State
     const s::Iterators.Stateful
     const mod::Union{Module, Nothing}
     const parts::Vector{Any}
-    const active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}}
-    const pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}}
+    const active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}}
+    const pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Tuple{Symbol, Any}}}}
     offset::Int
     point::Int
     escape::Bool
@@ -108,8 +108,8 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
     State(content, Vector{UInt8}(content), # content, bytes
           Iterators.Stateful(pairs(content)), mod, # s, eval
           Any[], # parts
-          Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}[], # active_styles
-          Tuple{UnitRange{Int}, Union{Symbol, Expr, Pair{Symbol, Any}}}[], # pending_styles
+          Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}[], # active_styles
+          Tuple{UnitRange{Int}, Union{Symbol, Expr, Tuple{Symbol, Any}}}[], # pending_styles
           0, 1, # offset, point
           false, 0, # escape, interpolations
           NamedTuple{(:message, :position, :hint), # errors
@@ -198,9 +198,9 @@ function addpart!(state::State, stop::Int)
     str = String(state.bytes[
         state.point:stop+state.offset+ncodeunits(state.content[stop])-1])
     sty_type, tupl = if ismacro(state)
-        Expr, (a, b) -> Expr(:tuple, a, b)
+        Expr, (r, lv) -> :(merge((; region=$r), NamedTuple{(:label, :value), Tuple{Symbol, Any}}($lv)))
     else
-        Tuple{UnitRange{Int}, Pair{Symbol, Any}}, (a, b) -> (a, b)
+        @NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}, (r, (l, v)) -> (; region=r, label=l, value=v)
     end
     push!(state.parts,
             if isempty(state.pending_styles) && isempty(state.active_styles)
@@ -248,7 +248,8 @@ function addpart!(state::State, start::Int, expr, stop::Int)
         str = gensym("str")
         len = gensym("len")
         annots = Expr(:vect, [
-            Expr(:tuple, Expr(:call, UnitRange, 1, len), annot)
+            :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, Any}}(
+                (1:$len, $annot...)))
             for annot in
                 map(last,
                     (Iterators.flatten(
@@ -324,7 +325,7 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     if isempty(state.s)
         styerr!(state,
                 AnnotatedString("Identifier or parenthesised expression expected after \$ in string",
-                                [(55:55, :face => :warning)]),
+                                [(55:55, :face, :warning)]),
                 -1, "right here")
         return "", pos
     end
@@ -400,7 +401,7 @@ and register it in the active styles list.
 """
 function begin_style!(state::State, i::Int, char::Char)
     hasvalue = false
-    newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Pair{Symbol, Any}}}}()
+    newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}()
     while read_annotation!(state, i, char, newstyles) end
     push!(state.active_styles, reverse!(newstyles))
     # Adjust bytes/offset based on how much the index
@@ -534,9 +535,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                         valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
                         styerr!(state,
                                 AnnotatedString("Invalid underline style '$ustyle_word' (should be $valid_options)",
-                                                [(26:25+ncodeunits(ustyle_word), :face => :warning)
-                                                    (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
-                                                    :face => :light)]),
+                                                [(26:25+ncodeunits(ustyle_word), :face, :warning)
+                                                 (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
+                                                  :face, :light)]),
                                 -length(ustyle_word) - 3)
                     end
                     ustyle = Symbol(ustyle_word)
@@ -657,7 +658,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             else
                 invalid, lastchar = readsymbol!(state, lastchar)
                 styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
-                                                [(17:16+ncodeunits(string(invalid)), :face => :warning)]),
+                                                [(17:16+ncodeunits(string(invalid)), :face, :warning)]),
                         -3)
             end
         elseif key ∈ (:weight, :slant)
@@ -665,16 +666,16 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             if key == :weight && v ∉ VALID_WEIGHTS
                 valid_options = join(VALID_WEIGHTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid weight '$v' (should be $valid_options)",
-                                                [(17:16+ncodeunits(v), :face => :warning),
-                                                (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
-                                                    :face => :light)]),
+                                                [(17:16+ncodeunits(v), :face, :warning),
+                                                 (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
+                                                  :face, :light)]),
                         -3)
             elseif key == :slant && v ∉ VALID_SLANTS
                 valid_options = join(VALID_SLANTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
-                                                [(16:15+ncodeunits(v), :face => :warning),
-                                                (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
-                                                    :face => :light)]),
+                                                [(16:15+ncodeunits(v), :face, :warning),
+                                                 (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
+                                                  :face, :light)]),
                         -3)
             end
             Symbol(v) |> if ismacro(state) QuoteNode else identity end
@@ -701,7 +702,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         else
             styerr!(state, AnnotatedString(
                 "Uses unrecognised face key '$key'. Recognised keys are: $(join(VALID_FACE_ATTRS, ", ", ", and "))",
-                [(29:28+ncodeunits(String(key)), :face => :warning)]),
+                [(29:28+ncodeunits(String(key)), :face, :warning)]),
                     -length(str_key) - 2)
         end
         if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
@@ -710,7 +711,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             push!(kwargs, key => val)
         else
             styerr!(state, AnnotatedString("Contains repeated face key '$key'",
-                                            [(29:28+ncodeunits(String(key)), :face => :warning)]),
+                                            [(29:28+ncodeunits(String(key)), :face, :warning)]),
                     -length(str_key) - 2)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
@@ -726,11 +727,11 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
     push!(newstyles,
           (i, i + state.offset + 1,
            if !ismacro(state)
-               Pair{Symbol, Any}(:face, Face(; NamedTuple(kwargs)...))
+               :face, Face(; NamedTuple(kwargs)...)
            elseif needseval
-               :(Pair{Symbol, Any}(:face, $face))
+               :((:face, $face))
            else
-               Pair{Symbol, Any}(:face, hygienic_eval(state, face))
+               :face, hygienic_eval(state, face)
            end))
 end
 
@@ -802,20 +803,19 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
         push!(newstyles,
                 (i, i + state.offset + ncodeunits('{'),
                 if key isa String && !(value isa Symbol || value isa Expr)
-                    Pair{Symbol, Any}(Symbol(key), value)
+                    Symbol(key), value
                 elseif key isa Expr || key isa Symbol
-                    :(Pair{Symbol, Any}($key, $value))
+                    :(($key, $value))
                 else
-                    :(Pair{Symbol, Any}(
-                        $(QuoteNode(Symbol(key))), $value))
+                    :(($(QuoteNode(Symbol(key))), $value))
                 end))
     elseif key !== ""
         push!(newstyles,
                 (i, i + state.offset + ncodeunits('{'),
                 if key isa Symbol || key isa Expr
-                    :(Pair{Symbol, Any}(:face, $key))
+                    :((:face, $key))
                 else # Face symbol
-                    Pair{Symbol, Any}(:face, Symbol(key))
+                    :face, Symbol(key)
                 end))
     end
     if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', '\r', ',', ':')
@@ -857,7 +857,7 @@ function run_state_machine!(state::State)
     end
     for incomplete in Iterators.flatten(state.active_styles)
         styerr!(state, AnnotatedString("Unterminated annotation (missing closing '}')",
-                                        [(43:43, :face => :warning)]),
+                                        [(43:43, :face, :warning)]),
                 prevind(state.content, first(incomplete)), "starts here")
     end
 end
@@ -869,24 +869,22 @@ Merge contiguous identical annotations in `str`.
 """
 function annotatedstring_optimize!(s::AnnotatedString)
     length(s.annotations) <= 1 && return s
-    last_seen = Dict{Pair{Symbol, Any}, Int}()
+    last_seen = Dict{Tuple{Symbol, Any}, Int}()
     i = 1
     while i <= length(s.annotations)
-        region, keyval = s.annotations[i]
-        prev = get(last_seen, keyval, 0)
+        ann = s.annotations[i]
+        prev = get(last_seen, (ann.label, ann.value), 0)
         if prev > 0
-            lregion, _ = s.annotations[prev]
-            if last(lregion) + 1 == first(region)
+            lregion = s.annotations[prev].region
+            if last(lregion) + 1 == first(ann.region)
                 s.annotations[prev] =
-                    Base.setindex(s.annotations[prev],
-                                  first(lregion):last(region),
-                                  1)
+                    merge(s.annotations[prev], (; region=first(lregion):last(ann.region)))
                 deleteat!(s.annotations, i)
             else
-                delete!(last_seen, keyval)
+                delete!(last_seen, (ann.label, ann.value))
             end
         else
-            last_seen[keyval] = i
+            last_seen[(ann.label, ann.value)] = i
             i += 1
         end
     end

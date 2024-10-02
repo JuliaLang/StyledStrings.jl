@@ -187,7 +187,7 @@ function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype || show(io, SimpleColor)
     skiptype || print(io, '(')
     if get(io, :color, false)::Bool
-        print(io, AnnotatedString("■", [(1:1, :face => Face(foreground=color))]), ' ')
+        print(io, AnnotatedString("■", [(region=1:1, label=:face, value=Face(foreground=color))]), ' ')
     end
     if color.value isa RGBTuple
         (; r, g, b) = color.value
@@ -222,7 +222,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         show(io, Face)
         if get(io, :color, false)::Bool
             # Could do styled"({$face:sample})", but S_str isn't defined yet
-            print(io, AnnotatedString("(sample)", [(2:7, :face => face)]))
+            print(io, AnnotatedString("(sample)", [(region=2:7, label=:face, value=face)]))
         # elseif get(io, :limit, false)::Bool
         #     print(io, "(…)")
         else
@@ -244,7 +244,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         end
     else
         show(io, Face)
-        print(io, AnnotatedString(" (sample)", [(3:8, :face => face)]))
+        print(io, AnnotatedString(" (sample)", [(region=3:8, label=:face, value=face)]))
         showcolor(io, color) = show(IOContext(io, :typeinfo => SimpleColor),
                                     MIME("text/plain"), color)
         setfields = Pair{Symbol, Any}[]
@@ -286,7 +286,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             isfirst = true
             for iface in face.inherit
                 if isfirst; isfirst = false else print(io, ", ") end
-                print(io, iface, '(', AnnotatedString("*", [(1:1, :face => iface)]), ')')
+                print(io, iface, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
             end
         end
     end
@@ -555,12 +555,12 @@ function getface(faces)
 end
 
 """
-    getface(annotations::Vector{Pair{Symbol, Any}})
+    getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
 
 Combine all of the `:face` annotations with `getfaces`.
 """
-function getface(annotations::Vector{Pair{Symbol, Any}})
-    faces = (last(annot) for annot in annotations if first(annot) === :face)
+function getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
+    faces = (ann.value for ann in annotations if ann.label === :face)
     getface(faces)
 end
 
@@ -599,11 +599,11 @@ Apply `face` to `str`, along `range` if specified or the whole of `str`.
 """
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
       range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, range, :face => face)
+          annotate!(s, range, :face, face)
 
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
       face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, firstindex(s):lastindex(s), :face => face)
+          annotate!(s, firstindex(s):lastindex(s), :face, face)
 
 ## Reading face definitions from a dictionary ##
 

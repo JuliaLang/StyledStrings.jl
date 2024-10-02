@@ -68,7 +68,7 @@ When concatenating a [`AnnotatedString`](@ref Base.AnnotatedString), take care t
 to keep the string annotations.
 
 ```jldoctest
-julia> str = AnnotatedString("hello there", [(1:5, :word => :greeting), (7:11, :label => 1)])
+julia> str = AnnotatedString("hello there", [(1:5, :word, :greeting), (7:11, :label, 1)])
 "hello there"
 
 julia> length(str)
@@ -80,7 +80,7 @@ julia> lpad(str, 14)
 julia> typeof(lpad(str, 7))
 AnnotatedString{String}
 
-julia> str2 = AnnotatedString(" julia", [(2:6, :face => :magenta)])
+julia> str2 = AnnotatedString(" julia", [(2:6, :face, :magenta)])
 " julia"
 
 julia> annotatedstring(str, str2)
@@ -206,7 +206,7 @@ them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
-str1 = AnnotatedString("blue text", [(1:9, :face => :blue)])
+str1 = AnnotatedString("blue text", [(1:9, :face, :blue)])
 str2 = styled"{blue:blue text}"
 str1 == str2
 sprint(print, str1, context = :color => true)

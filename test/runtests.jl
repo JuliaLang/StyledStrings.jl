@@ -36,50 +36,50 @@ end
 choppkg(s::String) = chopprefix(s, "StyledStrings.")
 
 @testset "Eachregion" begin
-    annregions(str::String, annots::Vector{<:Tuple{UnitRange{Int}, <:Pair{Symbol, <:Any}}}) =
-        collect(eachregion(AnnotatedString(str, annots)))
+    annregions(str::String, annots::Vector{<:Tuple{UnitRange{Int}, Symbol, <:Any}}) =
+        [(s, Tuple.(a)) for (s, a) in eachregion(AnnotatedString(str, annots))]
     # Regions that do/don't extend to the left/right edges
-    @test annregions(" abc ", [(2:4, :face => :bold)]) ==
+    @test annregions(" abc ", [(2:4, :face, :bold)]) ==
         [(" ", []),
-         ("abc", [:face => :bold]),
+         ("abc", [(:face, :bold)]),
          (" ", [])]
-    @test annregions(" x ", [(2:2, :face => :bold)]) ==
+    @test annregions(" x ", [(2:2, :face, :bold)]) ==
         [(" ", []),
-         ("x", [:face => :bold]),
+         ("x", [(:face, :bold)]),
          (" ", [])]
-    @test annregions(" x", [(2:2, :face => :bold)]) ==
+    @test annregions(" x", [(2:2, :face, :bold)]) ==
         [(" ", []),
-         ("x", [:face => :bold])]
-    @test annregions("x ", [(1:1, :face => :bold)]) ==
-        [("x", [:face => :bold]),
+         ("x", [(:face, :bold)])]
+    @test annregions("x ", [(1:1, :face, :bold)]) ==
+        [("x", [(:face, :bold)]),
          (" ", [])]
-    @test annregions("x", [(1:1, :face => :bold)]) ==
-        [("x", [:face => :bold])]
+    @test annregions("x", [(1:1, :face, :bold)]) ==
+        [("x", [(:face, :bold)])]
     # Overlapping/nested regions
-    @test annregions(" abc ", [(2:4, :face => :bold), (3:3, :face => :italic)]) ==
+    @test annregions(" abc ", [(2:4, :face, :bold), (3:3, :face, :italic)]) ==
         [(" ", []),
-         ("a", [:face => :bold]),
-         ("b", [:face => :bold, :face => :italic]),
-         ("c", [:face => :bold]),
+         ("a", [(:face, :bold)]),
+         ("b", [(:face, :bold), (:face, :italic)]),
+         ("c", [(:face, :bold)]),
          (" ", [])]
-    @test annregions("abc-xyz", [(1:7, :face => :bold), (1:3, :face => :green), (4:4, :face => :yellow), (4:7, :face => :italic)]) ==
-        [("abc", [:face => :bold, :face => :green]),
-         ("-", [:face => :bold, :face => :yellow, :face => :italic]),
-         ("xyz", [:face => :bold, :face => :italic])]
+    @test annregions("abc-xyz", [(1:7, :face, :bold), (1:3, :face, :green), (4:4, :face, :yellow), (4:7, :face, :italic)]) ==
+        [("abc", [(:face, :bold), (:face, :green)]),
+         ("-", [(:face, :bold), (:face, :yellow), (:face, :italic)]),
+         ("xyz", [(:face, :bold), (:face, :italic)])]
     # Preserving annotation order
-    @test annregions("abcd", [(1:3, :face => :red), (2:2, :face => :yellow), (2:3, :face => :green), (2:4, :face => :blue)]) ==
-        [("a", [:face => :red]),
-         ("b", [:face => :red, :face => :yellow, :face => :green, :face => :blue]),
-         ("c", [:face => :red, :face => :green, :face => :blue]),
-         ("d", [:face => :blue])]
-    @test annregions("abcd", [(2:4, :face => :blue), (1:3, :face => :red), (2:3, :face => :green), (2:2, :face => :yellow)]) ==
-        [("a", [:face => :red]),
-         ("b", [:face => :blue, :face => :red, :face => :green, :face => :yellow]),
-         ("c", [:face => :blue, :face => :red, :face => :green]),
-         ("d", [:face => :blue])]
+    @test annregions("abcd", [(1:3, :face, :red), (2:2, :face, :yellow), (2:3, :face, :green), (2:4, :face, :blue)]) ==
+        [("a", [(:face, :red)]),
+         ("b", [(:face, :red), (:face, :yellow), (:face, :green), (:face, :blue)]),
+         ("c", [(:face, :red), (:face, :green), (:face, :blue)]),
+         ("d", [(:face, :blue)])]
+    @test annregions("abcd", [(2:4, :face, :blue), (1:3, :face, :red), (2:3, :face, :green), (2:2, :face, :yellow)]) ==
+        [("a", [(:face, :red)]),
+         ("b", [(:face, :blue), (:face, :red), (:face, :green), (:face, :yellow)]),
+         ("c", [(:face, :blue), (:face, :red), (:face, :green)]),
+         ("d", [(:face, :blue)])]
     # Region starting after a character spanning multiple codepoints.
-    @test annregions("𝟏x", [(1:4, :face => :red)]) ==
-        [("𝟏", [:face => :red]),
+    @test annregions("𝟏x", [(1:4, :face, :red)]) ==
+        [("𝟏", [(:face, :red)]),
          ("x", [])]
 end
 
@@ -338,97 +338,100 @@ end
     # Preservation of an unstyled string
     @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
-    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing => "val")])
-    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing => "val")])
-    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
-    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
-    @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face => :aface)])
+    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing, "val")])
+    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing, "val")])
+    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a, "1"), (11:11, :b, "2")])
+    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing, "val with spaces")])
+    @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face, :aface)])
     # Annotation prioritisation
     @test styled"{aface,bface:some} string" ==
-        AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+        AnnotatedString("some string", [(1:4, :face, :aface), (1:4, :face, :bface)])
     @test styled"{aface:{bface:some}} string" ==
-        AnnotatedString("some string", [(1:4, :face => :aface), (1:4, :face => :bface)])
+        AnnotatedString("some string", [(1:4, :face, :aface), (1:4, :face, :bface)])
     @test styled"{aface,bface:$(1)} string" ==
-        AnnotatedString("1 string", [(1:1, :face => :aface), (1:1, :face => :bface)])
+        AnnotatedString("1 string", [(1:1, :face, :aface), (1:1, :face, :bface)])
     @test styled"{aface:{bface:$(1)}} string" ==
-        AnnotatedString("1 string", [(1:1, :face => :aface), (1:1, :face => :bface)])
+        AnnotatedString("1 string", [(1:1, :face, :aface), (1:1, :face, :bface)])
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
-        AnnotatedString("some string", [(1:4, :face => Face(slant=:italic))])
+        AnnotatedString("some string", [(1:4, :face, Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
-        AnnotatedString("some string", [(1:4, :face => Face(foreground=:magenta, background=0x555555))])
+        AnnotatedString("some string", [(1:4, :face, Face(foreground=:magenta, background=0x555555))])
     # Inline face attributes: empty attribute lists are legal
     @test styled"{():}" == styled"{( ):}" == AnnotatedString("")
     # Inline face attributes: leading/trailing whitespace
-    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
+    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
     # Inline face attributes: each recognised key
-    @test styled"{(font=serif):a}" == AnnotatedString("a", [(1:1, :face => Face(font="serif"))])
-    @test styled"{(font=some serif):a}" == AnnotatedString("a", [(1:1, :face => Face(font="some serif"))])
-    @test styled"{(font=\"some serif\"):a}" == AnnotatedString("a", [(1:1, :face => Face(font="some serif"))])
-    @test styled"{(font=\"{},):\"):a}" == AnnotatedString("a", [(1:1, :face => Face(font="{},):"))])
-    @test styled"{(height=120):a}" == AnnotatedString("a", [(1:1, :face => Face(height=120))])
-    @test styled"{(height=1.2):a}" == AnnotatedString("a", [(1:1, :face => Face(height=1.2))])
-    @test styled"{(weight=normal):a}" == AnnotatedString("a", [(1:1, :face => Face(weight=:normal))])
-    @test styled"{(weight=bold):a}" == AnnotatedString("a", [(1:1, :face => Face(weight=:bold))])
-    @test styled"{(slant=italic):a}" == AnnotatedString("a", [(1:1, :face => Face(slant=:italic))])
-    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
-    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, :face => Face(foreground=:red))])
-    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, :face => Face(background=:red))])
-    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, :face => Face(background=:red))])
-    @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, :face => Face(underline=true))])
-    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face => Face(underline=:cyan))])
-    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face => Face(underline=(:cyan, :curly)))])
-    @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, :face => Face(strikethrough=true))])
-    @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face => Face(inverse=true))])
-    @test styled"{(inherit=b):a}" == AnnotatedString("a", [(1:1, :face => Face(inherit=:b))])
-    @test styled"{(inherit=[b,c]):a}" == AnnotatedString("a", [(1:1, :face => Face(inherit=[:b, :c]))])
+    @test styled"{(font=serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="serif"))])
+    @test styled"{(font=some serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="some serif"))])
+    @test styled"{(font=\"some serif\"):a}" == AnnotatedString("a", [(1:1, :face, Face(font="some serif"))])
+    @test styled"{(font=\"{},):\"):a}" == AnnotatedString("a", [(1:1, :face, Face(font="{},):"))])
+    @test styled"{(height=120):a}" == AnnotatedString("a", [(1:1, :face, Face(height=120))])
+    @test styled"{(height=1.2):a}" == AnnotatedString("a", [(1:1, :face, Face(height=1.2))])
+    @test styled"{(weight=normal):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:normal))])
+    @test styled"{(weight=bold):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:bold))])
+    @test styled"{(slant=italic):a}" == AnnotatedString("a", [(1:1, :face, Face(slant=:italic))])
+    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
+    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
+    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=:red))])
+    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=:red))])
+    @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=true))])
+    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=:cyan))])
+    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(:cyan, :curly)))])
+    @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, :face, Face(strikethrough=true))])
+    @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face, Face(inverse=true))])
+    @test styled"{(inherit=b):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=:b))])
+    @test styled"{(inherit=[b,c]):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=[:b, :c]))])
     # Curly bracket escaping
     @test styled"some \{string" == AnnotatedString("some {string")
     @test styled"some string\}" == AnnotatedString("some string}")
     @test styled"some \{string\}" == AnnotatedString("some {string}")
     @test styled"some \{str:ing\}" == AnnotatedString("some {str:ing}")
-    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face => :bold)])
-    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face => :bold)])
+    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face, :bold)])
+    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face, :bold)])
     # Nesting
     @test styled"{bold:nest{italic:ed st{red:yling}}}" ==
         AnnotatedString(
-            "nested styling", [(1:14, :face => :bold), (5:14, :face => :italic), (10:14, :face => :red)])
+            "nested styling", [(1:14, :face, :bold), (5:14, :face, :italic), (10:14, :face, :red)])
     # Production of a `(AnnotatedString)` value instead of an expression when possible
     @test AnnotatedString("val") == @macroexpand styled"val"
-    @test AnnotatedString("val", [(1:3, :face => :style)]) == @macroexpand styled"{style:val}"
+    @test AnnotatedString("val", [(1:3, :face, :style)]) == @macroexpand styled"{style:val}"
     # Interpolation
     let annotatedstring = GlobalRef(StyledMarkup, :annotatedstring)
         AnnotatedString = GlobalRef(StyledMarkup, :AnnotatedString)
         annotatedstring_optimize! = GlobalRef(StyledMarkup, :annotatedstring_optimize!)
         chain = GlobalRef(StyledMarkup, :|>)
-        Pair            = GlobalRef(StyledMarkup, :Pair)
-        Symbol          = GlobalRef(StyledMarkup, :Symbol)
-        Any             = GlobalRef(StyledMarkup, :Any)
+        merge = GlobalRef(StyledMarkup, :merge)
+        Tuple = GlobalRef(StyledMarkup, :Tuple)
+        NamedTuple = GlobalRef(StyledMarkup, :NamedTuple)
+        Symbol = GlobalRef(StyledMarkup, :Symbol)
+        Any = GlobalRef(StyledMarkup, :Any)
+        NamedTupleLV = :($NamedTuple{(:label, :value), $Tuple{$Symbol, $Any}})
         @test :($annotatedstring(val)) == @macroexpand styled"$val"
         @test :($chain($annotatedstring("a", val), $annotatedstring_optimize!)) == @macroexpand styled"a$val"
         @test :($chain($annotatedstring("a", val, "b"), $annotatedstring_optimize!)) == @macroexpand styled"a$(val)b"
         # @test :($annotatedstring(StyledStrings.AnnotatedString(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
         #     @macroexpand styled"{style:$val}"
         @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, face))]))) ==
+            "val", [$merge((; region=$(1:3)), $NamedTupleLV((:face, face)))]))) ==
             @macroexpand styled"{$face:val}"
         @test :($chain($annotatedstring($AnnotatedString(
-            "v1v2", [($(1:2), $Pair{$Symbol, $Any}(:face, f1)),
-                     ($(3:4), $Pair{$Symbol, $Any}(:face, f2))])),
+            "v1v2", [$merge((; region=$(1:2)), $NamedTupleLV((:face, f1))),
+                     $merge((; region=$(3:4)), $NamedTupleLV((:face, f2)))])),
                        $annotatedstring_optimize!)) ==
             @macroexpand styled"{$f1:v1}{$f2:v2}"
         @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(key, "val"))]))) ==
+            "val", [$merge((; region=$(1:3)), $NamedTupleLV((key, "val")))]))) ==
             @macroexpand styled"{$key=val:val}"
         @test :($chain($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(key, val))])),
+            "val", [$merge((; region=$(1:3)), $NamedTupleLV((key, val)))])),
                        $annotatedstring_optimize!)) ==
             @macroexpand styled"{$key=$val:val}"
         # @test :($annotatedstring($AnnotatedString(
         #     string(val), $Pair{$Symbol, $Any}(key, val)))) ==
         #     @macroexpand styled"{$key=$val:$val}"
         @test :($annotatedstring($AnnotatedString(
-            "val", [($(1:3), $Pair{$Symbol, $Any}(:face, $(Face)(foreground = color)))]))) ==
+            "val", [$merge((; region=$(1:3)), $NamedTupleLV((:face, $(Face)(foreground = color))))]))) ==
             @macroexpand styled"{(foreground=$color):val}"
     end
 
@@ -567,9 +570,9 @@ end
     end
     # AnnotatedChar
     @test sprint(print, AnnotatedChar('a')) == "a"
-    @test sprint(print, AnnotatedChar('a', [:face => :red]), context = :color => true) == "\e[31ma\e[39m"
+    @test sprint(print, AnnotatedChar('a', [(:face, :red)]), context = :color => true) == "\e[31ma\e[39m"
     @test sprint(show, AnnotatedChar('a')) == "'a'"
-    @test sprint(show, AnnotatedChar('a', [:face => :red]), context = :color => true) == "'\e[31ma\e[39m'"
+    @test sprint(show, AnnotatedChar('a', [(:face, :red)]), context = :color => true) == "'\e[31ma\e[39m'"
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
