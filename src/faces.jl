@@ -664,55 +664,57 @@ Load all faces declared in the Faces.toml file `tomlfile`.
 """
 loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
 
-function Base.convert(::Type{Face}, spec::Dict)
+function Base.convert(::Type{Face}, spec::Dict{String,Any})
     Face(if haskey(spec, "font") && spec["font"] isa String
-             spec["font"] end,
+             spec["font"]::String
+         end,
          if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)
-             spec["height"]
+             spec["height"]::Union{Int,Float64}
          end,
          if haskey(spec, "weight") && spec["weight"] isa String
-             Symbol(spec["weight"])
+             Symbol(spec["weight"]::String)
          elseif haskey(spec, "bold") && spec["bold"] isa Bool
-             ifelse(spec["bold"], :bold, :normal)
+             ifelse(spec["bold"]::Bool, :bold, :normal)
          end,
          if haskey(spec, "slant") && spec["slant"] isa String
-             Symbol(spec["slant"])
+             Symbol(spec["slant"]::String)
          elseif haskey(spec, "italic") && spec["italic"] isa Bool
-             ifelse(spec["italic"], :italic, :normal)
+             ifelse(spec["italic"]::Bool, :italic, :normal)
          end,
          if haskey(spec, "foreground") && spec["foreground"] isa String
-             tryparse(SimpleColor, spec["foreground"])
+             tryparse(SimpleColor, spec["foreground"]::String)
          elseif haskey(spec, "fg") && spec["fg"] isa String
-             tryparse(SimpleColor, spec["fg"])
+             tryparse(SimpleColor, spec["fg"]::String)
          end,
          if haskey(spec, "background") && spec["background"] isa String
-             tryparse(SimpleColor, spec["background"])
+             tryparse(SimpleColor, spec["background"]::String)
          elseif haskey(spec, "bg") && spec["bg"] isa String
-             tryparse(SimpleColor, spec["bg"])
+             tryparse(SimpleColor, spec["bg"]::String)
          end,
          if !haskey(spec, "underline")
          elseif spec["underline"] isa Bool
-             spec["underline"]
+             spec["underline"]::Bool
          elseif spec["underline"] isa String
-             tryparse(SimpleColor, spec["underline"])
-         elseif spec["underline"] isa Vector && length(spec["underline"]) == 2
-             color = tryparse(SimpleColor, spec["underline"][1])
-             (color, Symbol(spec["underline"][2]))
+             tryparse(SimpleColor, spec["underline"]::String)
+         elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
+             color_str, style_str = (spec["underline"]::Vector{String})
+             color = tryparse(SimpleColor, color_str)
+             (color, Symbol(style_str))
          end,
          if !haskey(spec, "strikethrough")
          elseif spec["strikethrough"] isa Bool
-             spec["strikethrough"]
+             spec["strikethrough"]::Bool
          elseif spec["strikethrough"] isa String
-             tryparse(SimpleColor, spec["strikethrough"])
+             tryparse(SimpleColor, spec["strikethrough"]::String)
          end,
          if haskey(spec, "inverse") && spec["inverse"] isa Bool
-             spec["inverse"] end,
+             spec["inverse"]::Bool end,
          if !haskey(spec, "inherit")
              Symbol[]
          elseif spec["inherit"] isa String
-             [Symbol(spec["inherit"])]
+             [Symbol(spec["inherit"]::String)]
          elseif spec["inherit"] isa Vector{String}
-             Symbol.(spec["inherit"])
+             Symbol.(spec["inherit"]::Vector{String})
          else
              Symbol[]
          end)
