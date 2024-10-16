@@ -12,7 +12,6 @@ export @styled_str
 public Face, addface!, withfaces, styled, SimpleColor
 
 include("faces.jl")
-include("regioniterator.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
