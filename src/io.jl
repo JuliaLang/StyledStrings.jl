@@ -1,7 +1,5 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# This isn't so much type piracy as type privateering 😉
-
 """
 A mapping between ANSI named colours and indices in the standard 256-color
 table. The standard colors are 0-7, and high intensity colors 8-15.
@@ -120,7 +118,7 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
         end
     elseif color.value === :default
         print(io, "\e[", category, "9m")
-    elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
+    elseif (fg = getface(color.value; resolve=true).foreground) != SimpleColor(color.value)
         termcolor(io, fg, category)
     else
         print(io, "\e[")
@@ -159,12 +157,35 @@ const ANSI_STYLE_CODES = (
     end_strikethrough = "\e[29m"
 )
 
-function termstyle(io::IO, face::Face, lastface::Face=getface())
-    face.foreground == lastface.foreground ||
+# TODO: Remove this type-pirating method once we fully-resolve all Faces in any StyledStrings
+function Base.AnnotatedDisplay.mergestyle(merged::Symbol, @nospecialize(style::Any))
+    return Base.AnnotatedDisplay.mergestyle(getface(merged), style === nothing ? nothing : getface(style))
+end
+
+function Base.AnnotatedDisplay.mergestyle(merged::Face, @nospecialize(style::Any))
+    if isa(style, Face)
+        return (merge(style, merged), true)
+    else
+        return (merged, false)
+    end
+end
+
+# TODO: Remove this type-pirating method once we fully-resolve all Faces in any StyledStrings
+function Base.AnnotatedDisplay.termstyle(io::IO, face::Symbol, @nospecialize(lastface::Any))
+    return Base.AnnotatedDisplay.termstyle(io, getface(face), lastface)
+end
+
+function Base.AnnotatedDisplay.termstyle(io::IO, face::Face, @nospecialize(lastface::Any))
+    if !isa(lastface, Face)
+        # We don't understand what the last style was (type from
+        # another library?) so assume nothing.
+        lastface = nothing
+    end
+    (lastface !== nothing && face.foreground == lastface.foreground) ||
         termcolor(io, face.foreground, '3')
-    face.background == lastface.background ||
+    (lastface !== nothing && face.background == lastface.background) ||
         termcolor(io, face.background, '4')
-    face.weight == lastface.weight ||
+    (lastface !== nothing && face.weight == lastface.weight) ||
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
                   ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
@@ -172,7 +193,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
               else # :normal
                   ANSI_STYLE_CODES.normal_weight
               end)
-    face.slant == lastface.slant ||
+    (lastface !== nothing && face.slant == lastface.slant) ||
         if haskey(Base.current_terminfo, :enter_italics_mode)
             print(io, ifelse(face.slant ∈ (:italic, :oblique),
                              ANSI_STYLE_CODES.start_italics,
@@ -184,7 +205,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         end
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
-    face.underline == lastface.underline ||
+    (lastface !== nothing && face.underline == lastface.underline) ||
         if haskey(Base.current_terminfo, :set_underline_style) ||
            get(Base.current_terminfo, :can_style_underline, false)
             if face.underline isa Tuple # Color and style
@@ -198,12 +219,12 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                         else '0' end, 'm')
                 !isnothing(color) && termcolor(io, color, '5')
             elseif face.underline isa SimpleColor
-                if !(lastface.underline isa SimpleColor || lastface.underline == true)
+                if lastface === nothing || !(lastface.underline isa SimpleColor || lastface.underline == true)
                     print(io, ANSI_STYLE_CODES.start_underline)
                 end
                 termcolor(io, face.underline, '5')
             else
-                if lastface.underline isa SimpleColor || lastface.underline isa Tuple && first(lastface.underline) isa SimpleColor
+                if lastface === nothing || lastface.underline isa SimpleColor || lastface.underline isa Tuple && first(lastface.underline) isa SimpleColor
                     termcolor(io, SimpleColor(:none), '5')
                 end
                 print(io, ifelse(face.underline == true,
@@ -215,99 +236,19 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                              ANSI_STYLE_CODES.start_underline,
                              ANSI_STYLE_CODES.end_underline))
         end
-    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo, :smxx) ||
+    (lastface !== nothing && face.strikethrough == lastface.strikethrough) || !haskey(Base.current_terminfo, :smxx) ||
         print(io, ifelse(face.strikethrough === true,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.inverse == lastface.inverse || !haskey(Base.current_terminfo, :enter_reverse_mode) ||
+    (lastface !== nothing && face.inverse == lastface.inverse) || !haskey(Base.current_terminfo, :enter_reverse_mode) ||
         print(io, ifelse(face.inverse === true,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
+    return face
 end
 
-function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-                      string_writer::F) where {F <: Function}
-    # We need to make sure that the customisations are loaded
-    # before we start outputting any styled content.
-    load_customisations!()
-    if get(io, :color, false)::Bool
-        buf = IOBuffer() # Avoid the overhead in repeatadly printing to `stdout`
-        lastface::Face = FACES.default[:default]
-        for (str, styles) in eachregion(s)
-            face = getface(styles)
-            link = let idx=findfirst(==(:link) ∘ first, styles)
-                if !isnothing(idx)
-                    string(last(styles[idx]))::String
-                end end
-            !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
-            termstyle(buf, face, lastface)
-            string_writer(buf, str)
-            !isnothing(link) && write(buf, "\e]8;;\e\\")
-            lastface = face
-        end
-        termstyle(buf, FACES.default[:default], lastface)
-        write(io, take!(buf))
-    elseif s isa AnnotatedString
-        string_writer(io, s.string)
-    elseif s isa SubString
-        string_writer(
-            io, SubString(s.string.string, s.offset, s.ncodeunits, Val(:noshift)))
-    end
-end
-
-Base.write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    _ansi_writer(io, s, write)::Int
-
-Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    (_ansi_writer(io, s, print); nothing)
-
-# We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
-# so we get the specialised handling that `_ansi_writer` doesn't provide.
-Base.print(io::AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    (write(io, s); nothing)
-
-Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-              esc = ""; keep = ()) =
-    (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
-
-function Base.write(io::IO, c::AnnotatedChar)
-    if get(io, :color, false) == true
-        termstyle(io, getface(c), getface())
-        bytes = write(io, c.char)
-        termstyle(io, getface(), getface(c))
-        bytes
-    else
-        write(io, c.char)
-    end
-end
-
-Base.print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
-
-function Base.show(io::IO, c::AnnotatedChar)
-    if get(io, :color, false) == true
-        out = IOBuffer()
-        show(out, c.char)
-        cstr = AnnotatedString(
-            String(take!(out)[2:end-1]),
-            [(1:ncodeunits(c), a...) for a in c.annotations])
-        print(io, ''', cstr, ''')
-    else
-        show(io, c.char)
-    end
-end
-
-function Base.write(io::IO, aio::AnnotatedIOBuffer)
-    if get(io, :color, false) == true
-        # This does introduce an overhead that technically
-        # could be avoided, but I'm not sure that it's currently
-        # worth the effort to implement an efficient version of
-        # writing from a AnnotatedIOBuffer with style.
-        # In the meantime, by converting to an `AnnotatedString` we can just
-        # reuse all the work done to make that work.
-        write(io, read(aio, AnnotatedString))
-    else
-        write(io, aio.io)
-    end
+function Base.AnnotatedDisplay.termreset(io::IO, lastface::Face)
+    return Base.AnnotatedDisplay.termstyle(io, FACES.default[:default], lastface)
 end
 
 """
@@ -338,7 +279,7 @@ function htmlcolor(io::IO, color::SimpleColor)
     if color.value isa Symbol
         if color.value === :default
             print(io, "initial")
-        elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
+        elseif (fg = get(FACES.current[], color.value, getface(:default; resolve=true)).foreground) != SimpleColor(color.value)
             htmlcolor(io, fg)
         else
             htmlcolor(io, get(HTML_BASIC_COLORS, color.value, SimpleColor(:default)))
@@ -367,7 +308,8 @@ const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
     :extrabold => 800,
     :black => 900)
 
-function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bool=true)
+# TODO: Let's switch this to proper scoping, like it should be
+function cssattrs(io::IO, face::Face, lastface::Face, escapequotes::Bool=true)
     priorattr = false
     function printattr(io, attr, valparts...)
         if priorattr
@@ -441,45 +383,49 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
         printattr(io, "text-decoration", ifelse(face.strikethrough, "line-through", "none"))
 end
 
-function htmlstyle(io::IO, face::Face, lastface::Face=getface())
-    print(io, "<span style=\"")
-    cssattrs(io, face, lastface, true)
-    print(io, "\">")
+mutable struct HTMLStyleState
+    face::Union{Nothing,Face}
+    depth::Int
 end
 
-function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}})
-    # We need to make sure that the customisations are loaded
-    # before we start outputting any styled content.
-    load_customisations!()
-    htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
-    buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
-    lastface::Face = getface()
-    stylestackdepth = 0
-    for (str, styles) in eachregion(s)
-        face = getface(styles)
-        link = let idx=findfirst(==(:link) ∘ first, styles)
-            if !isnothing(idx)
-                string(last(styles[idx]))::String
-            end end
-        !isnothing(link) && print(buf, "<a href=\"", link, "\">")
-        if face == getface()
-            print(buf, "</span>" ^ stylestackdepth)
-            stylestackdepth = 0
-        elseif (lastface.inverse, lastface.foreground, lastface.background) !=
-            (face.inverse, face.foreground, face.background)
-            # We can't un-inherit colors well, so we just need to reset and apply
-            print(buf, "</span>" ^ stylestackdepth)
-            htmlstyle(buf, face, getface())
-            stylestackdepth = 1
-        else
-            htmlstyle(buf, face, lastface)
-            stylestackdepth += 1
-        end
-        print(buf, htmlescape(str))
-        !isnothing(link) && print(buf, "</a>")
-        lastface = face
+# TODO: Remove this type-pirating method once we fully-resolve all Faces in any StyledStrings
+function Base.AnnotatedDisplay.htmlstyle(io::IO, face::Symbol, @nospecialize(lastface::Any))
+    return Base.AnnotatedDisplay.htmlstyle(io, getface(face), lastface)
+end
+
+function Base.AnnotatedDisplay.htmlstyle(io::IO, face::Face, @nospecialize(laststate::Any))
+    if !isa(laststate, HTMLStyleState)
+        # We don't understand what the last style was (type from
+        # another library?) so assume nothing.
+        laststate = HTMLStyleState(nothing, 0)
     end
-    print(buf, "</span>" ^ stylestackdepth)
-    write(io, take!(buf))
-    nothing
+    lastface = laststate.face
+    if lastface !== nothing
+        last_color_attributes = (lastface.inverse, lastface.foreground, lastface.background)
+        color_attributes = (face.inverse, face.foreground, face.background)
+        if color_attributes != last_color_attributes
+            # We can't un-inherit colors well, so we just need to reset and apply
+            Base.AnnotatedDisplay.htmlreset(io, laststate)
+        end
+    end
+
+    print(io, "<span style=\"")
+    face = merge(getface(:default; resolve=true), face)
+    if isnothing(lastface)
+        cssattrs(io, face, getface(:default; resolve=true), true)
+    else
+        cssattrs(io, face, lastface, true)
+    end
+    print(io, "\">")
+
+    laststate.depth += 1
+    laststate.face = face
+    return laststate
+end
+
+function Base.AnnotatedDisplay.htmlreset(io::IO, laststate::HTMLStyleState)
+    print(io, "</span>" ^ laststate.depth)
+    laststate.face = nothing
+    laststate.depth = 0
+    return laststate
 end

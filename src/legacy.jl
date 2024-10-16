@@ -123,18 +123,19 @@ function load_env_colors!()
     end
 end
 
-function Base.printstyled(io::AnnotatedIOBuffer, msg...;
-                          bold::Bool=false, italic::Bool=false, underline::Bool=false,
-                          blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
-                          color::Union{Symbol, Int}=:normal)
-    str = annotatedstring(msg...)
-    bold && face!(str, :bold)
-    italic && face!(str, :italic)
-    underline && face!(str, :underline)
-    reverse && face!(str, :inverse)
-    color !== :normal && face!(str, Face(foreground=legacy_color(color)))
-    write(io, str)
-    nothing
-end
+# This is type-piracy -> not allowed
+# function printstyled(io::AnnotatedIOBuffer, msg...;
+                          # bold::Bool=false, italic::Bool=false, underline::Bool=false,
+                          # blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
+                          # color::Union{Symbol, Int}=:normal)
+    # str = annotatedstring(msg...)
+    # bold && face!(str, :bold)
+    # italic && face!(str, :italic)
+    # underline && face!(str, :underline)
+    # reverse && face!(str, :inverse)
+    # color !== :normal && face!(str, Face(foreground=legacy_color(color)))
+    # write(io, str)
+    # nothing
+# end
 
 end
