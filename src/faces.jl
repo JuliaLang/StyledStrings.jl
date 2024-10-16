@@ -500,96 +500,70 @@ Merge the properties of the `initial` face and `others`, with
 later faces taking priority.
 """
 function Base.merge(a::Face, b::Face)
-    if isempty(b.inherit)
-        # Extract the heights to help type inference a bit to be able
-        # to narrow the types in e.g. `aheight * bheight`
-        aheight = a.height
-        bheight = b.height
-        abheight = if isnothing(bheight) aheight
-        elseif isnothing(aheight) bheight
-        elseif bheight isa Int bheight
-        elseif aheight isa Int round(Int, aheight * bheight)
-        else aheight * bheight end
-        Face(if isnothing(b.font)          a.font          else b.font          end,
-             abheight,
-             if isnothing(b.weight)        a.weight        else b.weight        end,
-             if isnothing(b.slant)         a.slant         else b.slant         end,
-             if isnothing(b.foreground)    a.foreground    else b.foreground    end,
-             if isnothing(b.background)    a.background    else b.background    end,
-             if isnothing(b.underline)     a.underline     else b.underline     end,
-             if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
-             if isnothing(b.inverse)       a.inverse       else b.inverse       end,
-             a.inherit)
-    else
-        b_noinherit = Face(
-            b.font, b.height, b.weight, b.slant, b.foreground, b.background,
-            b.underline, b.strikethrough, b.inverse, Symbol[])
-        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(b.inherit))
-        b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
-        merge(a, b_resolved)
-    end
+    # We cannot merge unresolved Faces and resolving a face makes a difference
+    # to the user so we shouldn't do it automatically either (especially when
+    # inserting Faces via `addface!`)
+    # Here we require that a Face be resolved if you're going to merge it.
+    @assert isempty(a.inherit) && isempty(b.inherit)
+    return _merge(a, b)
+end
+
+# Merge assuming that `a` and `b` are resolved Faces.
+function _merge(a::Face, b::Face)
+    # Extract the heights to help type inference a bit to be able
+    # to narrow the types in e.g. `aheight * bheight`
+    aheight = a.height
+    bheight = b.height
+    abheight = if isnothing(bheight) aheight
+    elseif isnothing(aheight) bheight
+    elseif bheight isa Int bheight
+    elseif aheight isa Int round(Int, aheight * bheight)
+    else aheight * bheight end
+    Face(if isnothing(b.font)          a.font          else b.font          end,
+         abheight,
+         if isnothing(b.weight)        a.weight        else b.weight        end,
+         if isnothing(b.slant)         a.slant         else b.slant         end,
+         if isnothing(b.foreground)    a.foreground    else b.foreground    end,
+         if isnothing(b.background)    a.background    else b.background    end,
+         if isnothing(b.underline)     a.underline     else b.underline     end,
+         if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
+         if isnothing(b.inverse)       a.inverse       else b.inverse       end,
+         Symbol[])
 end
 
 Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
-## Getting the combined face from a set of properties ##
-
-# Putting these inside `getface` causes the julia compiler to box it
-_mergedface(face::Face) = face
-_mergedface(face::Symbol) = get(Face, FACES.current[], face)
-_mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
+## Resolving Faces that are still 'lazy' ##
 
 """
-    getface(faces)
+    getface(face::Symbol; resolve::Bool)::Face
 
-Obtain the final merged face from `faces`, an iterator of
-[`Face`](@ref)s, face name `Symbol`s, and lists thereof.
+Obtain a [`Face`](@ref) from the active FACES mapping.
+
+If `resolve` is set to `false`, the Face is returned exactly
+as it is present in the FACES mapping.
+
+If `resolve` is set to `true`, any inherited features are
+resolved and a merged Face with no inheritance is returned.
 """
-function getface(faces)
-    isempty(faces) && return FACES.current[][:default]
-    combined = mapfoldl(_mergedface, merge, faces)::Face
-    if !isempty(combined.inherit)
-        combined = merge(Face(), combined)
+function getface(face::Symbol; resolve::Bool=true)
+    face = get(Face, FACES.current[], face)
+    return resolve ? StyledStrings.resolve(face) : face
+end
+
+function resolve(face::Face)
+    for parent in face.inherit
+        # We use `_merge` here to bypass the "resolved check" since
+        # we just want this to merge ignoring the inherited faces
+        # of `face` (we are currently resolving them)
+        face = _merge(getface(parent; resolve=true), face)
     end
-    merge(FACES.current[][:default], combined)
+    return face
 end
 
-"""
-    getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
-
-Combine all of the `:face` annotations with `getfaces`.
-"""
-function getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
-    faces = (ann.value for ann in annotations if ann.label === :face)
-    getface(faces)
+function resolve(face::Symbol)
+    return resolve(get(Face, FACES.current[], face))
 end
-
-getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
-getface(face::Symbol) = getface(get(Face, FACES.current[], face))
-
-"""
-    getface()
-
-Obtain the default face.
-"""
-getface() = FACES.current[][:default]
-
-## Face/AnnotatedString integration ##
-
-"""
-    getface(s::AnnotatedString, i::Integer)
-
-Get the merged [`Face`](@ref) that applies to `s` at index `i`.
-"""
-getface(s::AnnotatedString, i::Integer) =
-    getface(map(last, annotations(s, i)))
-
-"""
-    getface(c::AnnotatedChar)
-
-Get the merged [`Face`](@ref) that applies to `c`.
-"""
-getface(c::AnnotatedChar) = getface(c.annotations)
 
 """
     face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
@@ -598,12 +572,12 @@ getface(c::AnnotatedChar) = getface(c.annotations)
 Apply `face` to `str`, along `range` if specified or the whole of `str`.
 """
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, range, :face, face)
+      range::UnitRange{Int}, face::Union{Symbol, Face}) =
+      annotate!(s, range, :face, resolve(face))
 
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, firstindex(s):lastindex(s), :face, face)
+      face::Union{Symbol, Face}) =
+      annotate!(s, firstindex(s):lastindex(s), :face, resolve(face))
 
 ## Reading face definitions from a dictionary ##
 

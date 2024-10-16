@@ -19,15 +19,15 @@ parse(StyledStrings.SimpleColor, "#010203")
 StyledStrings.Face(nothing, nothing, nothing, nothing, nothing,
                    nothing, nothing, nothing, nothing, [:default])
 StyledStrings.Face(height=2)
-merge(StyledStrings.Face(inherit=:blue), StyledStrings.Face(foreground=:white))
+merge(StyledStrings.resolve(StyledStrings.Face(inherit=:blue)), StyledStrings.Face(foreground=:white))
 StyledStrings.Face(height=2) == StyledStrings.Face(height=3)
 
 show(colorio, MIME("text/plain"), StyledStrings.Face(foreground=:green))
 show(colorio, StyledStrings.Face(foreground=:green))
 
-StyledStrings.getface()
 StyledStrings.getface(:red)
-StyledStrings.getface(styled"{red:red}", 1)
+StyledStrings.getface(:red; resolve=false)
+StyledStrings.getface(:red; resolve=true)
 
 StyledStrings.addface!(:_precompile => Face(font="precompile"))
 StyledStrings.loadface!(:_precompile => Face(inverse=true))
