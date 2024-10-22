@@ -19,6 +19,7 @@ StyledStrings.eachregion
 StyledStrings.annotation_events
 StyledStrings.face!
 StyledStrings.getface
+StyledStrings.resolve
 StyledStrings.loadface!
 StyledStrings.loaduserfaces!
 StyledStrings.resetfaces!
