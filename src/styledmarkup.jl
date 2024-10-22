@@ -260,7 +260,7 @@ function addpart!(state::State, start::Int, expr, stop::Int)
             push!(state.parts,
                 :(let $str = string($expr)
                       $len = ncodeunits($str) # Used in `annots`.
-                      if $str isa AnnotatedString && !isempty($str)
+                      if Base._isannotated($str) && !isempty($str)
                           AnnotatedString(String($str), vcat($annots, annotations($str)))
                       else
                           if isempty($str)
