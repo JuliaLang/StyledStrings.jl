@@ -6,27 +6,17 @@ _isannotated(s) = _isannotated(typeof(s))
 # actually from substring.jl
 _isannotated(::SubString{T}) where {T} = _isannotated(T)
 
-# NOTE Too invalidating:
-
-# function (*)(s1::Union{AnnotatedChar, AnnotatedString}, s2::Union{AbstractChar, AbstractString})
-#     annotatedstring(s1, s2)
-# end
-
-# function (*)(s1::Union{AbstractChar, AbstractString}, s2::Union{AnnotatedChar, AnnotatedString})
-#     annotatedstring(s1, s2)
-# end
-
-# function (*)(s1::Union{AnnotatedChar, AnnotatedString}, s2::Union{AnnotatedChar, AnnotatedString})
-#     annotatedstring(s1, s2)
-# end
-
-# function (*)(s1::Union{AbstractChar, AbstractString}, s2::Union{AbstractChar, AbstractString}, ss::Union{AbstractChar, AbstractString}...)
-#     if _isannotated(s1) || _isannotated(s2) || any(_isannotated, ss)
-#         annotatedstring(s1, s2, ss...)
-#     else
-#         string(s1, s2, ss...)
-#     end
-# end
+# The following meta-programming will generate code like:
+#   Base.:*(s_annot::AnnotatedString, s::Union{AbstractChar,AbstractString}...) = annotatedstring(s_annot, s...)
+#   Base.:*(s1::Union{AbstractChar,AbstractString}, s_annot::AnnotatedString, s::Union{AbstractChar,AbstractString}...) = annotatedstring(s1, s_annot, s...)
+# and so on.
+for i in 0:31
+    front = [Symbol('s', j) for j in 1:i]
+    front_typed = [:($s::Union{AbstractChar,AbstractString}) for s in front]
+    @eval function Base.:*($(front_typed...), s_annot::AnnotatedString, s::Union{AbstractChar,AbstractString}...)
+        annotatedstring($(front...), s_annot, s...)
+    end
+end
 
 # # From io.jl
 # join(iterator) = _join_preserve_annotations(iterator)

@@ -670,3 +670,45 @@ end
     @test printstyled(aio, "e", color=:green)   |> isnothing
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
 end
+
+@testset "concatenation via *" begin
+    function check_annotated_equal(a::AbstractString, b::AbstractString)
+        if a isa AnnotatedString && b isa AnnotatedString
+            String(a) == String(b) && annotations(a) == annotations(b)
+        else
+            false
+        end
+    end
+
+    s_annot = styled"{red:hello}"
+    
+    # Test (styled, styled)
+    @test check_annotated_equal(
+        s_annot * styled"{blue:world}",
+        styled"{red:hello}{blue:world}"
+    )
+
+    # Test (styled, regular)
+    @test check_annotated_equal(
+        s_annot * "world",
+        styled"{red:hello}world"
+    )
+
+    # Test (regular, styled)
+    @test check_annotated_equal(
+        "hello" * s_annot,
+        styled"hello{red:hello}"
+    )
+
+    # Test (styled, regular, styled)
+    @test check_annotated_equal(
+        s_annot * " " * styled"{blue:world}",
+        styled"{red:hello} {blue:world}"
+    )
+
+    # Test (regular, regular, styled)
+    @test check_annotated_equal(
+        "hello" * " " * s_annot,
+        styled"hello {red:hello}"
+    )
+end
