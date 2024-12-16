@@ -285,7 +285,7 @@ function escaped!(state::State, i::Int, char::Char)
     if char in ('{', '}', '\\') || (char == '$' && ismacro(state))
         deleteat!(state.bytes, i + state.offset - 1)
         state.offset -= ncodeunits('\\')
-    elseif char ∈ ('\n', '\r') && !isempty(state.s)
+    elseif char ∈ ('\n', '\r')
         skipped = 0
         if char == '\r' && isnextchar(state, '\n')
             popfirst!(state.s)
