@@ -170,9 +170,18 @@ function Face(; font::Union{Nothing, String} = nothing,
          else inherit end)
 end
 
-Base.:(==)(a::Face, b::Face) =
-    getfield.(Ref(a), fieldnames(Face)) ==
-    getfield.(Ref(b), fieldnames(Face))
+function Base.:(==)(a::Face, b::Face)
+    a.font == b.font &&
+    a.height === b.height &&
+    a.weight == b.weight &&
+    a.slant == b.slant &&
+    a.foreground == b.foreground &&
+    a.background == b.background &&
+    a.underline == b.underline &&
+    a.strikethrough == b.strikethrough &&
+    a.inverse == b.inverse &&
+    a.inherit == b.inherit
+end
 
 Base.hash(f::Face, h::UInt) =
     mapfoldr(Base.Fix1(getfield, f), hash, fieldnames(Face), init=hash(Face, h))
@@ -714,7 +723,7 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
          elseif spec["inherit"] isa String
              [Symbol(spec["inherit"]::String)]
          elseif spec["inherit"] isa Vector{String}
-             Symbol.(spec["inherit"]::Vector{String})
+             [Symbol(name) for name in spec["inherit"]::Vector{String}]
          else
              Symbol[]
          end)

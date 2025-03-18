@@ -93,7 +93,7 @@ legacy_color(color::Symbol) =
     end
 
 function legacy_color(color::String)
-    namedcolours = String.(NAMED_COLORS)
+    namedcolours = map(String, NAMED_COLORS)
     if color in namedcolours
         legacy_color(Symbol(color))
     elseif 0 <= (color256 = something(tryparse(Int, color), -1)) <= 255
