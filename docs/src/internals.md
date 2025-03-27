@@ -6,6 +6,7 @@ about the internals, read on, but if you want to depend on them, please consider
 opening a pull request or issue to discuss making them part of the public API.
 
 ```@docs
+StyledStrings.FaceRef
 StyledStrings.ANSI_4BIT_COLORS
 StyledStrings.FACES
 StyledStrings.HTML_BASIC_COLORS
