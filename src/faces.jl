@@ -3,6 +3,22 @@
 const RGBTuple = NamedTuple{(:r, :g, :b), NTuple{3, UInt8}}
 
 """
+    struct FaceRef
+
+A reference to a lazily-resolved Face. This is required so that the
+AnnotatedString printer in Base can dispatch to StyledStrings (w/o
+type-piracy) for the display of annotations.
+"""
+struct FaceRef
+    # At some point in the future, this may also include a handle
+    # to a 'Palette' where this face will be looked up.
+    face::Symbol
+end
+
+wrap_symbol(face) = face
+wrap_symbol(face::Symbol) = FaceRef(face)
+
+"""
     struct SimpleColor
 
 A basic representation of a color, intended for string styling purposes.
@@ -546,13 +562,14 @@ Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 # Putting these inside `getface` causes the julia compiler to box it
 _mergedface(face::Face) = face
 _mergedface(face::Symbol) = get(Face, FACES.current[], face)
+_mergedface(ref::FaceRef) = get(Face, FACES.current[], ref.face)
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
 
 """
     getface(faces)
 
 Obtain the final merged face from `faces`, an iterator of
-[`Face`](@ref)s, face name `Symbol`s, and lists thereof.
+[`Face`](@ref)s, [`FaceRef`](@ref)s, face name `Symbol`s, and lists thereof.
 """
 function getface(faces)
     isempty(faces) && return FACES.current[][:default]
@@ -575,6 +592,7 @@ end
 
 getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
 getface(face::Symbol) = getface(get(Face, FACES.current[], face))
+getface(ref::FaceRef) = getface(get(Face, FACES.current[], ref.face))
 
 """
     getface()
@@ -606,13 +624,17 @@ getface(c::AnnotatedChar) = getface(c.annotations)
 
 Apply `face` to `str`, along `range` if specified or the whole of `str`.
 """
-face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, range, :face, face)
+face!(s::Union{AnnotatedString, SubString{<:AnnotatedString}},
+      range::UnitRange{Int}, face::Union{Symbol, Face, FaceRef}) =
+          annotate!(s, range, :face, wrap_symbol(face))
 
-face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, firstindex(s):lastindex(s), :face, face)
+face!(s::Union{AnnotatedString, SubString{<:AnnotatedString}},
+      range::UnitRange{Int}, faces::Vector{<:Union{Symbol, Face, FaceRef}}) =
+          annotate!(s, range, :face, wrap_symbol.(faces))
+
+face!(s::Union{AnnotatedString, SubString{<:AnnotatedString}},
+      face::Union{Symbol, Face, FaceRef, Vector{<:Union{Symbol, Face, FaceRef}}}) =
+          face!(s, firstindex(s):lastindex(s), face)
 
 ## Reading face definitions from a dictionary ##
 

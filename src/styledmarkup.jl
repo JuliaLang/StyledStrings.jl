@@ -46,7 +46,7 @@ Of course, as usual, the devil is in the details.
 module StyledMarkup
 
 using Base: AnnotatedString, annotations, annotatedstring
-using ..StyledStrings: Face, SimpleColor
+using ..StyledStrings: Face, FaceRef, SimpleColor, wrap_symbol
 
 export @styled_str, styled
 
@@ -325,7 +325,7 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     if isempty(state.s)
         styerr!(state,
                 AnnotatedString("Identifier or parenthesised expression expected after \$ in string",
-                                [(55:55, :face, :warning)]),
+                                [(55:55, :face, FaceRef(:warning))]),
                 -1, "right here")
         return "", pos
     end
@@ -401,7 +401,7 @@ and register it in the active styles list.
 """
 function begin_style!(state::State, i::Int, char::Char)
     hasvalue = false
-    newstyles = Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}()
+    newstyles = Vector{Tuple{Int, Int, Union{FaceRef, Expr, Tuple{Symbol, Any}}}}()
     while read_annotation!(state, i, char, newstyles) end
     push!(state.active_styles, reverse!(newstyles))
     # Adjust bytes/offset based on how much the index
@@ -535,9 +535,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                         valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
                         styerr!(state,
                                 AnnotatedString("Invalid underline style '$ustyle_word' (should be $valid_options)",
-                                                [(26:25+ncodeunits(ustyle_word), :face, :warning)
+                                                [(26:25+ncodeunits(ustyle_word), :face, FaceRef(:warning))
                                                  (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
-                                                  :face, :light)]),
+                                                  :face, FaceRef(:light))]),
                                 -length(ustyle_word) - 3)
                     end
                     ustyle = Symbol(ustyle_word)
@@ -658,7 +658,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             else
                 invalid, lastchar = readsymbol!(state, lastchar)
                 styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
-                                                [(17:16+ncodeunits(string(invalid)), :face, :warning)]),
+                                                [(17:16+ncodeunits(string(invalid)), :face, FaceRef(:warning))]),
                         -3)
             end
         elseif key ∈ (:weight, :slant)
@@ -666,16 +666,16 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             if key == :weight && v ∉ VALID_WEIGHTS
                 valid_options = join(VALID_WEIGHTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid weight '$v' (should be $valid_options)",
-                                                [(17:16+ncodeunits(v), :face, :warning),
+                                                [(17:16+ncodeunits(v), :face, FaceRef(:warning)),
                                                  (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
-                                                  :face, :light)]),
+                                                  :face, FaceRef(:light))]),
                         -3)
             elseif key == :slant && v ∉ VALID_SLANTS
                 valid_options = join(VALID_SLANTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
-                                                [(16:15+ncodeunits(v), :face, :warning),
+                                                [(16:15+ncodeunits(v), :face, FaceRef(:warning)),
                                                  (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
-                                                  :face, :light)]),
+                                                  :face, FaceRef(:light))]),
                         -3)
             end
             Symbol(v) |> if ismacro(state) QuoteNode else identity end
@@ -702,7 +702,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
         else
             styerr!(state, AnnotatedString(
                 "Uses unrecognised face key '$key'. Recognised keys are: $(join(VALID_FACE_ATTRS, ", ", ", and "))",
-                [(29:28+ncodeunits(String(key)), :face, :warning)]),
+                [(29:28+ncodeunits(String(key)), :face, FaceRef(:warning))]),
                     -length(str_key) - 2)
         end
         if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
@@ -711,7 +711,7 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             push!(kwargs, key => val)
         else
             styerr!(state, AnnotatedString("Contains repeated face key '$key'",
-                                            [(29:28+ncodeunits(String(key)), :face, :warning)]),
+                                            [(29:28+ncodeunits(String(key)), :face, FaceRef(:warning))]),
                     -length(str_key) - 2)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
@@ -723,16 +723,16 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
             break
         end
     end
-    face = Expr(:call, Face, kwargs...)
-    push!(newstyles,
-          (i, i + state.offset + 1,
-           if !ismacro(state)
-               :face, Face(; NamedTuple(kwargs)...)
-           elseif needseval
-               :((:face, $face))
-           else
-               :face, hygienic_eval(state, face)
-           end))
+    face_expr = Expr(:call, Face, kwargs...)
+    if !ismacro(state)
+        face = (:face, Face(; NamedTuple(kwargs)...))
+    elseif needseval
+        face = :((:face, $face_expr))
+    else
+        face = (:face, hygienic_eval(state, face_expr))
+    end
+    offset = i + state.offset + 1
+    push!(newstyles, (i, offset, face))
 end
 
 """
@@ -800,23 +800,25 @@ function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
             end
             String(chars)
         end
-        push!(newstyles,
-                (i, i + state.offset + ncodeunits('{'),
-                if key isa String && !(value isa Symbol || value isa Expr)
-                    Symbol(key), value
-                elseif key isa Expr || key isa Symbol
-                    :(($key, $value))
-                else
-                    :(($(QuoteNode(Symbol(key))), $value))
-                end))
+        if key isa String && !(value isa Symbol || value isa Expr)
+            face = (Symbol(key), value)
+        elseif key isa Expr || key isa Symbol
+            face = :(($key, $value))
+        else
+            face = :(($(QuoteNode(Symbol(key))), $value))
+        end
+        offset = i + state.offset + ncodeunits('{')
+        push!(newstyles, (i, offset, face))
     elseif key !== ""
-        push!(newstyles,
-                (i, i + state.offset + ncodeunits('{'),
-                if key isa Symbol || key isa Expr
-                    :((:face, $key))
-                else # Face symbol
-                    :face, Symbol(key)
-                end))
+        if key isa Symbol || key isa Expr
+            face = :((:face, $wrap_symbol($key)))
+        elseif ismacro(state) # Face symbol
+            face = :((:face, $FaceRef($(QuoteNode(Symbol(key))))))
+        else # Face symbol
+            face = (:face, FaceRef(Symbol(key)))
+        end
+        offset = i + state.offset + ncodeunits('{')
+        push!(newstyles, (i, offset, face))
     end
     if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', '\r', ',', ':')
         styerr!(state, "Incomplete annotation declaration", prevind(state.content, i), "starts here")
@@ -857,7 +859,7 @@ function run_state_machine!(state::State)
     end
     for incomplete in Iterators.flatten(state.active_styles)
         styerr!(state, AnnotatedString("Unterminated annotation (missing closing '}')",
-                                        [(43:43, :face, :warning)]),
+                                        [(43:43, :face, FaceRef(:warning))]),
                 prevind(state.content, first(incomplete)), "starts here")
     end
 end
