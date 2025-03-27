@@ -29,11 +29,12 @@ an iterator which provides each substring and the applicable annotations as a
 
 ```jldoctest
 julia> collect(StyledStrings.eachregion(AnnotatedString(
-           "hey there", [(1:3, :face, :bold), (5:9, :face, :italic)])))
+           "hey there", [(1:3, :face, StyledStrings.FaceRef(:bold)),
+                         (5:9, :face, StyledStrings.FaceRef(:italic))])))
 3-element Vector{Tuple{SubString{String}, Vector{@NamedTuple{label::Symbol, value}}}}:
- ("hey", [@NamedTuple{label::Symbol, value}((:face, :bold))])
+ ("hey", [@NamedTuple{label::Symbol, value}((:face, StyledStrings.FaceRef(:bold)))])
  (" ", [])
- ("there", [@NamedTuple{label::Symbol, value}((:face, :italic))])
+ ("there", [@NamedTuple{label::Symbol, value}((:face, StyledStrings.FaceRef(:italic)))])
 ```
 """
 function eachregion(s::AnnotatedString, subregion::UnitRange{Int}=firstindex(s):lastindex(s))
