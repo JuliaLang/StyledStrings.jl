@@ -15,8 +15,6 @@ StyledStrings.Legacy.RENAMED_COLORS
 StyledStrings.Legacy.legacy_color
 StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit_color_code
-StyledStrings.eachregion
-StyledStrings.annotation_events
 StyledStrings.face!
 StyledStrings.getface
 StyledStrings.loadface!
