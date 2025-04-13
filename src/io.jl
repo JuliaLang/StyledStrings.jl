@@ -267,8 +267,8 @@ Base.print(io::AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:Annota
     (write(io, s); nothing)
 
 Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-              esc = ""; keep = ()) =
-    (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep)); nothing)
+              esc = ""; keep = (), ascii::Bool=false, fullhex::Bool=false) =
+    (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep, ascii, fullhex)); nothing)
 
 function Base.write(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
