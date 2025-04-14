@@ -225,8 +225,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                          ANSI_STYLE_CODES.end_reverse))
 end
 
-function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-                      string_writer::F) where {F <: Function}
+function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function}
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
@@ -255,22 +254,13 @@ function _ansi_writer(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedS
     end
 end
 
-Base.write(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    _ansi_writer(io, s, write)::Int
+# ------------
+# Hook into the AnnotatedDisplay invalidation barrier
 
-Base.print(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    (_ansi_writer(io, s, print); nothing)
+Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function} =
+    _ansi_writer(f, io, s)
 
-# We need to make sure that printing to an `AnnotatedIOBuffer` calls `write` not `print`
-# so we get the specialised handling that `_ansi_writer` doesn't provide.
-Base.print(io::AnnotatedIOBuffer, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
-    (write(io, s); nothing)
-
-Base.escape_string(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}},
-              esc = ""; keep = (), ascii::Bool=false, fullhex::Bool=false) =
-    (_ansi_writer(io, s, (io, s) -> escape_string(io, s, esc; keep, ascii, fullhex)); nothing)
-
-function Base.write(io::IO, c::AnnotatedChar)
+function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
         bytes = write(io, c.char)
@@ -281,9 +271,7 @@ function Base.write(io::IO, c::AnnotatedChar)
     end
 end
 
-Base.print(io::IO, c::AnnotatedChar) = (write(io, c); nothing)
-
-function Base.show(io::IO, c::AnnotatedChar)
+function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar)
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
@@ -296,19 +284,11 @@ function Base.show(io::IO, c::AnnotatedChar)
     end
 end
 
-function Base.write(io::IO, aio::AnnotatedIOBuffer)
-    if get(io, :color, false) == true
-        # This does introduce an overhead that technically
-        # could be avoided, but I'm not sure that it's currently
-        # worth the effort to implement an efficient version of
-        # writing from a AnnotatedIOBuffer with style.
-        # In the meantime, by converting to an `AnnotatedString` we can just
-        # reuse all the work done to make that work.
-        write(io, read(aio, AnnotatedString))
-    else
-        write(io, aio.io)
-    end
-end
+Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+    show_html(io, s)
+
+# End AnnotatedDisplay hooks
+# ------------
 
 """
 A mapping between ANSI named colors and 8-bit colors for use in HTML
@@ -447,7 +427,7 @@ function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "\">")
 end
 
-function Base.show(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}})
+function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}})
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
