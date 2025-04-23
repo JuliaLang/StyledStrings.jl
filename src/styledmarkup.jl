@@ -207,20 +207,22 @@ function addpart!(state::State, stop::Int)
                 str
             else
                 styles = sty_type[]
+                # Turn active styles into pending styles
+                relevant_styles = Iterators.filter(
+                    (_, start, _)::Tuple -> start <= stop + state.offset + 1,
+                    Iterators.flatten(state.active_styles))
+                for (_, start, annot) in relevant_styles
+                    pushfirst!(state.pending_styles, (start:stop+state.offset+1, annot))
+                end
+                # Order the pending styles by specificity
                 sort!(state.pending_styles, by = (r -> (first(r), -last(r))) ∘ first) # Prioritise the most specific styles
                 for (range, annot) in state.pending_styles
                     if !isempty(range)
-                        push!(styles, tupl(range .- state.point, annot))
+                        adjrange = (first(range) - state.point):(last(range) - state.point)
+                        push!(styles, tupl(adjrange, annot))
                     end
                 end
                 empty!(state.pending_styles)
-                relevant_styles = Iterators.filter(
-                    (_, start, _)::Tuple -> start <= stop + state.offset + 1,
-                    Iterators.flatten(map(reverse, state.active_styles)))
-                for (_, start, annot) in relevant_styles
-                    range = (start - state.point):(stop - state.point + state.offset + 1)
-                    push!(styles, tupl(range, annot))
-                end
                 if isempty(styles)
                     str
                 elseif !ismacro(state)

@@ -386,6 +386,11 @@ end
             "val", [$merge((; region=$(1:3)), $NamedTupleLV((:face, $(Face)(foreground = color))))]))) ==
             @macroexpand styled"{(foreground=$color):val}"
     end
+    # Partial annotation termination with interpolation
+    @test styled"{green:a}{red:{blue:b}$('c')}" ==
+        AnnotatedString{String}("abc", [(1:1, :face, :green),
+                                        (2:3, :face, :red),
+                                        (2:2, :face, :blue)])
 
     # Trailing (and non-trailing) Backslashes
     @test String(styled"\\") == "\\"
