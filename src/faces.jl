@@ -503,10 +503,11 @@ withfaces(f) = f()
 ## Face combination and inheritance ##
 
 """
-    merge(initial::Face, others::Face...)
+    merge(initial::StyledStrings.Face, others::StyledStrings.Face...)
 
-Merge the properties of the `initial` face and `others`, with
-later faces taking priority.
+Merge the properties of the `initial` face and `others`, with later faces taking priority.
+
+This is used to combine the styles of multiple faces, and to resolve inheritance.
 """
 function Base.merge(a::Face, b::Face)
     if isempty(b.inherit)
