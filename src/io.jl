@@ -147,7 +147,7 @@ termcolor(io::IO, ::Nothing, category::Char) =
 
 const ANSI_STYLE_CODES = (
     bold_weight = "\e[1m",
-    dim_weight = "\e[2m",
+    dim_weight = "\e[2m", # Unused
     normal_weight = "\e[22m",
     start_italics = "\e[3m",
     end_italics = "\e[23m",
@@ -164,7 +164,10 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         termcolor(io, face.foreground, '3')
     face.background == lastface.background ||
         termcolor(io, face.background, '4')
-    face.weight == lastface.weight ||
+    face.weight == lastface.weight || begin
+        if lastface.weight != :normal && face.weight != :normal
+            print(io, ANSI_STYLE_CODES.normal_weight) # Reset before changing
+        end
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
                   ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
@@ -172,6 +175,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
               else # :normal
                   ANSI_STYLE_CODES.normal_weight
               end)
+    end
     face.slant == lastface.slant ||
         if haskey(Base.current_terminfo, :enter_italics_mode)
             print(io, ifelse(face.slant ∈ (:italic, :oblique),
