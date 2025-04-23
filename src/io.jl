@@ -234,7 +234,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     # before we start outputting any styled content.
     load_customisations!()
     if get(io, :color, false)::Bool
-        buf = IOBuffer() # Avoid the overhead in repeatadly printing to `stdout`
+        buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
         lastface::Face = FACES.default[:default]
         for (str, styles) in eachregion(s)
             face = getface(styles)
@@ -249,7 +249,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             lastface = face
         end
         termstyle(buf, FACES.default[:default], lastface)
-        write(io, take!(buf))
+        write(io, seekstart(buf))
     elseif s isa AnnotatedString
         string_writer(io, s.string)
     elseif s isa SubString
