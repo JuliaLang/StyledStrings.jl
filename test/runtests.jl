@@ -20,15 +20,20 @@ const vt100 = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "vt100"), Base.
 const fancy_term = Base.TermInfo(read(joinpath(@__DIR__, "terminfos", "fancy"), Base.TermInfoRaw))
 
 function with_terminfo(fn::Function, tinfo::Base.TermInfo)
-    prev_terminfo = getglobal(Base, :current_terminfo)
+    # HACK: Directly modifying the value inside `Base.current_terminfo`
+    # (a `OncePerProcess`) as we do here relies on private implementation
+    # details, which is ill-advised outside of low-stakes testing scenarios.
+    # This is a fragile shortcut to avoid modifying the environment and
+    # starting a process.
+    prev_terminfo = Base.current_terminfo()
     prev_truecolor = getglobal(Base, :have_truecolor)
-    try
-        setglobal!(Base, :current_terminfo, tinfo)
-        setglobal!(Base, :have_truecolor,   haskey(tinfo, :setrgbf))
+    @lock Base.current_terminfo.lock try
+        Base.current_terminfo.value = tinfo
+        setglobal!(Base, :have_truecolor, haskey(tinfo, :setrgbf))
         fn()
     finally
-        setglobal!(Base, :current_terminfo, prev_terminfo)
-        setglobal!(Base, :have_truecolor,   prev_truecolor)
+        Base.current_terminfo.value = prev_terminfo
+        setglobal!(Base, :have_truecolor, prev_truecolor)
     end
 end
 

@@ -171,13 +171,13 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
                   ANSI_STYLE_CODES.bold_weight
               elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
-                  get(Base.current_terminfo, :dim, "")
+                  get(Base.current_terminfo(), :dim, "")
               else # :normal
                   ANSI_STYLE_CODES.normal_weight
               end)
     end
     face.slant == lastface.slant ||
-        if haskey(Base.current_terminfo, :enter_italics_mode)
+        if haskey(Base.current_terminfo(), :enter_italics_mode)
             print(io, ifelse(face.slant ∈ (:italic, :oblique),
                              ANSI_STYLE_CODES.start_italics,
                              ANSI_STYLE_CODES.end_italics))
@@ -189,8 +189,8 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
     face.underline == lastface.underline ||
-        if haskey(Base.current_terminfo, :set_underline_style) ||
-           get(Base.current_terminfo, :can_style_underline, false)
+        if haskey(Base.current_terminfo(), :set_underline_style) ||
+           get(Base.current_terminfo(), :can_style_underline, false)
             if face.underline isa Tuple # Color and style
                 color, style = face.underline
                 print(io, "\e[4:",
@@ -219,11 +219,11 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                              ANSI_STYLE_CODES.start_underline,
                              ANSI_STYLE_CODES.end_underline))
         end
-    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo, :smxx) ||
+    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
         print(io, ifelse(face.strikethrough === true,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.inverse == lastface.inverse || !haskey(Base.current_terminfo, :enter_reverse_mode) ||
+    face.inverse == lastface.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
         print(io, ifelse(face.inverse === true,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
