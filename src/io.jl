@@ -291,6 +291,8 @@ end
 Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
     show_html(io, s)
 
+# Also see `legacy.jl:126` for `styled_write`.
+
 # End AnnotatedDisplay hooks
 # ------------
 

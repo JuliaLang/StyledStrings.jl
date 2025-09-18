@@ -123,15 +123,14 @@ function load_env_colors!()
     end
 end
 
-function Base.printstyled(io::AnnotatedIOBuffer, msg...;
-                          bold::Bool=false, italic::Bool=false, underline::Bool=false,
-                          blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
-                          color::Union{Symbol, Int}=:normal)
+# Part of the inference barrier around `Base.printstyled`
+function Base.AnnotatedDisplay.styled_print(io::AnnotatedIOBuffer, @nospecialize(msg::Tuple), @nospecialize(kwargs::Base.Pairs))
     str = annotatedstring(msg...)
-    bold && face!(str, :bold)
-    italic && face!(str, :italic)
-    underline && face!(str, :underline)
-    reverse && face!(str, :inverse)
+    for attr in (:bold, :italic, :underline)
+        get(kwargs, attr, false)::Bool && face!(str, attr)
+    end
+    get(kwargs, :reverse, false)::Bool && face!(str, :inverse)
+    color = get(kwargs, :color, :normal)::Symbol
     color !== :normal && face!(str, Face(foreground=legacy_color(color)))
     write(io, str)
     nothing
