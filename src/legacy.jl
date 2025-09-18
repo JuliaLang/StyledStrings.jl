@@ -123,7 +123,7 @@ function load_env_colors!()
     end
 end
 
-function Base.printstyled(io::AnnotatedIOBuffer, msg...;
+function Base.printstyled(io::AnnotatedIOBuffer, @nospecialize(msg...);
                           bold::Bool=false, italic::Bool=false, underline::Bool=false,
                           blink::Bool=false, reverse::Bool=false, hidden::Bool=false,
                           color::Union{Symbol, Int}=:normal)
