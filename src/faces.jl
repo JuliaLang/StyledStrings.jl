@@ -318,8 +318,8 @@ const FACES = let default = Dict{Symbol, Face}(
     :default => Face(
         "monospace", 120,      # font, height
         :normal, :normal,      # weight, slant
-        SimpleColor(:default), # foreground
-        SimpleColor(:default), # background
+        SimpleColor(:foreground), # foreground
+        SimpleColor(:background), # background
         false, false, false,   # underline, strikethrough, overline
         Symbol[]),              # inherit
     # Property faces
@@ -382,7 +382,30 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
     )
-    (; default, current=ScopedValue(copy(default)), lock=ReentrantLock())
+    basecolors = Dict{Symbol, RGBTuple}(
+        :background     => (r = 0xff, g = 0xff, b = 0xff),
+        :foreground     => (r = 0x00, g = 0x00, b = 0x00),
+        :black          => (r = 0x1c, g = 0x1a, b = 0x23),
+        :red            => (r = 0xa5, g = 0x1c, b = 0x2c),
+        :green          => (r = 0x25, g = 0xa2, b = 0x68),
+        :yellow         => (r = 0xe5, g = 0xa5, b = 0x09),
+        :blue           => (r = 0x19, g = 0x5e, b = 0xb3),
+        :magenta        => (r = 0x80, g = 0x3d, b = 0x9b),
+        :cyan           => (r = 0x00, g = 0x97, b = 0xa7),
+        :white          => (r = 0xdd, g = 0xdc, b = 0xd9),
+        :bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
+        :grey           => (r = 0x76, g = 0x75, b = 0x7a),
+        :gray           => (r = 0x76, g = 0x75, b = 0x7a),
+        :bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
+        :bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
+        :bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
+        :bright_blue    => (r = 0x35, g = 0x83, b = 0xe4),
+        :bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
+        :bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
+        :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
+    (; default, basecolors,
+     current = ScopedValue(copy(default)),
+     lock = ReentrantLock())
 end
 
 ## Adding and resetting faces ##

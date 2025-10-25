@@ -235,8 +235,8 @@ end
                 height: 120
                 weight: normal
                  slant: normal
-            foreground: default
-            background: default
+            foreground: foreground
+            background: background
              underline: false
          strikethrough: false
                inverse: false\
@@ -248,8 +248,8 @@ end
                 height: 120
                 weight: normal
                  slant: normal
-            foreground: ■ default
-            background: ■ default
+            foreground: ■ foreground
+            background: \e[30m■\e[39m background
              underline: false
          strikethrough: false
                inverse: false\
@@ -475,11 +475,14 @@ end
 
 @testset "ANSI encoding" begin
     # 4-bit color
-    @test StyledStrings.ansi_4bit_color_code(:cyan, false) == 36
-    @test StyledStrings.ansi_4bit_color_code(:cyan, true) == 46
-    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, false) == 96
-    @test StyledStrings.ansi_4bit_color_code(:bright_cyan, true) == 106
-    @test StyledStrings.ansi_4bit_color_code(:nonexistant) == 39
+    @test StyledStrings.ansi_4bit(
+        StyledStrings.ANSI_4BIT_COLORS[:cyan], false) == 36
+    @test StyledStrings.ansi_4bit(
+        StyledStrings.ANSI_4BIT_COLORS[:cyan], true) == 46
+    @test StyledStrings.ansi_4bit(
+        StyledStrings.ANSI_4BIT_COLORS[:bright_cyan], false) == 96
+    @test StyledStrings.ansi_4bit(
+        StyledStrings.ANSI_4BIT_COLORS[:bright_cyan], true) == 106
     # 8-bit color
     @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;26m"
     @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;28m"
@@ -606,7 +609,7 @@ end
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"\">terminal</span> and graphical displays."
+        styling</span> system, suitable for <span style=\"color: initial; background-color: #000000\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin

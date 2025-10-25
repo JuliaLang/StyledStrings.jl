@@ -30,21 +30,17 @@ const ANSI_4BIT_COLORS = Dict{Symbol, Int}(
     :bright_white => 15)
 
 """
-    ansi_4bit_color_code(color::Symbol, background::Bool=false)
+    ansi_4bit(color::Integer, background::Bool=false)
 
-Provide the color code (30-37, 40-47, 90-97, 100-107) for `color`, as an integer.
+Provide the color code (30-37, 40-47, 90-97, 100-107) for `color` (0–15).
+
 When `background` is set the background variant will be provided, otherwise
 the provided code is for setting the foreground color.
 """
-function ansi_4bit_color_code(color::Symbol, background::Bool=false)
-    code = get(ANSI_4BIT_COLORS, color, nothing)
-    if code !== nothing
-        code >= 8 && (code += 52)
-        background && (code += 10)
-        code + 30
-    else
-        ifelse(background, 49, 39)
-    end
+function ansi_4bit(code::Integer, background::Bool=false)
+    code >= 8 && (code += 52)
+    background && (code += 10)
+    code + 30
 end
 
 """
@@ -96,6 +92,8 @@ function termcolor24bit(io::IO, color::RGBTuple, category::Char)
           string(color.b), 'm')
 end
 
+const MAX_COLOR_FORWARDS = 12
+
 """
     termcolor(io::IO, color::SimpleColor, category::Char)
 
@@ -110,31 +108,45 @@ If `color` is a `SimpleColor{Symbol}`, the value should be a a member of
 
 If `color` is a `SimpleColor{RGBTuple}` and `get_have_truecolor()` returns true,
 24-bit color is used. Otherwise, an 8-bit approximation of `color` is used.
+
+If `color` is unknown, no output is produced.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
+    if category == '4'
+        if color.value ∈ (:background, FACES.basecolors[:background])
+            return print(io, "\e[", category, "9m")
+        elseif color.value == :foreground
+            return print(io, "\e[47m") # Technically not quite, but close enough
+        end
+    elseif color.value ∈ (:foreground, FACES.basecolors[:foreground])
+        return print(io, "\e[", category, "9m")
+    elseif category == '3' && color.value == :background
+        return print(io, "\e[30m") # Technically not quite, but close enough
+    end
+    for _ in 1:MAX_COLOR_FORWARDS
+        color.value isa RGBTuple && break
+        fg = get(FACES.current[], color.value, Face()).foreground
+        isnothing(fg) && return
+        color == fg && break
+        color = fg
+    end
     if color.value isa RGBTuple
         if Base.get_have_truecolor()
             termcolor24bit(io, color.value, category)
         else
             termcolor8bit(io, color.value, category)
         end
-    elseif color.value === :default
-        print(io, "\e[", category, "9m")
-    elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
-        termcolor(io, fg, category)
-    else
-        print(io, "\e[")
-        if category == '3' || category == '4'
-            print(io, ansi_4bit_color_code(color.value, category == '4'))
-        elseif category == '5'
-            if haskey(ANSI_4BIT_COLORS, color.value)
-                print(io, "58;5;", ANSI_4BIT_COLORS[color.value])
-            else
-                print(io, "59")
-            end
-         end
-         print(io, "m")
+        return
     end
+    ansi = get(ANSI_4BIT_COLORS, color.value, nothing)
+    isnothing(ansi) && return
+    print(io, "\e[")
+    if category == '3' || category == '4'
+        print(io, ansi_4bit(ansi, category == '4'))
+    elseif category == '5'
+        print(io, "58;5;", ansi)
+    end
+    print(io, 'm')
 end
 
 """
@@ -208,7 +220,7 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                 termcolor(io, face.underline, '5')
             else
                 if lastface.underline isa SimpleColor || lastface.underline isa Tuple && first(lastface.underline) isa SimpleColor
-                    termcolor(io, SimpleColor(:none), '5')
+                    termcolor(io, SimpleColor(:foreground), '5')
                 end
                 print(io, ifelse(face.underline == true,
                                 ANSI_STYLE_CODES.start_underline,
@@ -233,9 +245,10 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
+    default = FACES.default[:default]
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
-        lastface::Face = FACES.default[:default]
+        lastface::Face = default
         for (str, styles) in eachregion(s)
             face = getface(styles)
             link = let idx=findfirst(==(:link) ∘ first, styles)
@@ -248,7 +261,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             !isnothing(link) && write(buf, "\e]8;;\e\\")
             lastface = face
         end
-        termstyle(buf, FACES.default[:default], lastface)
+        termstyle(buf, default, lastface)
         write(io, seekstart(buf))
     elseif s isa AnnotatedString
         string_writer(io, s.string)
@@ -296,39 +309,24 @@ Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:Annotated
 # End AnnotatedDisplay hooks
 # ------------
 
-"""
-A mapping between ANSI named colors and 8-bit colors for use in HTML
-representations.
-"""
-const HTML_BASIC_COLORS = Dict{Symbol, SimpleColor}(
-    :black => SimpleColor(0x1c, 0x1a, 0x23),
-    :red => SimpleColor(0xa5, 0x1c, 0x2c),
-    :green => SimpleColor(0x25, 0xa2, 0x68),
-    :yellow => SimpleColor(0xe5, 0xa5, 0x09),
-    :blue => SimpleColor(0x19, 0x5e, 0xb3),
-    :magenta => SimpleColor(0x80, 0x3d, 0x9b),
-    :cyan => SimpleColor(0x00, 0x97, 0xa7),
-    :white => SimpleColor(0xdd, 0xdc, 0xd9),
-    :bright_black => SimpleColor(0x76, 0x75, 0x7a),
-    :grey => SimpleColor(0x76, 0x75, 0x7a),
-    :gray => SimpleColor(0x76, 0x75, 0x7a),
-    :bright_red => SimpleColor(0xed, 0x33, 0x3b),
-    :bright_green => SimpleColor(0x33, 0xd0, 0x79),
-    :bright_yellow => SimpleColor(0xf6, 0xd2, 0x2c),
-    :bright_blue => SimpleColor(0x35, 0x83, 0xe4),
-    :bright_magenta => SimpleColor(0xbf, 0x60, 0xca),
-    :bright_cyan => SimpleColor(0x26, 0xc6, 0xda),
-    :bright_white => SimpleColor(0xf6, 0xf5, 0xf4))
-
-function htmlcolor(io::IO, color::SimpleColor)
+function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
+    default = getface()
     if color.value isa Symbol
-        if color.value === :default
+        if background && color.value == :background
             print(io, "initial")
-        elseif (fg = get(FACES.current[], color.value, getface()).foreground) != SimpleColor(color.value)
+        elseif !background && color.value == :foreground
+            print(io, "initial")
+        elseif (fg = get(FACES.current[], color.value, default).foreground) != SimpleColor(color.value)
             htmlcolor(io, fg)
+        elseif haskey(FACES.basecolors, color.value)
+            htmlcolor(io, SimpleColor(FACES.basecolors[color.value]))
         else
-            htmlcolor(io, get(HTML_BASIC_COLORS, color.value, SimpleColor(:default)))
+            print(io, "inherit")
         end
+    elseif background && color.value == default.background
+        htmlcolor(io, SimpleColor(:background), true)
+    elseif !background && color.value ==default.foreground
+        htmlcolor(io, SimpleColor(:foreground))
     else
         (; r, g, b) = color.value
         print(io, '#')
@@ -387,7 +385,7 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
     end
     if background != lastbackground
         printattr(io, "background-color")
-        htmlcolor(io, background)
+        htmlcolor(io, background, true)
     end
     face.underline == lastface.underline ||
         if face.underline isa Tuple # Color and style
