@@ -105,7 +105,7 @@ const inlineface =
 
 # General syntax (from EBNF)
 
-const anychar = Data.Characters()
+const anychar = Data.Characters(valid=true)
 const specialchar = Data.SampledFrom(collect("{}\$\""))
 const plain =
     Data.Text(filter(c -> c ∉ "{}\$\"\\", anychar); max_len=20)
