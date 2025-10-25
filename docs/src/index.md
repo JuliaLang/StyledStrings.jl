@@ -341,4 +341,5 @@ StyledStrings.SimpleColor
 StyledStrings.parse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.merge(::StyledStrings.Face, ::StyledStrings.Face)
+StyledStrings.blend(::StyledStrings.SimpleColor, ::StyledStrings.SimpleColor, ::Real)
 ```

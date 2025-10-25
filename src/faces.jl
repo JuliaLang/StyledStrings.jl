@@ -752,3 +752,125 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
              Symbol[]
          end)
 end
+
+## Color utils ##
+
+"""
+    UNRESOLVED_COLOR_FALLBACK
+
+The fallback `RGBTuple` used when asking for a color that is not defined.
+"""
+const UNRESOLVED_COLOR_FALLBACK = (r = 0xff, g = 0x00, b = 0xff) # Pink
+
+"""
+    MAX_COLOR_FORWARDS
+
+The maximum number of times to follow color references when resolving a color.
+"""
+const MAX_COLOR_FORWARDS = 12
+
+"""
+    try_rgbcolor(name::Symbol, stamina::Int = MAX_COLOR_FORWARDS)
+
+Attempt to resolve `name` to an `RGBTuple`, taking up to `stamina` steps.
+"""
+function try_rgbcolor(name::Symbol, stamina::Int = MAX_COLOR_FORWARDS)
+    for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
+        face = get(FACES.current[], name, Face())
+        fg = face.foreground
+        if isnothing(fg)
+            isempty(face.inherit) && break
+            for iname in face.inherit
+                irgb = try_rgbcolor(iname, s - 1)
+                !isnothing(irgb) && return irgb
+            end
+        end
+        fg.value isa RGBTuple && return fg.value
+        fg.value == name && return get(FACES.basecolors, name, nothing)
+        name = fg.value
+    end
+end
+
+"""
+    rgbcolor(color::Union{Symbol, SimpleColor})
+
+Resolve a `color` to an `RGBTuple`.
+
+The resolution follows these steps:
+1. If `color` is a `SimpleColor` holding an `RGBTuple`, that is returned.
+2. If `color` names a face, the face's foreground color is used.
+3. If `color` names a base color, that color is used.
+4. Otherwise, `UNRESOLVED_COLOR_FALLBACK` (bright pink) is returned.
+"""
+function rgbcolor(color::Union{Symbol, SimpleColor})
+    name = if color isa Symbol
+        color
+    elseif color isa SimpleColor
+        color.value
+    end
+    name isa RGBTuple && return name
+    @something(try_rgbcolor(name),
+               get(FACES.basecolors, name, UNRESOLVED_COLOR_FALLBACK))
+end
+
+"""
+    blend(a::Union{Symbol, SimpleColor}, b::Union{Symbol, SimpleColor}, α::Real)
+
+Blend colors `a` and `b` in Oklab space, with mix ratio `α` (0–1).
+
+The colors `a` and `b` can either be `SimpleColor`s, or `Symbol`s naming a face
+or base color. The mix ratio `α` combines `(1 - α)` of `a` with `α` of `b`.
+
+# Examples
+
+```julia-repl
+julia> blend(SimpleColor(0xff0000), SimpleColor(0x0000ff), 0.5)
+SimpleColor(■ #8b54a1)
+
+julia> blend(:red, :yellow, 0.7)
+SimpleColor(■ #d47f24)
+
+julia> blend(:green, SimpleColor(0xffffff), 0.3)
+SimpleColor(■ #74be93)
+```
+"""
+function blend(c1::SimpleColor, c2::SimpleColor, α::Real)
+    function oklab(rgb::RGBTuple)
+        r, g, b = (Tuple(rgb) ./ 255) .^ 2.2
+        l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+        a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+        b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        (; L, a, b)
+    end
+    function rgb((; L, a, b))
+        tohex(v) = round(UInt8, min(255.0, 255 * max(0.0, v)^(1 / 2.2)))
+        l = (L + 0.3963377774 * a + 0.2158037573 * b)^3
+        m = (L - 0.1055613458 * a - 0.0638541728 * b)^3
+        s = (L - 0.0894841775 * a - 1.2914855480 * b)^3
+        r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+        g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+        b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        (r = tohex(r), g = tohex(g), b = tohex(b))
+    end
+    lab1 = oklab(rgbcolor(c1))
+    lab2 = oklab(rgbcolor(c2))
+    mix = (L = (1 - α) * lab1.L + α * lab2.L,
+           a = (1 - α) * lab1.a + α * lab2.a,
+           b = (1 - α) * lab1.b + α * lab2.b)
+    SimpleColor(rgb(mix))
+end
+
+function blend(f1::Union{Symbol, SimpleColor}, f2::Union{Symbol, SimpleColor}, α::Real)
+    function face_or_color(name::Symbol)
+        c = getface(name).foreground
+        if c.value === :foreground && haskey(FACES.basecolors, name)
+            c = SimpleColor(name)
+        end
+        c
+    end
+    face_or_color(c::SimpleColor) = c
+    blend(face_or_color(f1), face_or_color(f2), α)
+end
