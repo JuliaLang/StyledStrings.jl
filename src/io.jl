@@ -92,8 +92,6 @@ function termcolor24bit(io::IO, color::RGBTuple, category::Char)
           string(color.b), 'm')
 end
 
-const MAX_COLOR_FORWARDS = 12
-
 """
     termcolor(io::IO, color::SimpleColor, category::Char)
 
@@ -311,32 +309,20 @@ Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:Annotated
 
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
     default = getface()
-    if color.value isa Symbol
-        if background && color.value == :background
-            print(io, "initial")
-        elseif !background && color.value == :foreground
-            print(io, "initial")
-        elseif (fg = get(FACES.current[], color.value, default).foreground) != SimpleColor(color.value)
-            htmlcolor(io, fg)
-        elseif haskey(FACES.basecolors, color.value)
-            htmlcolor(io, SimpleColor(FACES.basecolors[color.value]))
-        else
-            print(io, "inherit")
-        end
-    elseif background && color.value == default.background
-        htmlcolor(io, SimpleColor(:background), true)
-    elseif !background && color.value ==default.foreground
-        htmlcolor(io, SimpleColor(:foreground))
-    else
-        (; r, g, b) = color.value
-        print(io, '#')
-        r < 0x10 && print(io, '0')
-        print(io, string(r, base=16))
-        g < 0x10 && print(io, '0')
-        print(io, string(g, base=16))
-        b < 0x10 && print(io, '0')
-        print(io, string(b, base=16))
+    if background && color.value ∈ (:background, default.background)
+        return print(io, "initial")
+    elseif !background && color.value ∈ (:foreground, default.foreground)
+        return print(io, "initial")
     end
+    (; r, g, b) = rgbcolor(color)
+    default = getface()
+    print(io, '#')
+    r < 0x10 && print(io, '0')
+    print(io, string(r, base=16))
+    g < 0x10 && print(io, '0')
+    print(io, string(g, base=16))
+    b < 0x10 && print(io, '0')
+    print(io, string(b, base=16))
 end
 
 const HTML_WEIGHT_MAP = Dict{Symbol, Int}(

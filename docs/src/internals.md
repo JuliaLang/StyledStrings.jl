@@ -8,6 +8,8 @@ opening a pull request or issue to discuss making them part of the public API.
 ```@docs
 StyledStrings.ANSI_4BIT_COLORS
 StyledStrings.FACES
+StyledStrings.MAX_COLOR_FORWARDS
+StyledStrings.UNRESOLVED_COLOR_FALLBACK
 StyledStrings.Legacy.ANSI_256_COLORS
 StyledStrings.Legacy.NAMED_COLORS
 StyledStrings.Legacy.RENAMED_COLORS
@@ -16,13 +18,15 @@ StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit
 StyledStrings.face!
 StyledStrings.getface
+StyledStrings.load_customisations!
 StyledStrings.loadface!
 StyledStrings.loaduserfaces!
 StyledStrings.resetfaces!
+StyledStrings.rgbcolor
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
-StyledStrings.load_customisations!
+StyledStrings.try_rgbcolor
 ```
 
 ## Styled Markup parsing

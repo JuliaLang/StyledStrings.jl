@@ -571,7 +571,7 @@ end
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#1c1a23"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:green)) == "#25a268"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:warning)) == "#e5a509"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "initial"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "#ff00ff"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
         face = getface(Face(; attrs...))
@@ -609,7 +609,7 @@ end
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"color: initial; background-color: #000000\">terminal</span> and graphical displays."
+        styling</span> system, suitable for <span style=\"color: #ffffff; background-color: #000000\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin
