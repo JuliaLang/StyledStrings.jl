@@ -1,7 +1,7 @@
 name = "StyledStrings"
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 authors = ["TEC <git@tecosaur.net>"]
-version = "1.11.0"
+version = "1.13.0"
 
 [compat]
 julia = "1.11"
