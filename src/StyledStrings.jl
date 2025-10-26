@@ -8,9 +8,9 @@ using Base.ScopedValues: ScopedValue, with, @with
 # While these are imported from Base, we claim them as part of the `StyledStrings` API.
 export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring
 
-export @styled_str, @face_str
+export @styled_str, @face_str, Face
 export @defpalette!, @usepalettes!, @registerpalette!
-public Face, addface!, withfaces, remapfaces, styled, SimpleColor, recolor, blend
+public withfaces, remapfaces, styled, SimpleColor, blend, recolor, setface!
 
 include("faces.jl")
 include("theme.jl")
