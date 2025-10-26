@@ -405,6 +405,7 @@ const FACES = let default = Dict{Symbol, Face}(
         :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
     (; default, basecolors,
      current = ScopedValue(copy(default)),
+     modifications = ScopedValue(Dict{Symbol, Face}()),
      lock = ReentrantLock())
 end
 
@@ -451,6 +452,7 @@ function resetfaces!()
         for (key, val) in FACES.default
             current[key] = val
         end
+        empty!(FACES.modifications[])
         current
     end
 end
@@ -467,6 +469,7 @@ it is deleted, a warning message is printed, and `nothing` returned.
 function resetfaces!(name::Symbol)
     @lock FACES.lock if !haskey(FACES.current[], name)
     elseif haskey(FACES.default, name)
+        delete!(FACES.modifications[], name)
         FACES.current[][name] = copy(FACES.default[name])
     else # This shouldn't happen
         delete!(FACES.current[], name)
@@ -656,9 +659,16 @@ Face (sample)
 ```
 """
 function loadface!((name, update)::Pair{Symbol, Face})
-    @lock FACES.lock if haskey(FACES.current[], name)
-        FACES.current[][name] = merge(FACES.current[][name], update)
-    else
+    @lock FACES.lock begin
+        mface = get(FACES.modifications[], name, nothing)
+        if !isnothing(mface)
+            update = merge(mface, update)
+        end
+        FACES.modifications[][name] = update
+        cface = get(FACES.current[], name, nothing)
+        if !isnothing(cface)
+            update = merge(cface, update)
+        end
         FACES.current[][name] = update
     end
 end
