@@ -312,8 +312,8 @@ Globally named [`Face`](@ref)s.
 (potentially modified) set of faces. This two-set system allows for any
 modifications to the active faces to be undone.
 """
-const FACES = let default = Dict{Symbol, Face}(
-    # Default is special, it must be completely specified
+const FACES = let base = Dict{Symbol, Face}(
+    # Base is special, it must be completely specified
     # and everything inherits from it.
     :default => Face(
         "monospace", 120,      # font, height
@@ -350,7 +350,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :bright_white => Face(foreground=:bright_white),
     # Useful common faces
     :shadow => Face(foreground=:bright_black),
-    :region => Face(background=0x3a3a3a),
+    :region => Face(background=0x636363),
     :emphasis => Face(foreground=:blue),
     :highlight => Face(inherit=:emphasis, inverse=true),
     :code => Face(foreground=:cyan),
@@ -382,6 +382,12 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
     )
+    light = Dict{Symbol, Face}(
+        :region => Face(background=0xaaaaaa),
+    )
+    dark = Dict{Symbol, Face}(
+        :region => Face(background=0x363636),
+    )
     basecolors = Dict{Symbol, RGBTuple}(
         :background     => (r = 0xff, g = 0xff, b = 0xff),
         :foreground     => (r = 0x00, g = 0x00, b = 0x00),
@@ -401,20 +407,23 @@ const FACES = let default = Dict{Symbol, Face}(
         :bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
         :bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
         :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
-    (; default, basecolors,
-     current = ScopedValue(copy(default)),
-     modifications = ScopedValue(Dict{Symbol, Face}()),
+    (themes = (; base, light, dark),
+     modifications = (base = Dict{Symbol, Face}(), light = Dict{Symbol, Face}(), dark = Dict{Symbol, Face}()),
+     current = ScopedValue(copy(base)),
+     basecolors = basecolors,
      lock = ReentrantLock())
 end
 
 ## Adding and resetting faces ##
 
 """
-    addface!(name::Symbol => default::Face)
+    addface!(name::Symbol => default::Face, theme::Symbol = :base)
 
 Create a new face by the name `name`. So long as no face already exists by this
-name, `default` is added to both `FACES``.default` and (a copy of) to
-`FACES`.`current`, with the current value returned.
+name, `default` is added to both `FACES.themes[theme]` and (a copy of) to
+`FACES.current`, with the current value returned.
+
+The `theme` should be either `:base`, `:light`, or `:dark`.
 
 Should the face `name` already exist, `nothing` is returned.
 
@@ -427,11 +436,12 @@ Face (sample)
      underline: true
 ```
 """
-function addface!((name, default)::Pair{Symbol, Face})
-    @lock FACES.lock if !haskey(FACES.default, name)
-        FACES.default[name] = default
-        FACES.current[][name] = if haskey(FACES.current[], name)
-            merge(copy(default), FACES.current[][name])
+function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
+    current = FACES.current[]
+    @lock FACES.lock if !haskey(FACES.themes[theme], name)
+        FACES.themes[theme][name] = default
+        current[name] = if haskey(current, name)
+            merge(copy(default), current[name])
         else
             copy(default)
         end
@@ -447,10 +457,12 @@ function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
         empty!(current)
-        for (key, val) in FACES.default
+        for (key, val) in FACES.themes.base
             current[key] = val
         end
-        empty!(FACES.modifications[])
+        if current === FACES.current.default # Only when top-level
+            map(empty!, values(FACES.modifications))
+        end
         current
     end
 end
@@ -464,13 +476,15 @@ If the face `name` does not exist, nothing is done and `nothing` returned.
 In the unlikely event that the face `name` does not have a default value,
 it is deleted, a warning message is printed, and `nothing` returned.
 """
-function resetfaces!(name::Symbol)
-    @lock FACES.lock if !haskey(FACES.current[], name)
-    elseif haskey(FACES.default, name)
-        delete!(FACES.modifications[], name)
-        FACES.current[][name] = copy(FACES.default[name])
+function resetfaces!(name::Symbol, theme::Symbol = :base)
+    current = FACES.current[]
+    @lock FACES.lock if !haskey(current, name) # Nothing to reset
+    elseif haskey(FACES.themes[theme], name)
+        current === FACES.current.default &&
+            delete!(FACES.modifications[theme], name)
+        current[name] = copy(FACES.themes[theme][name])
     else # This shouldn't happen
-        delete!(FACES.current[], name)
+        delete!(current, name)
         @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
                  This should not have happened, perhaps the face was added without using `addface!`?"""
     end
@@ -656,18 +670,17 @@ Face (sample)
     foreground: #ff0000
 ```
 """
-function loadface!((name, update)::Pair{Symbol, Face})
+function loadface!((name, update)::Pair{Symbol, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
-        mface = get(FACES.modifications[], name, nothing)
-        if !isnothing(mface)
-            update = merge(mface, update)
+        current = FACES.current[]
+        if FACES.current.default === current # Only save top-level modifications
+            mface = get(FACES.modifications[theme], name, nothing)
+            isnothing(mface) || (update = merge(mface, update))
+            FACES.modifications[theme][name] = update
         end
-        FACES.modifications[][name] = update
-        cface = get(FACES.current[], name, nothing)
-        if !isnothing(cface)
-            update = merge(cface, update)
-        end
-        FACES.current[][name] = update
+        cface = get(current, name, nothing)
+        isnothing(cface) || (update = merge(cface, update))
+        current[name] = update
     end
 end
 
@@ -682,7 +695,9 @@ end
 
 For each face specified in `Dict`, load it to `FACES``.current`.
 """
-function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
+function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing, theme::Symbol = :base)
+    theme == :base && prefix ∈ map(String, setdiff(keys(FACES.themes), (:base,))) &&
+        return loaduserfaces!(faces, nothing, Symbol(prefix))
     for (name, spec) in faces
         fullname = if isnothing(prefix)
             name
@@ -692,9 +707,9 @@ function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}
         fspec = filter((_, v)::Pair -> !(v isa Dict), spec)
         fnest = filter((_, v)::Pair -> v isa Dict, spec)
         !isempty(fspec) &&
-            loadface!(Symbol(fullname) => convert(Face, fspec))
+            loadface!(Symbol(fullname) => convert(Face, fspec), theme)
         !isempty(fnest) &&
-            loaduserfaces!(fnest, fullname)
+            loaduserfaces!(fnest, fullname, theme)
     end
 end
 
@@ -781,23 +796,60 @@ function recolor(f::Function)
     nothing
 end
 
+"""
+    setcolors!(color::Vector{Pair{Symbol, RGBTuple}})
+
+Update the known base colors with those in `color`, and recalculate current faces.
+
+`color` should be a complete list of known colours. If `:foreground` and
+`:background` are both specified, the faces in the light/dark theme will be
+loaded. Otherwise, only the base theme will be applied.
+"""
 function setcolors!(color::Vector{Pair{Symbol, RGBTuple}})
-    @lock recolor_lock begin
+    lock(recolor_lock)
+    lock(FACES.lock)
+    try
+        # Apply colors
+        fg, bg = nothing, nothing
         for (name, rgb) in color
             FACES.basecolors[name] = rgb
+            if name === :foreground
+                fg = rgb
+            elseif name === :background
+                bg = rgb
+            end
         end
+        newtheme = if isnothing(fg) || isnothing(bg)
+            :unknown
+        else
+            ifelse(sum(fg) > sum(bg), :dark, :light)
+        end
+        # Reset all themes to defaults
         current = FACES.current[]
-        for (name, _) in FACES.modifications[]
-            default = get(FACES.default, name, nothing)
+        for theme in keys(FACES.themes), (name, _) in FACES.modifications[theme]
+            default = get(FACES.themes.base, name, nothing)
             isnothing(default) && continue
             current[name] = default
         end
+        if newtheme ∈ keys(FACES.themes)
+            for (name, face) in FACES.themes[newtheme]
+                current[name] = merge(current[name], face)
+            end
+        end
+        # Run recolor hooks
         for hook in recolor_hooks
             hook()
         end
-        for (name, face) in FACES.modifications[]
-            current[name] = merge(current[name], face)
+        # Layer on modifications
+        for theme in keys(FACES.themes)
+            theme ∈ (:base, newtheme) || continue
+            for (name, face) in FACES.modifications[theme]
+                current[name] = merge(current[name], face)
+            end
         end
+    finally
+        unlock(FACES.lock)
+        unlock(recolor_lock)
     end
 end
 
