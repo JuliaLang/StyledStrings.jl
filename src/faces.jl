@@ -763,6 +763,46 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
          end)
 end
 
+## Recolouring ##
+
+const recolor_hooks = Function[]
+const recolor_lock = ReentrantLock()
+
+"""
+    recolor(f::Function)
+
+Register a hook function `f` to be called whenever the colors change.
+
+Usually hooks will be called once after terminal colors have been
+determined. These hooks enable dynamic retheming, but are specifically *not* run when faces
+are changed. They sit in between the default faces and modifications layered on
+top with `loadface!` and user customisations.
+"""
+function recolor(f::Function)
+    @lock recolor_lock push!(recolor_hooks, f)
+    nothing
+end
+
+function setcolors!(color::Vector{Pair{Symbol, RGBTuple}})
+    @lock recolor_lock begin
+        for (name, rgb) in color
+            FACES.basecolors[name] = rgb
+        end
+        current = FACES.current[]
+        for (name, _) in FACES.modifications[]
+            default = get(FACES.default, name, nothing)
+            isnothing(default) && continue
+            current[name] = default
+        end
+        for hook in recolor_hooks
+            hook()
+        end
+        for (name, face) in FACES.modifications[]
+            current[name] = merge(current[name], face)
+        end
+    end
+end
+
 ## Color utils ##
 
 """
