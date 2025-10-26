@@ -243,7 +243,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
-    default = FACES.default[:default]
+    default = FACES.themes.base[:default]
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
         lastface::Face = default
