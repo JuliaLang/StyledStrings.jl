@@ -394,8 +394,6 @@ const FACES = let default = Dict{Symbol, Face}(
         :cyan           => (r = 0x00, g = 0x97, b = 0xa7),
         :white          => (r = 0xdd, g = 0xdc, b = 0xd9),
         :bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
-        :grey           => (r = 0x76, g = 0x75, b = 0x7a),
-        :gray           => (r = 0x76, g = 0x75, b = 0x7a),
         :bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
         :bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
         :bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
