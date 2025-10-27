@@ -254,35 +254,35 @@ end
          strikethrough: false
                inverse: false\
         """
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :color => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = :color => true) |> choppkg ==
         """
         Face (\e[31msample\e[39m)
             foreground: \e[31m■\e[39m red\
         """
-    @test sprint(show, FACES.default[:red]) |> choppkg ==
+    @test sprint(show, FACES.themes.base[:red]) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = :compact => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = :compact => true) |> choppkg ==
         "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.default[:red], context = (:compact => true, :color => true)) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = (:compact => true, :color => true)) |> choppkg ==
         "Face(\e[31msample\e[39m)"
-    @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :compact => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), FACES.themes.base[:highlight], context = :compact => true) |> choppkg ==
         "Face(inverse=true, inherit=[:emphasis])"
     with_terminfo(vt100) do # Not truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), FACES.themes.base[:region], context = :color => true) |> choppkg ==
             """
-            Face (\e[48;5;237msample\e[49m)
-                background: \e[38;5;237m■\e[39m #3a3a3a\
+            Face (\e[48;5;241msample\e[49m)
+                background: \e[38;5;241m■\e[39m #636363\
             """
     end
     with_terminfo(fancy_term) do # Truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.default[:region], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), FACES.themes.base[:region], context = :color => true) |> choppkg ==
             """
-            Face (\e[48;2;58;58;58msample\e[49m)
-                background: \e[38;2;58;58;58m■\e[39m #3a3a3a\
+            Face (\e[48;2;99;99;99msample\e[49m)
+                background: \e[38;2;99;99;99m■\e[39m #636363\
             """
     end
     with_terminfo(vt100) do # Ensure `enter_reverse_mode` exists
-        @test sprint(show, MIME("text/plain"), FACES.default[:highlight], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), FACES.themes.base[:highlight], context = :color => true) |> choppkg ==
             """
             Face (\e[34m\e[7msample\e[39m\e[27m)
                    inverse: true
@@ -571,7 +571,7 @@ end
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#1c1a23"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:green)) == "#25a268"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(:warning)) == "#e5a509"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "initial"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "#ff00ff"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
         face = getface(Face(; attrs...))
@@ -609,7 +609,7 @@ end
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"color: initial; background-color: #000000\">terminal</span> and graphical displays."
+        styling</span> system, suitable for <span style=\"color: #ffffff; background-color: #000000\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin

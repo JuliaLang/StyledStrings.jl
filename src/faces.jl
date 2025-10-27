@@ -312,8 +312,8 @@ Globally named [`Face`](@ref)s.
 (potentially modified) set of faces. This two-set system allows for any
 modifications to the active faces to be undone.
 """
-const FACES = let default = Dict{Symbol, Face}(
-    # Default is special, it must be completely specified
+const FACES = let base = Dict{Symbol, Face}(
+    # Base is special, it must be completely specified
     # and everything inherits from it.
     :default => Face(
         "monospace", 120,      # font, height
@@ -350,7 +350,7 @@ const FACES = let default = Dict{Symbol, Face}(
     :bright_white => Face(foreground=:bright_white),
     # Useful common faces
     :shadow => Face(foreground=:bright_black),
-    :region => Face(background=0x3a3a3a),
+    :region => Face(background=0x636363),
     :emphasis => Face(foreground=:blue),
     :highlight => Face(inherit=:emphasis, inverse=true),
     :code => Face(foreground=:cyan),
@@ -382,6 +382,12 @@ const FACES = let default = Dict{Symbol, Face}(
     :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
     :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
     )
+    light = Dict{Symbol, Face}(
+        :region => Face(background=0xaaaaaa),
+    )
+    dark = Dict{Symbol, Face}(
+        :region => Face(background=0x363636),
+    )
     basecolors = Dict{Symbol, RGBTuple}(
         :background     => (r = 0xff, g = 0xff, b = 0xff),
         :foreground     => (r = 0x00, g = 0x00, b = 0x00),
@@ -394,8 +400,6 @@ const FACES = let default = Dict{Symbol, Face}(
         :cyan           => (r = 0x00, g = 0x97, b = 0xa7),
         :white          => (r = 0xdd, g = 0xdc, b = 0xd9),
         :bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
-        :grey           => (r = 0x76, g = 0x75, b = 0x7a),
-        :gray           => (r = 0x76, g = 0x75, b = 0x7a),
         :bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
         :bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
         :bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
@@ -403,19 +407,23 @@ const FACES = let default = Dict{Symbol, Face}(
         :bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
         :bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
         :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
-    (; default, basecolors,
-     current = ScopedValue(copy(default)),
+    (themes = (; base, light, dark),
+     modifications = (base = Dict{Symbol, Face}(), light = Dict{Symbol, Face}(), dark = Dict{Symbol, Face}()),
+     current = ScopedValue(copy(base)),
+     basecolors = basecolors,
      lock = ReentrantLock())
 end
 
 ## Adding and resetting faces ##
 
 """
-    addface!(name::Symbol => default::Face)
+    addface!(name::Symbol => default::Face, theme::Symbol = :base)
 
 Create a new face by the name `name`. So long as no face already exists by this
-name, `default` is added to both `FACES``.default` and (a copy of) to
-`FACES`.`current`, with the current value returned.
+name, `default` is added to both `FACES.themes[theme]` and (a copy of) to
+`FACES.current`, with the current value returned.
+
+The `theme` should be either `:base`, `:light`, or `:dark`.
 
 Should the face `name` already exist, `nothing` is returned.
 
@@ -428,11 +436,12 @@ Face (sample)
      underline: true
 ```
 """
-function addface!((name, default)::Pair{Symbol, Face})
-    @lock FACES.lock if !haskey(FACES.default, name)
-        FACES.default[name] = default
-        FACES.current[][name] = if haskey(FACES.current[], name)
-            merge(copy(default), FACES.current[][name])
+function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
+    current = FACES.current[]
+    @lock FACES.lock if !haskey(FACES.themes[theme], name)
+        FACES.themes[theme][name] = default
+        current[name] = if haskey(current, name)
+            merge(copy(default), current[name])
         else
             copy(default)
         end
@@ -448,8 +457,11 @@ function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
         empty!(current)
-        for (key, val) in FACES.default
+        for (key, val) in FACES.themes.base
             current[key] = val
+        end
+        if current === FACES.current.default # Only when top-level
+            map(empty!, values(FACES.modifications))
         end
         current
     end
@@ -464,12 +476,15 @@ If the face `name` does not exist, nothing is done and `nothing` returned.
 In the unlikely event that the face `name` does not have a default value,
 it is deleted, a warning message is printed, and `nothing` returned.
 """
-function resetfaces!(name::Symbol)
-    @lock FACES.lock if !haskey(FACES.current[], name)
-    elseif haskey(FACES.default, name)
-        FACES.current[][name] = copy(FACES.default[name])
+function resetfaces!(name::Symbol, theme::Symbol = :base)
+    current = FACES.current[]
+    @lock FACES.lock if !haskey(current, name) # Nothing to reset
+    elseif haskey(FACES.themes[theme], name)
+        current === FACES.current.default &&
+            delete!(FACES.modifications[theme], name)
+        current[name] = copy(FACES.themes[theme][name])
     else # This shouldn't happen
-        delete!(FACES.current[], name)
+        delete!(current, name)
         @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
                  This should not have happened, perhaps the face was added without using `addface!`?"""
     end
@@ -655,11 +670,17 @@ Face (sample)
     foreground: #ff0000
 ```
 """
-function loadface!((name, update)::Pair{Symbol, Face})
-    @lock FACES.lock if haskey(FACES.current[], name)
-        FACES.current[][name] = merge(FACES.current[][name], update)
-    else
-        FACES.current[][name] = update
+function loadface!((name, update)::Pair{Symbol, Face}, theme::Symbol = :base)
+    @lock FACES.lock begin
+        current = FACES.current[]
+        if FACES.current.default === current # Only save top-level modifications
+            mface = get(FACES.modifications[theme], name, nothing)
+            isnothing(mface) || (update = merge(mface, update))
+            FACES.modifications[theme][name] = update
+        end
+        cface = get(current, name, nothing)
+        isnothing(cface) || (update = merge(cface, update))
+        current[name] = update
     end
 end
 
@@ -674,7 +695,9 @@ end
 
 For each face specified in `Dict`, load it to `FACES``.current`.
 """
-function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
+function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing, theme::Symbol = :base)
+    theme == :base && prefix ∈ map(String, setdiff(keys(FACES.themes), (:base,))) &&
+        return loaduserfaces!(faces, nothing, Symbol(prefix))
     for (name, spec) in faces
         fullname = if isnothing(prefix)
             name
@@ -684,9 +707,9 @@ function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}
         fspec = filter((_, v)::Pair -> !(v isa Dict), spec)
         fnest = filter((_, v)::Pair -> v isa Dict, spec)
         !isempty(fspec) &&
-            loadface!(Symbol(fullname) => convert(Face, fspec))
+            loadface!(Symbol(fullname) => convert(Face, fspec), theme)
         !isempty(fnest) &&
-            loaduserfaces!(fnest, fullname)
+            loaduserfaces!(fnest, fullname, theme)
     end
 end
 
@@ -751,4 +774,189 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
          else
              Symbol[]
          end)
+end
+
+## Recolouring ##
+
+const recolor_hooks = Function[]
+const recolor_lock = ReentrantLock()
+
+"""
+    recolor(f::Function)
+
+Register a hook function `f` to be called whenever the colors change.
+
+Usually hooks will be called once after terminal colors have been
+determined. These hooks enable dynamic retheming, but are specifically *not* run when faces
+are changed. They sit in between the default faces and modifications layered on
+top with `loadface!` and user customisations.
+"""
+function recolor(f::Function)
+    @lock recolor_lock push!(recolor_hooks, f)
+    nothing
+end
+
+"""
+    setcolors!(color::Vector{Pair{Symbol, RGBTuple}})
+
+Update the known base colors with those in `color`, and recalculate current faces.
+
+`color` should be a complete list of known colours. If `:foreground` and
+`:background` are both specified, the faces in the light/dark theme will be
+loaded. Otherwise, only the base theme will be applied.
+"""
+function setcolors!(color::Vector{Pair{Symbol, RGBTuple}})
+    lock(recolor_lock)
+    lock(FACES.lock)
+    try
+        # Apply colors
+        fg, bg = nothing, nothing
+        for (name, rgb) in color
+            FACES.basecolors[name] = rgb
+            if name === :foreground
+                fg = rgb
+            elseif name === :background
+                bg = rgb
+            end
+        end
+        newtheme = if isnothing(fg) || isnothing(bg)
+            :unknown
+        else
+            ifelse(sum(fg) > sum(bg), :dark, :light)
+        end
+        # Reset all themes to defaults
+        current = FACES.current[]
+        for theme in keys(FACES.themes), (name, _) in FACES.modifications[theme]
+            default = get(FACES.themes.base, name, nothing)
+            isnothing(default) && continue
+            current[name] = default
+        end
+        if newtheme ∈ keys(FACES.themes)
+            for (name, face) in FACES.themes[newtheme]
+                current[name] = merge(current[name], face)
+            end
+        end
+        # Run recolor hooks
+        for hook in recolor_hooks
+            hook()
+        end
+        # Layer on modifications
+        for theme in keys(FACES.themes)
+            theme ∈ (:base, newtheme) || continue
+            for (name, face) in FACES.modifications[theme]
+                current[name] = merge(current[name], face)
+            end
+        end
+    finally
+        unlock(FACES.lock)
+        unlock(recolor_lock)
+    end
+end
+
+## Color utils ##
+
+"""
+    UNRESOLVED_COLOR_FALLBACK
+
+The fallback `RGBTuple` used when asking for a color that is not defined.
+"""
+const UNRESOLVED_COLOR_FALLBACK = (r = 0xff, g = 0x00, b = 0xff) # Pink
+
+"""
+    MAX_COLOR_FORWARDS
+
+The maximum number of times to follow color references when resolving a color.
+"""
+const MAX_COLOR_FORWARDS = 12
+
+"""
+    rgbcolor(color::Union{Symbol, SimpleColor})
+
+Resolve a `color` to an `RGBTuple`.
+
+The resolution follows these steps:
+1. If `color` is a `SimpleColor` holding an `RGBTuple`, that is returned.
+2. If `color` names a face, the face's foreground color is used.
+3. If `color` names a base color, that color is used.
+4. Otherwise, `UNRESOLVED_COLOR_FALLBACK` (bright pink) is returned.
+"""
+function rgbcolor(name::Symbol)
+    for _ in 1:MAX_COLOR_FORWARDS # Do this instead of a while loop to prevent cyclic lookups
+        fg = get(FACES.current[], name, Face()).foreground
+        isnothing(fg) && break
+        fg.value isa RGBTuple && return fg.value
+        name = fg.value
+    end
+    get(FACES.basecolors, name, UNRESOLVED_COLOR_FALLBACK)
+end
+
+function rgbcolor(color::SimpleColor)
+    val = color.value
+    if val isa RGBTuple
+        val
+    else
+        rgbcolor(val)
+    end
+end
+
+"""
+    blend(a::Union{Symbol, SimpleColor}, b::Union{Symbol, SimpleColor}, α::Real)
+
+Blend colors `a` and `b` in Oklab space, with mix ratio `α` (0–1).
+
+The colors `a` and `b` can either be `SimpleColor`s, or `Symbol`s naming a face
+or base color. The mix ratio `α` combines `(1 - α)` of `a` with `α` of `b`.
+
+# Examples
+
+```julia-repl
+julia> blend(SimpleColor(0xff0000), SimpleColor(0x0000ff), 0.5)
+SimpleColor(■ #8b54a1)
+
+julia> blend(:red, :yellow, 0.7)
+SimpleColor(■ #d47f24)
+
+julia> blend(:green, SimpleColor(0xffffff), 0.3)
+SimpleColor(■ #74be93)
+```
+"""
+function blend(c1::SimpleColor, c2::SimpleColor, α::Real)
+    function oklab(rgb::RGBTuple)
+        r, g, b = (Tuple(rgb) ./ 255) .^ 2.2
+        l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+        a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+        b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        (; L, a, b)
+    end
+    function rgb((; L, a, b))
+        tohex(v) = round(UInt8, min(255.0, 255 * max(0.0, v)^(1 / 2.2)))
+        l = (L + 0.3963377774 * a + 0.2158037573 * b)^3
+        m = (L - 0.1055613458 * a - 0.0638541728 * b)^3
+        s = (L - 0.0894841775 * a - 1.2914855480 * b)^3
+        r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+        g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+        b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        (r = tohex(r), g = tohex(g), b = tohex(b))
+    end
+    lab1 = oklab(rgbcolor(c1))
+    lab2 = oklab(rgbcolor(c2))
+    mix = (L = (1 - α) * lab1.L + α * lab2.L,
+           a = (1 - α) * lab1.a + α * lab2.a,
+           b = (1 - α) * lab1.b + α * lab2.b)
+    SimpleColor(rgb(mix))
+end
+
+function blend(f1::Union{Symbol, SimpleColor}, f2::Union{Symbol, SimpleColor}, α::Real)
+    function face_or_color(name::Symbol)
+        c = getface(name).foreground
+        if c.value === :foreground && haskey(FACES.basecolors, name)
+            c = SimpleColor(name)
+        end
+        c
+    end
+    face_or_color(c::SimpleColor) = c
+    blend(face_or_color(f1), face_or_color(f2), α)
 end
