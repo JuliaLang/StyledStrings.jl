@@ -914,12 +914,14 @@ function rgbcolor(color::Union{Symbol, SimpleColor})
 end
 
 """
-    blend(a::Union{Symbol, SimpleColor}, b::Union{Symbol, SimpleColor}, α::Real)
+    blend(a::Union{Symbol, SimpleColor}, [b::Union{Symbol, SimpleColor} => α::Real]...)
 
 Blend colors `a` and `b` in Oklab space, with mix ratio `α` (0–1).
 
 The colors `a` and `b` can either be `SimpleColor`s, or `Symbol`s naming a face
 or base color. The mix ratio `α` combines `(1 - α)` of `a` with `α` of `b`.
+
+Multiple colors can be blended at once by providing multiple `b => α` pairs.
 
 # Examples
 
@@ -934,9 +936,11 @@ julia> blend(:green, SimpleColor(0xffffff), 0.3)
 SimpleColor(■ #74be93)
 ```
 """
-function blend(c1::SimpleColor, c2::SimpleColor, α::Real)
-    function oklab(rgb::RGBTuple)
-        r, g, b = (Tuple(rgb) ./ 255) .^ 2.2
+function blend end
+
+function blend(primaries::Pair{RGBTuple, <:Real}...)
+     function oklab(rgb::RGBTuple)
+        r, g, b = (rgb.r / 255)^2.2, (rgb.g / 255)^2.2, (rgb.b / 255)^2.2
         l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
         m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
         s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
@@ -955,22 +959,25 @@ function blend(c1::SimpleColor, c2::SimpleColor, α::Real)
         b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
         (r = tohex(r), g = tohex(g), b = tohex(b))
     end
-    lab1 = oklab(rgbcolor(c1))
-    lab2 = oklab(rgbcolor(c2))
-    mix = (L = (1 - α) * lab1.L + α * lab2.L,
-           a = (1 - α) * lab1.a + α * lab2.a,
-           b = (1 - α) * lab1.b + α * lab2.b)
-    SimpleColor(rgb(mix))
+    L′, a′, b′ = 0.0, 0.0, 0.0
+    for (color, α) in primaries
+        lab = oklab(color)
+        L′ += lab.L * α
+        a′ += lab.a * α
+        b′ += lab.b * α
+    end
+    mix = (L = L′, a = a′, b = b′)
+    rgb(mix)
 end
 
-function blend(f1::Union{Symbol, SimpleColor}, f2::Union{Symbol, SimpleColor}, α::Real)
-    function face_or_color(name::Symbol)
-        c = getface(name).foreground
-        if c.value === :foreground && haskey(FACES.basecolors, name)
-            c = SimpleColor(name)
-        end
-        c
-    end
-    face_or_color(c::SimpleColor) = c
-    blend(face_or_color(f1), face_or_color(f2), α)
-end
+blend(base::RGBTuple, primaries::Pair{RGBTuple, <:Real}...) =
+    blend(base => 1.0 - sum(last, primaries), primaries...)
+
+blend(primaries::Pair{<:Union{Symbol, SimpleColor}, <:Real}...) =
+    SimpleColor(blend((rgbcolor(c) => w for (c, w) in primaries)...))
+
+blend(base::Union{Symbol, SimpleColor}, primaries::Pair{<:Union{Symbol, SimpleColor}, <:Real}...) =
+    SimpleColor(blend(rgbcolor(base), (rgbcolor(c) => w for (c, w) in primaries)...))
+
+blend(a::Union{Symbol, SimpleColor}, b::Union{Symbol, SimpleColor}, α::Real) =
+    blend(a => 1 - α, b => α)
