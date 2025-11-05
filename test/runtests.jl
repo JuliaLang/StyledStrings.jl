@@ -609,7 +609,7 @@ end
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"color: #ffffff; background-color: #000000\">terminal</span> and graphical displays."
+        styling</span> system, suitable for <span style=\"color: #241f31; background-color: #f6f5f4\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin
