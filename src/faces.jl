@@ -388,9 +388,9 @@ const FACES = let base = Dict{Symbol, Face}(
     dark = Dict{Symbol, Face}(
         :region => Face(background=0x363636),
     )
-    basecolors = Dict{Symbol, RGBTuple}(
-        :background     => (r = 0xff, g = 0xff, b = 0xff),
-        :foreground     => (r = 0x00, g = 0x00, b = 0x00),
+    basecolors = Dict{Symbol, RGBTuple}( # Based on Gnome HIG colours
+        :foreground     => (r = 0xf6, g = 0xf5, b = 0xf4),
+        :background     => (r = 0x24, g = 0x1f, b = 0x31),
         :black          => (r = 0x1c, g = 0x1a, b = 0x23),
         :red            => (r = 0xa5, g = 0x1c, b = 0x2c),
         :green          => (r = 0x25, g = 0xa2, b = 0x68),
