@@ -12,6 +12,7 @@ export @styled_str, Face, blend
 public addface!, withfaces, styled, SimpleColor, recolor
 
 include("faces.jl")
+include("theme.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
