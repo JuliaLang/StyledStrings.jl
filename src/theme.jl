@@ -244,41 +244,50 @@ _mergedface(face::Any) = _mergedface(foreignface(face))
 """
     foreignface(face) -> Face
 
-Rebuild `face`, a `Face` from another copy of StyledStrings, as one of ours.
+Rebuild `face`, a `Face` from another loaded copy of StyledStrings, as one of ours.
 
-More than one copy of StyledStrings can be loaded at once: the REPL runs on a private copy
-of the stdlib, which is not necessarily the one user code loads (see `Base.require_stdlib`),
-and only the last loaded copy's `Base.AnnotatedDisplay` hooks are active. A `Face` the REPL
-attaches to its output (its bracket highlighting, say) then reaches `getface` as a value of a
-type that is not our `Face`, but has the same fields, holding values of Base types or of the
-other copy's `SimpleColor`.
+The REPL runs on a private copy of the stdlib, which is not necessarily the one user code
+loads (see `Base.require_stdlib`), and only the last loaded copy's `Base.AnnotatedDisplay`
+hooks are active. So the faces one copy attaches to its output can reach the other's `getface`.
+
+Faces with our `_Face` layout are copied field by field, rewriting only that copy's nothing
+sentinels. Those with our properties (pre-1.14 copies) are rebuilt from them, and anything
+else is a `MethodError`.
 """
 function foreignface(face)
     T = typeof(face)
-    if nameof(T) === :Face && nameof(parentmodule(T)) === :StyledStrings &&
-        fieldnames(T) == fieldnames(Face)
-        color(c) = isnothing(c) ? nothing : SimpleColor(c.value)
+    other = parentmodule(T)
+    color(::Nothing) = nothing
+    color(c) = c.value
+    if nameof(other) === :StyledStrings && nameof(T) === :Face && hasfield(T, :f) &&
+        fieldnames(fieldtype(T, :f)) == fieldnames(_Face) && map(nameof, fieldtypes(fieldtype(T, :f))) == map(nameof, fieldtypes(_Face))
+        def = getfield(face, :f)
+        sentinel(x) = if x === other.WEAK_NOTHING_STR || x === other.WEAK_NOTHING_SYMB
+            weaknothing(x)
+        elseif x === other.STRONG_NOTHING_STR || x === other.STRONG_NOTHING_SYMB
+            strongnothing(x)
+        else
+            x
+        end
+        Face(_Face(sentinel(def.font), def.height, sentinel(def.weight), sentinel(def.slant),
+                   SimpleColor(sentinel(def.foreground.value)), SimpleColor(sentinel(def.background.value)),
+                   SimpleColor(sentinel(def.underline.value)), sentinel(def.underline_style),
+                   def.strikethrough, def.inverse, def.inherit))
+    elseif issetequal(propertynames(face), propertynames(Face()))
         underline = face.underline
-        # The positional constructor, so that this compiles to plain field copies. The
-        # keyword one is a dynamic call here as its keyword tuple is not concrete.
-        return Face(face.font,
-                    face.height,
-                    face.weight,
-                    face.slant,
-                    color(face.foreground),
-                    color(face.background),
-                    if underline isa Tuple
-                        (color(underline[1]), underline[2])
-                    elseif underline isa Union{Nothing, Bool}
-                        underline
-                    else
-                        color(underline)
-                    end,
-                    face.strikethrough,
-                    face.inverse,
-                    face.inherit)
+        Face(font = face.font, height = face.height, weight = face.weight, slant = face.slant,
+             foreground = color(face.foreground), background = color(face.background),
+             underline = if underline isa Tuple
+                             (color(underline[1]), underline[2])
+                         elseif underline isa Union{Nothing, Bool}
+                             underline
+                         else
+                             color(underline)
+                         end,
+             strikethrough = face.strikethrough, inverse = face.inverse, inherit = face.inherit)
+    else
+        throw(MethodError(_mergedface, (face,)))
     end
-    throw(MethodError(_mergedface, (face,)))
 end
 
 """
@@ -415,59 +424,92 @@ Load all faces declared in the Faces.toml file `tomlfile`.
 loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
 
 function Base.convert(::Type{Face}, spec::Dict{String,Any})
-    Face(if haskey(spec, "font") && spec["font"] isa String
-             spec["font"]::String
-         end,
-         if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)
-             spec["height"]::Union{Int,Float64}
-         end,
-         if haskey(spec, "weight") && spec["weight"] isa String
-             Symbol(spec["weight"]::String)
-         elseif haskey(spec, "bold") && spec["bold"] isa Bool
-             ifelse(spec["bold"]::Bool, :bold, :normal)
-         end,
-         if haskey(spec, "slant") && spec["slant"] isa String
-             Symbol(spec["slant"]::String)
-         elseif haskey(spec, "italic") && spec["italic"] isa Bool
-             ifelse(spec["italic"]::Bool, :italic, :normal)
-         end,
-         if haskey(spec, "foreground") && spec["foreground"] isa String
-             tryparse(SimpleColor, spec["foreground"]::String)
-         elseif haskey(spec, "fg") && spec["fg"] isa String
-             tryparse(SimpleColor, spec["fg"]::String)
-         end,
-         if haskey(spec, "background") && spec["background"] isa String
-             tryparse(SimpleColor, spec["background"]::String)
-         elseif haskey(spec, "bg") && spec["bg"] isa String
-             tryparse(SimpleColor, spec["bg"]::String)
-         end,
-         if !haskey(spec, "underline")
-         elseif spec["underline"] isa Bool
-             spec["underline"]::Bool
-         elseif spec["underline"] isa String
-             tryparse(SimpleColor, spec["underline"]::String)
-         elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
-             color_str, style_str = (spec["underline"]::Vector{String})
-             color = tryparse(SimpleColor, color_str)
-             (color, Symbol(style_str))
-         end,
-         if !haskey(spec, "strikethrough")
-         elseif spec["strikethrough"] isa Bool
-             spec["strikethrough"]::Bool
-         elseif spec["strikethrough"] isa String
-             tryparse(SimpleColor, spec["strikethrough"]::String)
-         end,
-         if haskey(spec, "inverse") && spec["inverse"] isa Bool
-             spec["inverse"]::Bool end,
-         if !haskey(spec, "inherit")
-             Symbol[]
-         elseif spec["inherit"] isa String
-             [Symbol(spec["inherit"]::String)]
-         elseif spec["inherit"] isa Vector{String}
-             [Symbol(name) for name in spec["inherit"]::Vector{String}]
-         else
-             Symbol[]
-         end)
+    function safeget(spc::Dict{String, Any}, ::Type{T}, keys::String...) where {T}
+        val = nothing
+        for key in keys
+            val = get(spc, key, nothing)
+            !isnothing(val) && break
+        end
+        if isnothing(val)
+            weaknothing(T)
+        elseif val == "inherit"
+            strongnothing(T)
+        elseif T == SimpleColor && val isa String
+            something(tryparse(SimpleColor, val), weaknothing(T))
+        elseif T != SimpleColor && val isa T
+            if T == Bool
+                UInt8(val)
+            else
+                val
+            end
+        else
+            weaknothing(T)
+        end
+    end
+    font = safeget(spec, String, "font")
+    height = if !haskey(spec, "height")
+        weaknothing(UInt64)
+    elseif spec["height"] == "inherit"
+        strongnothing(UInt64)
+    elseif spec["height"] isa Int
+        UInt64(spec["height"])
+    elseif spec["height"] isa Float64
+        reinterpret(UInt64, Float64(spec["height"])) & ~(typemax(UInt64) >> 1)
+    else
+        weaknothing(UInt64)
+    end
+    weight = if haskey(spec, "weight") && spec["weight"] isa String
+        if spec["weight"]::String =="inherit"
+            strongnothing(Symbol)
+        else
+            Symbol(spec["weight"]::String)
+        end
+    elseif haskey(spec, "bold") && spec["bold"] isa Bool
+        ifelse(spec["bold"]::Bool, :bold, :normal)
+    end
+    slant = if haskey(spec, "slant") && spec["slant"] isa String
+        if spec["slant"]::String =="inherit"
+            strongnothing(Symbol)
+        else
+            Symbol(spec["slant"]::String)
+        end
+    elseif haskey(spec, "italic") && spec["italic"] isa Bool
+        ifelse(spec["italic"]::Bool, :italic, :normal)
+    end
+    foreground = safeget(spec, SimpleColor, "foreground", "fg")
+    background = safeget(spec, SimpleColor, "background", "bg")
+    ul, ul_style = if !haskey(spec, "underline")
+        weaknothing(SimpleColor), weaknothing(Symbol)
+    elseif spec["underline"] isa Bool
+        SimpleColor(spec["underline"]::Bool, :foreground, :background), weaknothing(Symbol)
+    elseif spec["underline"] isa String
+        if spec["underline"]::String == "inherit"
+            strongnothing(SimpleColor), strongnothing(Symbol)
+        else
+            something(tryparse(SimpleColor, spec["underline"]::String),
+                      weaknothing(SimpleColor)), :straight
+        end
+    elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
+        color_str, style_str = (spec["underline"]::Vector{String})
+        color = something(tryparse(SimpleColor, color_str), weaknothing(SimpleColor))
+        color, Symbol(style_str)
+    else
+        weaknothing(SimpleColor), weaknothing(Symbol)
+    end
+    strikethrough = safeget(spec, Bool, "strikethrough")
+    inverse = safeget(spec, Bool, "inverse")
+    inherit = if !haskey(spec, "inherit")
+        Symbol[]
+    elseif spec["inherit"] isa String
+        [Symbol(spec["inherit"]::String)]
+    elseif spec["inherit"] isa Vector{String}
+        [Symbol(name) for name in spec["inherit"]::Vector{String}]
+    else
+        Symbol[]
+    end
+    Face(_Face(font, height, weight, slant,
+               foreground, background, ul, ulstyle,
+               strikethrough, inverse, inherit.ref.mem))
 end
 
 ## Recolouring ##

@@ -83,6 +83,20 @@ function Base.parse(::Type{SimpleColor}, rgb::String)
     color
 end
 
+struct _Face
+    font::String
+    height::UInt64
+    weight::Symbol
+    slant::Symbol
+    foreground::SimpleColor
+    background::SimpleColor
+    underline::SimpleColor
+    underline_style::Symbol
+    strikethrough::UInt8
+    inverse::UInt8
+    inherit::Memory{Symbol}
+end
+
 """
 A [`Face`](@ref) is a collection of graphical attributes for displaying text.
 Faces control how text is displayed in the terminal, and possibly other
@@ -121,19 +135,52 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `inherit` (a `Vector{Symbol}`): Names of faces to inherit from,
   with earlier faces taking priority. All faces inherit from the `:default` face.
 """
-struct Face
-    font::Union{Nothing, String}
-    height::Union{Nothing, Int, Float64}
-    weight::Union{Nothing, Symbol}
-    slant::Union{Nothing, Symbol}
-    foreground::Union{Nothing, SimpleColor}
-    background::Union{Nothing, SimpleColor}
-    underline::Union{Nothing, Bool, SimpleColor,
-                     Tuple{<:Union{Nothing, SimpleColor}, Symbol}}
-    strikethrough::Union{Nothing, Bool}
-    inverse::Union{Nothing, Bool}
-    inherit::Vector{Symbol}
+mutable struct Face # We want to force reference semantics here
+    const f::_Face
 end
+
+# NOTE: We use shenanigans instead of `Union{Nothing, X}` in the
+# face fields for two reasons:
+# 1. To improve the memory layout of `Face`, so there's less indirection
+# 2. To allow for having two flavours of `nothing`, "weak" and "strong".
+#    This allows for us to distinguish between unset attributes (weak)
+#    and attributes that should replace a set value with weak nothing (strong).
+# We can only do this because we have full knowledge and dominion
+# over the semantics of `Face`.
+
+const WEAK_NOTHING_SYMB = gensym("weak_nothing")
+const WEAK_NOTHING_STR = String(WEAK_NOTHING_SYMB)
+
+weaknothing(::Type{Symbol}) = WEAK_NOTHING_SYMB
+weaknothing(::Type{String}) = WEAK_NOTHING_STR
+weaknothing(::Type{N}) where {N<:Number} = -one(N)
+weaknothing(::Type{SimpleColor}) = SimpleColor(WEAK_NOTHING_SYMB)
+weaknothing(::Type{Bool}) = strongnothing(UInt8)
+weaknothing(::Type) = nothing
+weaknothing(x) = weaknothing(typeof(x))
+
+isweaknothing(x) = x === weaknothing(typeof(x))
+isweaknothing(s::String) = pointer(s) == pointer(WEAK_NOTHING_STR)
+isweaknothing(c::SimpleColor) = c.value === WEAK_NOTHING_SYMB
+
+const STRONG_NOTHING_SYMB = gensym("strong_nothing")
+const STRONG_NOTHING_STR = String(STRONG_NOTHING_SYMB)
+
+strongnothing(::Type{Symbol}) = STRONG_NOTHING_SYMB
+strongnothing(::Type{String}) = STRONG_NOTHING_STR
+strongnothing(::Type{N}) where {N<:Number} = - (0x2 * one(N))
+strongnothing(::Type{SimpleColor}) = SimpleColor(STRONG_NOTHING_SYMB)
+strongnothing(::Type{Bool}) = strongnothing(UInt8)
+strongnothing(::Type) = nothing
+strongnothing(x) = strongnothing(typeof(x))
+
+isstrongnothing(x) = x === strongnothing(typeof(x))
+isstrongnothing(s::String) = pointer(s) == pointer(STRONG_NOTHING_STR)
+isstrongnothing(c::SimpleColor) = c.value === STRONG_NOTHING_SYMB
+
+isnothinglike(x) = isweaknothing(x) || isstrongnothing(x)
+
+# With our flavours of nothing defined, we can now define the Face constructor.
 
 function Face(; font::Union{Nothing, String} = nothing,
               height::Union{Nothing, Int, Float64} = nothing,
@@ -143,53 +190,89 @@ function Face(; font::Union{Nothing, String} = nothing,
               background = nothing, # nothing, or SimpleColor-able value
               underline::Union{Nothing, Bool, SimpleColor,
                                Symbol, RGBTuple, UInt32,
-                               Tuple{<:Any, Symbol}
-                               } = nothing,
+                               Tuple{<:Any, Symbol}} = nothing,
               strikethrough::Union{Nothing, Bool} = nothing,
               inverse::Union{Nothing, Bool} = nothing,
               inherit::Union{Symbol, Vector{Symbol}} = Symbol[],
               _...) # Simply ignore unrecognised keyword arguments.
-    ascolor(::Nothing) = nothing
+    inheritlist = if inherit isa Vector
+        inherit.ref.mem
+    else
+        mem = Memory{Symbol}(undef, 1)
+        mem[1] = inherit
+        mem
+    end
+    ascolor(::Nothing) = SimpleColor(WEAK_NOTHING_SYMB)
     ascolor(c::AbstractString) = parse(SimpleColor, c)
     ascolor(c::Any) = convert(SimpleColor, c)
-    Face(font, height, weight, slant,
-         ascolor(foreground), ascolor(background),
-         if underline isa Tuple{Any, Symbol}
-             (ascolor(underline[1]), underline[2])
-         elseif underline in (:straight, :double, :curly, :dotted, :dashed)
-             (nothing, underline)
-         elseif underline isa Bool
-             underline
-         else
-             ascolor(underline)
-         end,
-         strikethrough,
-         inverse,
-         if inherit isa Symbol
-             [inherit]
-         else inherit end)
+    ul, ulstyle = if underline isa Tuple{Any, Symbol}
+        ascolor(underline[1]), underline[2]
+    elseif underline in (:straight, :double, :curly, :dotted, :dashed)
+        weaknothing(SimpleColor), underline
+    elseif underline isa Bool
+        SimpleColor(ifelse(underline, :foreground, :background)), :straight
+    else
+        ascolor(underline), :straight
+    end
+    f = _Face(something(font, weaknothing(String)),
+              if isnothing(height)
+                  weaknothing(UInt64)
+              elseif height isa Float64
+                  reinterpret(UInt64, height) & ~(typemax(UInt64) >> 1)
+              else
+                  UInt64(height)
+              end,
+              something(weight, weaknothing(Symbol)),
+              something(slant, weaknothing(Symbol)),
+              ascolor(foreground),
+              ascolor(background),
+              ul, ulstyle,
+              something(strikethrough, weaknothing(Bool)),
+              something(inverse, weaknothing(Bool)),
+              inheritlist)
+    Face(f)
 end
 
+function Base.getproperty(face::Face, attr::Symbol)
+    val = getfield(getfield(face, :f), attr)
+    if isnothinglike(val)
+    elseif attr ∈ (:strikethrough, :inverse)
+        if attr != 0x3
+            attr == 0x1
+        end
+    elseif attr == :underline
+        style = getfield(getfield(face, :f), :underline_style)
+        val, style
+    else
+        val
+    end
+end
+
+Base.propertynames(::Face) = setdiff(fieldnames(_Face), (:underline_style,))
+
 function Base.:(==)(a::Face, b::Face)
-    a.font == b.font &&
-    a.height === b.height &&
-    a.weight == b.weight &&
-    a.slant == b.slant &&
-    a.foreground == b.foreground &&
-    a.background == b.background &&
-    a.underline == b.underline &&
-    a.strikethrough == b.strikethrough &&
-    a.inverse == b.inverse &&
-    a.inherit == b.inherit
+    af, bf = getfield(a, :f), getfield(b, :f)
+    af.font          == bf.font &&
+    af.height        === bf.height &&
+    af.weight        == bf.weight &&
+    af.slant         == bf.slant &&
+    af.foreground    == bf.foreground &&
+    af.background    == bf.background &&
+    af.underline     == bf.underline &&
+    af.strikethrough == bf.strikethrough &&
+    af.inverse       == bf.inverse &&
+    af.inherit       == bf.inherit
 end
 
 Base.hash(f::Face, h::UInt) =
-    mapfoldr(Base.Fix1(getfield, f), hash, fieldnames(Face), init=hash(Face, h))
+    mapfoldr(Base.Fix1(getfield, getfield(f, :f)), hash, fieldnames(Face), init=hash(Face, h))
 
-Base.copy(f::Face) =
-    Face(f.font, f.height, f.weight, f.slant,
-         f.foreground, f.background, f.underline,
-         f.strikethrough, f.inverse, copy(f.inherit))
+function Base.copy(f::Face)
+    ff = getfield(f, :f)
+    Face(_Face(ff.font, ff.height, ff.weight, ff.slant,
+               ff.foreground, ff.background, ff.underline,
+               ff.strikethrough, ff.inverse, copy(ff.inherit)))
+end
 
 """
     merge(initial::StyledStrings.Face, others::StyledStrings.Face...)
@@ -199,31 +282,57 @@ Merge the properties of the `initial` face and `others`, with later faces taking
 This is used to combine the styles of multiple faces, and to resolve inheritance.
 """
 function Base.merge(a::Face, b::Face)
-    if isempty(b.inherit)
-        # Extract the heights to help type inference a bit to be able
-        # to narrow the types in e.g. `aheight * bheight`
-        aheight = a.height
-        bheight = b.height
-        abheight = if isnothing(bheight) aheight
-        elseif isnothing(aheight) bheight
-        elseif bheight isa Int bheight
-        elseif aheight isa Int round(Int, aheight * bheight)
-        else aheight * bheight end
-        Face(if isnothing(b.font)          a.font          else b.font          end,
-             abheight,
-             if isnothing(b.weight)        a.weight        else b.weight        end,
-             if isnothing(b.slant)         a.slant         else b.slant         end,
-             if isnothing(b.foreground)    a.foreground    else b.foreground    end,
-             if isnothing(b.background)    a.background    else b.background    end,
-             if isnothing(b.underline)     a.underline     else b.underline     end,
-             if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
-             if isnothing(b.inverse)       a.inverse       else b.inverse       end,
-             a.inherit)
+    af, bf = getfield(a, :f), getfield(b, :f)
+    function mergeattr(af′, bf′, attr::Symbol)
+        a′ = getfield(af′, attr)
+        b′ = getfield(bf′, attr)
+        if isweaknothing(b′)
+            a′
+        elseif isstrongnothing(b′)
+            weaknothing(b′)
+        else
+            b′
+        end
+    end
+    if isempty(bf.inherit)
+        abheight = if isstrongnothing(bf.height)
+            weaknothing(bf.height)
+        elseif isweaknothing(bf.height)
+            af.height
+        elseif isnothinglike(af.height)
+            bf.height
+        elseif iszero(bf.height & ~(typemax(UInt64) >> 1)) # bf.height::Int
+            bf.height
+        elseif iszero(af.height & ~(typemax(UInt64) >> 1)) # af.height::Int
+            aint = reinterpret(Int64, af.height) % UInt
+            bfloat = reinterpret(Float64, bf.height & (typemax(UInt64) >> 1))
+            aint * bfloat
+        else # af.height::Float64, bf.height::Float64
+            afloat = reinterpret(Float64, af.height & (typemax(UInt64) >> 1))
+            bfloat = reinterpret(Float64, bf.height & (typemax(UInt64) >> 1))
+            afloat * bfloat
+        end
+        Face(_Face(
+            mergeattr(af, bf, :font),
+            abheight,
+            mergeattr(af, bf, :weight),
+            mergeattr(af, bf, :slant),
+            mergeattr(af, bf, :foreground),
+            mergeattr(af, bf, :background),
+            mergeattr(af, bf, :underline),
+            if isweaknothing(bf.underline_style)
+                af.underline_style
+            else
+                bf.underline_style
+            end,
+            mergeattr(af, bf, :strikethrough),
+            mergeattr(af, bf, :inverse),
+            af.inherit))
     else
-        b_noinherit = Face(
-            b.font, b.height, b.weight, b.slant, b.foreground, b.background,
-            b.underline, b.strikethrough, b.inverse, Symbol[])
-        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(b.inherit))
+        b_noinherit = Face(_Face(
+            bf.font, bf.height, bf.weight, bf.slant, bf.foreground, bf.background,
+            bf.underline, bf.strikethrough, bf.inverse, Symbol[]))
+        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(bf.inherit))
         b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
         merge(a, b_resolved)
     end
