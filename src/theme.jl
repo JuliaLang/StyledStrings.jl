@@ -256,11 +256,11 @@ function getface(faces)
 end
 
 """
-    getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
+    getface(annotations::Vector{@NamedTuple{label::Symbol, value}})
 
 Combine all of the `:face` annotations with `getfaces`.
 """
-function getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
+function getface(annotations::Vector{@NamedTuple{label::Symbol, value::V}}) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
     getface(faces)
 end
