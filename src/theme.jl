@@ -395,59 +395,92 @@ Load all faces declared in the Faces.toml file `tomlfile`.
 loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
 
 function Base.convert(::Type{Face}, spec::Dict{String,Any})
-    Face(if haskey(spec, "font") && spec["font"] isa String
-             spec["font"]::String
-         end,
-         if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)
-             spec["height"]::Union{Int,Float64}
-         end,
-         if haskey(spec, "weight") && spec["weight"] isa String
-             Symbol(spec["weight"]::String)
-         elseif haskey(spec, "bold") && spec["bold"] isa Bool
-             ifelse(spec["bold"]::Bool, :bold, :normal)
-         end,
-         if haskey(spec, "slant") && spec["slant"] isa String
-             Symbol(spec["slant"]::String)
-         elseif haskey(spec, "italic") && spec["italic"] isa Bool
-             ifelse(spec["italic"]::Bool, :italic, :normal)
-         end,
-         if haskey(spec, "foreground") && spec["foreground"] isa String
-             tryparse(SimpleColor, spec["foreground"]::String)
-         elseif haskey(spec, "fg") && spec["fg"] isa String
-             tryparse(SimpleColor, spec["fg"]::String)
-         end,
-         if haskey(spec, "background") && spec["background"] isa String
-             tryparse(SimpleColor, spec["background"]::String)
-         elseif haskey(spec, "bg") && spec["bg"] isa String
-             tryparse(SimpleColor, spec["bg"]::String)
-         end,
-         if !haskey(spec, "underline")
-         elseif spec["underline"] isa Bool
-             spec["underline"]::Bool
-         elseif spec["underline"] isa String
-             tryparse(SimpleColor, spec["underline"]::String)
-         elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
-             color_str, style_str = (spec["underline"]::Vector{String})
-             color = tryparse(SimpleColor, color_str)
-             (color, Symbol(style_str))
-         end,
-         if !haskey(spec, "strikethrough")
-         elseif spec["strikethrough"] isa Bool
-             spec["strikethrough"]::Bool
-         elseif spec["strikethrough"] isa String
-             tryparse(SimpleColor, spec["strikethrough"]::String)
-         end,
-         if haskey(spec, "inverse") && spec["inverse"] isa Bool
-             spec["inverse"]::Bool end,
-         if !haskey(spec, "inherit")
-             Symbol[]
-         elseif spec["inherit"] isa String
-             [Symbol(spec["inherit"]::String)]
-         elseif spec["inherit"] isa Vector{String}
-             [Symbol(name) for name in spec["inherit"]::Vector{String}]
-         else
-             Symbol[]
-         end)
+    function safeget(s::Dict{String, Any}, ::Type{T}, keys::String...) where {T}
+        val = nothing
+        for key in keys
+            val = get(spec, key, nothing)
+            !isnothing(val) && break
+        end
+        if isnothing(val)
+            weaknothing(T)
+        elseif val == "inherit"
+            strongnothing(T)
+        elseif T == SimpleColor && val isa String
+            something(tryparse(SimpleColor, val), weaknothing(T))
+        elseif T != SimpleColor && val isa T
+            if T == Bool
+                UInt8(val)
+            else
+                val
+            end
+        else
+            weaknothing(T)
+        end
+    end
+    font = safeget(spec, String, "font")
+    height = if !haskey(spec, "height")
+        weaknothing(UInt64)
+    elseif spec["height"] == "inherit"
+        strongnothing(UInt64)
+    elseif spec["height"] isa Int
+        UInt64(spec["height"])
+    elseif spec["height"] isa Float64
+        reinterpret(UInt64, Float64(spec["height"])) & ~(typemax(UInt64) >> 1)
+    else
+        weaknothing(UInt64)
+    end
+    weight = if haskey(spec, "weight") && spec["weight"] isa String
+        if spec["weight"]::String =="inherit"
+            strongnothing(Symbol)
+        else
+            Symbol(spec["weight"]::String)
+        end
+    elseif haskey(spec, "bold") && spec["bold"] isa Bool
+        ifelse(spec["bold"]::Bool, :bold, :normal)
+    end
+    slant = if haskey(spec, "slant") && spec["slant"] isa String
+        if spec["slant"]::String =="inherit"
+            strongnothing(Symbol)
+        else
+            Symbol(spec["slant"]::String)
+        end
+    elseif haskey(spec, "italic") && spec["italic"] isa Bool
+        ifelse(spec["italic"]::Bool, :italic, :normal)
+    end
+    foreground = safeget(spec, SimpleColor, "foreground", "fg")
+    background = safeget(spec, SimpleColor, "background", "bg")
+    ul, ul_style = if !haskey(spec, "underline")
+        weaknothing(SimpleColor), weaknothing(Symbol)
+    elseif spec["underline"] isa Bool
+        SimpleColor(spec["underline"]::Bool, :foreground, :background), weaknothing(Symbol)
+    elseif spec["underline"] isa String
+        if spec["underline"]::String == "inherit"
+            strongnothing(SimpleColor), strongnothing(Symbol)
+        else
+            something(tryparse(SimpleColor, spec["underline"]::String),
+                      weaknothing(SimpleColor)), :straight
+        end
+    elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
+        color_str, style_str = (spec["underline"]::Vector{String})
+        color = something(tryparse(SimpleColor, color_str), weaknothing(SimpleColor))
+        color, Symbol(style_str)
+    else
+        weaknothing(SimpleColor), weaknothing(Symbol)
+    end
+    strikethrough = safeget(spec, Bool, "strikethrough")
+    inverse = safeget(spec, Bool, "inverse")
+    inherit = if !haskey(spec, "inherit")
+        Symbol[]
+    elseif spec["inherit"] isa String
+        [Symbol(spec["inherit"]::String)]
+    elseif spec["inherit"] isa Vector{String}
+        [Symbol(name) for name in spec["inherit"]::Vector{String}]
+    else
+        Symbol[]
+    end
+    Face(_Face(font, height, weight, slant,
+               foreground, background, ul, ulstyle,
+               strikethrough, inverse, inherit.ref.mem))
 end
 
 ## Recolouring ##
