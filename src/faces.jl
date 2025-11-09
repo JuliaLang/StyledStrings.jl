@@ -83,6 +83,20 @@ function Base.parse(::Type{SimpleColor}, rgb::String)
     color
 end
 
+struct _Face
+    font::String
+    height::UInt64
+    weight::Symbol
+    slant::Symbol
+    foreground::SimpleColor
+    background::SimpleColor
+    underline::SimpleColor
+    underline_style::Symbol
+    strikethrough::UInt8
+    inverse::UInt8
+    inherit::Memory{Symbol}
+end
+
 """
 A [`Face`](@ref) is a collection of graphical attributes for displaying text.
 Faces control how text is displayed in the terminal, and possibly other
@@ -121,19 +135,52 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `inherit` (a `Vector{Symbol}`): Names of faces to inherit from,
   with earlier faces taking priority. All faces inherit from the `:default` face.
 """
-struct Face
-    font::Union{Nothing, String}
-    height::Union{Nothing, Int, Float64}
-    weight::Union{Nothing, Symbol}
-    slant::Union{Nothing, Symbol}
-    foreground::Union{Nothing, SimpleColor}
-    background::Union{Nothing, SimpleColor}
-    underline::Union{Nothing, Bool, SimpleColor,
-                     Tuple{<:Union{Nothing, SimpleColor}, Symbol}}
-    strikethrough::Union{Nothing, Bool}
-    inverse::Union{Nothing, Bool}
-    inherit::Vector{Symbol}
+mutable struct Face # We want to force reference semantics here
+    const f::_Face
 end
+
+# NOTE: We use shenanigans instead of `Union{Nothing, X}` in the
+# face fields for two reasons:
+# 1. To improve the memory layout of `Face`, so there's less indirection
+# 2. To allow for having two flavours of `nothing`, "weak" and "strong".
+#    This allows for us to distinguish between unset attributes (weak)
+#    and attributes that should replace a set value with weak nothing (strong).
+# We can only do this because we have full knowledge and dominion
+# over the semantics of `Face`.
+
+const WEAK_NOTHING_SYMB = gensym("nothing")
+const WEAK_NOTHING_STR = String(WEAK_NOTHING_SYMB)
+
+weaknothing(::Type{Symbol}) = WEAK_NOTHING_SYMB
+weaknothing(::Type{String}) = WEAK_NOTHING_STR
+weaknothing(::Type{N}) where {N<:Number} = -one(N)
+weaknothing(::Type{SimpleColor}) = SimpleColor(WEAK_NOTHING_SYMB)
+weaknothing(::Type{Bool}) = strongnothing(UInt8)
+weaknothing(::Type) = nothing
+weaknothing(x) = weaknothing(typeof(x))
+
+isweaknothing(x) = x === weaknothing(typeof(x))
+isweaknothing(s::String) = pointer(s) == pointer(WEAK_NOTHING_STR)
+isweaknothing(c::SimpleColor) = c.value === WEAK_NOTHING_SYMB
+
+const STRONG_NOTHING_SYMB = gensym("nothing")
+const STRONG_NOTHING_STR = String(STRONG_NOTHING_SYMB)
+
+strongnothing(::Type{Symbol}) = STRONG_NOTHING_SYMB
+strongnothing(::Type{String}) = STRONG_NOTHING_STR
+strongnothing(::Type{N}) where {N<:Number} = - (0x2 * one(N))
+strongnothing(::Type{SimpleColor}) = SimpleColor(STRONG_NOTHING_SYMB)
+strongnothing(::Type{Bool}) = strongnothing(UInt8)
+strongnothing(::Type) = nothing
+strongnothing(x) = strongnothing(typeof(x))
+
+isstrongnothing(x) = x === strongnothing(typeof(x))
+isstrongnothing(s::String) = pointer(s) == pointer(STRONG_NOTHING_STR)
+isstrongnothing(c::SimpleColor) = c.value === STRONG_NOTHING_SYMB
+
+isnothinglike(x) = isweaknothing(x) || isstrongnothing(x)
+
+# With our flavours of nothing defined, we can now define the Face constructor.
 
 function Face(; font::Union{Nothing, String} = nothing,
               height::Union{Nothing, Int, Float64} = nothing,
@@ -143,53 +190,156 @@ function Face(; font::Union{Nothing, String} = nothing,
               background = nothing, # nothing, or SimpleColor-able value
               underline::Union{Nothing, Bool, SimpleColor,
                                Symbol, RGBTuple, UInt32,
-                               Tuple{<:Any, Symbol}
-                               } = nothing,
+                               Tuple{<:Any, Symbol}} = nothing,
               strikethrough::Union{Nothing, Bool} = nothing,
               inverse::Union{Nothing, Bool} = nothing,
               inherit::Union{Symbol, Vector{Symbol}} = Symbol[],
               _...) # Simply ignore unrecognised keyword arguments.
-    ascolor(::Nothing) = nothing
+    inheritlen = if inherit isa Vector length(inherit) else 1 end
+    inheritlist = if inherit isa Vector
+        inherit.ref.mem
+    else
+        mem = Memory{Symbol}(undef, 1)
+        mem[1] = inherit
+        mem
+    end
+    ascolor(::Nothing) = SimpleColor(WEAK_NOTHING_SYMB)
     ascolor(c::AbstractString) = parse(SimpleColor, c)
     ascolor(c::Any) = convert(SimpleColor, c)
-    Face(font, height, weight, slant,
-         ascolor(foreground), ascolor(background),
-         if underline isa Tuple{Any, Symbol}
-             (ascolor(underline[1]), underline[2])
-         elseif underline in (:straight, :double, :curly, :dotted, :dashed)
-             (nothing, underline)
-         elseif underline isa Bool
-             underline
-         else
-             ascolor(underline)
-         end,
-         strikethrough,
-         inverse,
-         if inherit isa Symbol
-             [inherit]
-         else inherit end)
+    ul, ulstyle = if underline isa Tuple{Any, Symbol}
+        ascolor(underline[1]), underline[2]
+    elseif underline in (:straight, :double, :curly, :dotted, :dashed)
+        weaknothing(SimpleColor), underline
+    elseif underline isa Bool
+        SimpleColor(ifelse(underline, :foreground, :background)), :straight
+    else
+        ascolor(underline), :straight
+    end
+    f = _Face(something(font, weaknothing(String)),
+              if isnothing(height)
+                  weaknothing(UInt64)
+              elseif height isa Float64
+                  reinterpret(UInt64, height) & ~(typemax(UInt64) >> 1)
+              else
+                  UInt64(height)
+              end,
+              something(weight, weaknothing(Symbol)),
+              something(slant, weaknothing(Symbol)),
+              ascolor(foreground),
+              ascolor(background),
+              ul, ulstyle,
+              something(strikethrough, weaknothing(Bool)),
+              something(inverse, weaknothing(Bool)),
+              inheritlist)
+    Face(f)
 end
 
+function Base.getproperty(face::Face, attr::Symbol)
+    val = getfield(getfield(face, :f), attr)
+    if isnothinglike(val)
+    elseif attr ∈ (:strikethrough, :inverse)
+        if attr != 0x3
+            attr == 0x1
+        end
+    elseif attr == :underline
+        style = getfield(getfield(face, :f), :underline_style)
+        val, style
+    else
+        val
+    end
+end
+
+Base.propertynames(::Face) = setdiff(fieldnames(_Face), (:underline_style,))
+
 function Base.:(==)(a::Face, b::Face)
-    a.font == b.font &&
-    a.height === b.height &&
-    a.weight == b.weight &&
-    a.slant == b.slant &&
-    a.foreground == b.foreground &&
-    a.background == b.background &&
-    a.underline == b.underline &&
-    a.strikethrough == b.strikethrough &&
-    a.inverse == b.inverse &&
-    a.inherit == b.inherit
+    af, bf = getfield(a, :f), getfield(b, :f)
+    af.font          == bf.font &&
+    af.height        === bf.height &&
+    af.weight        == bf.weight &&
+    af.slant         == bf.slant &&
+    af.foreground    == bf.foreground &&
+    af.background    == bf.background &&
+    af.underline     == bf.underline &&
+    af.strikethrough == bf.strikethrough &&
+    af.inverse       == bf.inverse &&
+    af.inherit       == bf.inherit
 end
 
 Base.hash(f::Face, h::UInt) =
-    mapfoldr(Base.Fix1(getfield, f), hash, fieldnames(Face), init=hash(Face, h))
+    mapfoldr(Base.Fix1(getfield, getfield(f, :f)), hash, fieldnames(Face), init=hash(Face, h))
 
-Base.copy(f::Face) =
-    Face(f.font, f.height, f.weight, f.slant,
-         f.foreground, f.background, f.underline,
-         f.strikethrough, f.inverse, copy(f.inherit))
+function Base.copy(f::Face)
+    ff = getfield(f, :f)
+    Face(_Face(ff.font, ff.height, ff.weight, ff.slant,
+               ff.foreground, ff.background, ff.underline,
+               ff.strikethrough, ff.inverse, copy(ff.inherit)))
+end
+
+"""
+    merge(initial::StyledStrings.Face, others::StyledStrings.Face...)
+
+Merge the properties of the `initial` face and `others`, with later faces taking priority.
+
+This is used to combine the styles of multiple faces, and to resolve inheritance.
+"""
+function Base.merge(a::Face, b::Face)
+    af, bf = getfield(a, :f), getfield(b, :f)
+    function mergeattr(a₀, b₀, attr::Symbol)
+        a′ = getfield(a₀, attr)
+        b′ = getfield(b₀, attr)
+        if isweaknothing(b′)
+            a′
+        elseif isstrongnothing(b′)
+            weaknothing(b′)
+        else
+            b′
+        end
+    end
+    if isempty(bf.inherit)
+        abheight = if isstrongnothing(bf.height)
+            weaknothing(bf.height)
+        elseif isweaknothing(bf.height)
+            af.height
+        elseif isnothinglike(af.height)
+            bf.height
+        elseif iszero(bf.height & ~(typemax(UInt64) >> 1)) # bf.height::Int
+            bf.height
+        elseif iszero(af.height & ~(typemax(UInt64) >> 1)) # af.height::Int
+            aint = reinterpret(Int64, af.height) % UInt
+            bfloat = reinterpret(Float64, bf.height & (typemax(UInt64) >> 1))
+            aint * bfloat
+        else # af.height::Float64, bf.height::Float64
+            afloat = reinterpret(Float64, af.height & (typemax(UInt64) >> 1))
+            bfloat = reinterpret(Float64, bf.height & (typemax(UInt64) >> 1))
+            afloat * bfloat
+        end
+        Face(_Face(
+            mergeattr(af, bf, :font),
+            abheight,
+            mergeattr(af, bf, :weight),
+            mergeattr(af, bf, :slant),
+            mergeattr(af, bf, :foreground),
+            mergeattr(af, bf, :background),
+            mergeattr(af, bf, :underline),
+            if isweaknothing(bf.underline_style)
+                af.underline_style
+            else
+                bf.underline_style
+            end,
+            mergeattr(af, bf, :strikethrough),
+            mergeattr(af, bf, :inverse),
+            af.inherit))
+    else
+        b_noinherit = Face(_Face(
+            bf.font, bf.height, bf.weight, bf.slant, bf.foreground, bf.background,
+            bf.underline, bf.strikethrough, bf.inverse, Symbol[]))
+        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(bf.inherit))
+        b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
+        merge(a, b_resolved)
+    end
+end
+
+Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype = get(io, :typeinfo, nothing) === SimpleColor
@@ -303,452 +453,4 @@ end
 
 function Base.show(io::IO, face::Face)
     show(IOContext(io, :compact => true), MIME("text/plain"), face)
-end
-
-"""
-Globally named [`Face`](@ref)s.
-
-`default` gives the initial values of the faces, and `current` holds the active
-(potentially modified) set of faces. This two-set system allows for any
-modifications to the active faces to be undone.
-"""
-const FACES = let default = Dict{Symbol, Face}(
-    # Default is special, it must be completely specified
-    # and everything inherits from it.
-    :default => Face(
-        "monospace", 120,      # font, height
-        :normal, :normal,      # weight, slant
-        SimpleColor(:foreground), # foreground
-        SimpleColor(:background), # background
-        false, false, false,   # underline, strikethrough, overline
-        Symbol[]),              # inherit
-    # Property faces
-    :bold => Face(weight=:bold),
-    :light => Face(weight=:light),
-    :italic => Face(slant=:italic),
-    :underline => Face(underline=true),
-    :strikethrough => Face(strikethrough=true),
-    :inverse => Face(inverse=true),
-    # Basic color faces
-    :black => Face(foreground=:black),
-    :red => Face(foreground=:red),
-    :green => Face(foreground=:green),
-    :yellow => Face(foreground=:yellow),
-    :blue => Face(foreground=:blue),
-    :magenta => Face(foreground=:magenta),
-    :cyan => Face(foreground=:cyan),
-    :white => Face(foreground=:white),
-    :bright_black => Face(foreground=:bright_black),
-    :grey => Face(foreground=:bright_black),
-    :gray => Face(foreground=:bright_black),
-    :bright_red => Face(foreground=:bright_red),
-    :bright_green => Face(foreground=:bright_green),
-    :bright_yellow => Face(foreground=:bright_yellow),
-    :bright_blue => Face(foreground=:bright_blue),
-    :bright_magenta => Face(foreground=:bright_magenta),
-    :bright_cyan => Face(foreground=:bright_cyan),
-    :bright_white => Face(foreground=:bright_white),
-    # Useful common faces
-    :shadow => Face(foreground=:bright_black),
-    :region => Face(background=0x3a3a3a),
-    :emphasis => Face(foreground=:blue),
-    :highlight => Face(inherit=:emphasis, inverse=true),
-    :code => Face(foreground=:cyan),
-    # Styles of generic content categories
-    :error => Face(foreground=:bright_red),
-    :warning => Face(foreground=:yellow),
-    :success => Face(foreground=:green),
-    :info => Face(foreground=:bright_cyan),
-    :note => Face(foreground=:grey),
-    :tip => Face(foreground=:bright_green),
-    # Stacktraces (on behalf of Base)
-    :julia_stacktrace_frameindex => Face(),
-    :julia_stacktrace_location => Face(inherit=:shadow),
-    :julia_stacktrace_filename => Face(underline=true, inherit=:julia_stacktrace_location),
-    :julia_stacktrace_fileline => Face(inherit=:julia_stacktrace_filename),
-    :julia_stacktrace_repetition => Face(inherit=:warning),
-    :julia_stacktrace_inlined => Face(inherit=:julia_stacktrace_repetition),
-    :julia_stacktrace_basemodule => Face(inherit=:shadow),
-    # Log messages
-    :log_error => Face(inherit=[:error, :bold]),
-    :log_warn => Face(inherit=[:warning, :bold]),
-    :log_info => Face(inherit=[:info, :bold]),
-    :log_debug => Face(foreground=:blue, inherit=:bold),
-    # Julia prompts
-    :repl_prompt => Face(weight=:bold),
-    :repl_prompt_julia => Face(inherit=[:green, :repl_prompt]),
-    :repl_prompt_help => Face(inherit=[:yellow, :repl_prompt]),
-    :repl_prompt_shell => Face(inherit=[:red, :repl_prompt]),
-    :repl_prompt_pkg => Face(inherit=[:blue, :repl_prompt]),
-    :repl_prompt_beep => Face(inherit=[:shadow, :repl_prompt]),
-    )
-    basecolors = Dict{Symbol, RGBTuple}(
-        :background     => (r = 0xff, g = 0xff, b = 0xff),
-        :foreground     => (r = 0x00, g = 0x00, b = 0x00),
-        :black          => (r = 0x1c, g = 0x1a, b = 0x23),
-        :red            => (r = 0xa5, g = 0x1c, b = 0x2c),
-        :green          => (r = 0x25, g = 0xa2, b = 0x68),
-        :yellow         => (r = 0xe5, g = 0xa5, b = 0x09),
-        :blue           => (r = 0x19, g = 0x5e, b = 0xb3),
-        :magenta        => (r = 0x80, g = 0x3d, b = 0x9b),
-        :cyan           => (r = 0x00, g = 0x97, b = 0xa7),
-        :white          => (r = 0xdd, g = 0xdc, b = 0xd9),
-        :bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
-        :grey           => (r = 0x76, g = 0x75, b = 0x7a),
-        :gray           => (r = 0x76, g = 0x75, b = 0x7a),
-        :bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
-        :bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
-        :bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
-        :bright_blue    => (r = 0x35, g = 0x83, b = 0xe4),
-        :bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
-        :bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
-        :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
-    (; default, basecolors,
-     current = ScopedValue(copy(default)),
-     lock = ReentrantLock())
-end
-
-## Adding and resetting faces ##
-
-"""
-    addface!(name::Symbol => default::Face)
-
-Create a new face by the name `name`. So long as no face already exists by this
-name, `default` is added to both `FACES``.default` and (a copy of) to
-`FACES`.`current`, with the current value returned.
-
-Should the face `name` already exist, `nothing` is returned.
-
-# Examples
-
-```jldoctest; setup = :(import StyledStrings: Face, addface!)
-julia> addface!(:mypkg_myface => Face(slant=:italic, underline=true))
-Face (sample)
-         slant: italic
-     underline: true
-```
-"""
-function addface!((name, default)::Pair{Symbol, Face})
-    @lock FACES.lock if !haskey(FACES.default, name)
-        FACES.default[name] = default
-        FACES.current[][name] = if haskey(FACES.current[], name)
-            merge(copy(default), FACES.current[][name])
-        else
-            copy(default)
-        end
-    end
-end
-
-"""
-    resetfaces!()
-
-Reset the current global face dictionary to the default value.
-"""
-function resetfaces!()
-    @lock FACES.lock begin
-        current = FACES.current[]
-        empty!(current)
-        for (key, val) in FACES.default
-            current[key] = val
-        end
-        current
-    end
-end
-
-"""
-    resetfaces!(name::Symbol)
-
-Reset the face `name` to its default value, which is returned.
-
-If the face `name` does not exist, nothing is done and `nothing` returned.
-In the unlikely event that the face `name` does not have a default value,
-it is deleted, a warning message is printed, and `nothing` returned.
-"""
-function resetfaces!(name::Symbol)
-    @lock FACES.lock if !haskey(FACES.current[], name)
-    elseif haskey(FACES.default, name)
-        FACES.current[][name] = copy(FACES.default[name])
-    else # This shouldn't happen
-        delete!(FACES.current[], name)
-        @warn """The face $name was reset, but it had no default value, and so has been deleted instead!,
-                 This should not have happened, perhaps the face was added without using `addface!`?"""
-    end
-end
-
-"""
-    withfaces(f, kv::Pair...)
-    withfaces(f, kvpair_itr)
-
-Execute `f` with `FACES``.current` temporarily modified by zero or more `:name
-=> val` arguments `kv`, or `kvpair_itr` which produces `kv`-form values.
-
-`withfaces` is generally used via the `withfaces(kv...) do ... end` syntax. A
-value of `nothing` can be used to temporarily unset a face (if it has been
-set). When `withfaces` returns, the original `FACES``.current` has been
-restored.
-
-# Examples
-
-```jldoctest; setup = :(import StyledStrings: Face, withfaces)
-julia> withfaces(:yellow => Face(foreground=:red), :green => :blue) do
-           println(styled"{yellow:red} and {green:blue} mixed make {magenta:purple}")
-       end
-red and blue mixed make purple
-```
-"""
-function withfaces(f, keyvals_itr)
-    # Before modifying the current `FACES`, we should ensure
-    # that we've loaded the user's customisations.
-    load_customisations!()
-    if !(eltype(keyvals_itr) <: Pair{Symbol})
-        throw(MethodError(withfaces, (f, keyvals_itr)))
-    end
-    newfaces = copy(FACES.current[])
-    for (name, face) in keyvals_itr
-        if face isa Face
-            newfaces[name] = face
-        elseif face isa Symbol
-            newfaces[name] = get(Face, FACES.current[], face)
-        elseif face isa Vector{Symbol}
-            newfaces[name] = Face(inherit=face)
-        elseif haskey(newfaces, name)
-            delete!(newfaces, name)
-        end
-    end
-    @with(FACES.current => newfaces, f())
-end
-
-withfaces(f, keyvals::Pair{Symbol, <:Union{Face, Symbol, Vector{Symbol}, Nothing}}...) =
-    withfaces(f, keyvals)
-
-withfaces(f) = f()
-
-## Face combination and inheritance ##
-
-"""
-    merge(initial::StyledStrings.Face, others::StyledStrings.Face...)
-
-Merge the properties of the `initial` face and `others`, with later faces taking priority.
-
-This is used to combine the styles of multiple faces, and to resolve inheritance.
-"""
-function Base.merge(a::Face, b::Face)
-    if isempty(b.inherit)
-        # Extract the heights to help type inference a bit to be able
-        # to narrow the types in e.g. `aheight * bheight`
-        aheight = a.height
-        bheight = b.height
-        abheight = if isnothing(bheight) aheight
-        elseif isnothing(aheight) bheight
-        elseif bheight isa Int bheight
-        elseif aheight isa Int round(Int, aheight * bheight)
-        else aheight * bheight end
-        Face(if isnothing(b.font)          a.font          else b.font          end,
-             abheight,
-             if isnothing(b.weight)        a.weight        else b.weight        end,
-             if isnothing(b.slant)         a.slant         else b.slant         end,
-             if isnothing(b.foreground)    a.foreground    else b.foreground    end,
-             if isnothing(b.background)    a.background    else b.background    end,
-             if isnothing(b.underline)     a.underline     else b.underline     end,
-             if isnothing(b.strikethrough) a.strikethrough else b.strikethrough end,
-             if isnothing(b.inverse)       a.inverse       else b.inverse       end,
-             a.inherit)
-    else
-        b_noinherit = Face(
-            b.font, b.height, b.weight, b.slant, b.foreground, b.background,
-            b.underline, b.strikethrough, b.inverse, Symbol[])
-        b_inheritance = map(fname -> get(Face, FACES.current[], fname), Iterators.reverse(b.inherit))
-        b_resolved = merge(foldl(merge, b_inheritance), b_noinherit)
-        merge(a, b_resolved)
-    end
-end
-
-Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
-
-## Getting the combined face from a set of properties ##
-
-# Putting these inside `getface` causes the julia compiler to box it
-_mergedface(face::Face) = face
-_mergedface(face::Symbol) = get(Face, FACES.current[], face)
-_mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
-
-"""
-    getface(faces)
-
-Obtain the final merged face from `faces`, an iterator of
-[`Face`](@ref)s, face name `Symbol`s, and lists thereof.
-"""
-function getface(faces)
-    isempty(faces) && return FACES.current[][:default]
-    combined = mapfoldl(_mergedface, merge, faces)::Face
-    if !isempty(combined.inherit)
-        combined = merge(Face(), combined)
-    end
-    merge(FACES.current[][:default], combined)
-end
-
-"""
-    getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
-
-Combine all of the `:face` annotations with `getfaces`.
-"""
-function getface(annotations::Vector{@NamedTuple{label::Symbol, value::Any}})
-    faces = (ann.value for ann in annotations if ann.label === :face)
-    getface(faces)
-end
-
-getface(face::Face) = merge(FACES.current[][:default], merge(Face(), face))
-getface(face::Symbol) = getface(get(Face, FACES.current[], face))
-
-"""
-    getface()
-
-Obtain the default face.
-"""
-getface() = FACES.current[][:default]
-
-## Face/AnnotatedString integration ##
-
-"""
-    getface(s::AnnotatedString, i::Integer)
-
-Get the merged [`Face`](@ref) that applies to `s` at index `i`.
-"""
-getface(s::AnnotatedString, i::Integer) =
-    getface(map(last, annotations(s, i)))
-
-"""
-    getface(c::AnnotatedChar)
-
-Get the merged [`Face`](@ref) that applies to `c`.
-"""
-getface(c::AnnotatedChar) = getface(c.annotations)
-
-"""
-    face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-          [range::UnitRange{Int},] face::Union{Symbol, Face})
-
-Apply `face` to `str`, along `range` if specified or the whole of `str`.
-"""
-face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      range::UnitRange{Int}, face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, range, :face, face)
-
-face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
-      face::Union{Symbol, Face, <:Vector{<:Union{Symbol, Face}}}) =
-          annotate!(s, firstindex(s):lastindex(s), :face, face)
-
-## Reading face definitions from a dictionary ##
-
-"""
-    loadface!(name::Symbol => update::Face)
-
-Merge the face `name` in `FACES``.current` with `update`. If the face `name`
-does not already exist in `FACES``.current`, then it is set to `update`. To
-reset a face, `update` can be set to `nothing`.
-
-# Examples
-
-```jldoctest; setup = :(import StyledStrings: Face, loadface!)
-julia> loadface!(:red => Face(foreground=0xff0000))
-Face (sample)
-    foreground: #ff0000
-```
-"""
-function loadface!((name, update)::Pair{Symbol, Face})
-    @lock FACES.lock if haskey(FACES.current[], name)
-        FACES.current[][name] = merge(FACES.current[][name], update)
-    else
-        FACES.current[][name] = update
-    end
-end
-
-function loadface!((name, _)::Pair{Symbol, Nothing})
-    if haskey(FACES.current[], name)
-        resetfaces!(name)
-    end
-end
-
-"""
-    loaduserfaces!(faces::Dict{String, Any})
-
-For each face specified in `Dict`, load it to `FACES``.current`.
-"""
-function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing)
-    for (name, spec) in faces
-        fullname = if isnothing(prefix)
-            name
-        else
-            string(prefix, '_', name)
-        end
-        fspec = filter((_, v)::Pair -> !(v isa Dict), spec)
-        fnest = filter((_, v)::Pair -> v isa Dict, spec)
-        !isempty(fspec) &&
-            loadface!(Symbol(fullname) => convert(Face, fspec))
-        !isempty(fnest) &&
-            loaduserfaces!(fnest, fullname)
-    end
-end
-
-"""
-    loaduserfaces!(tomlfile::String)
-
-Load all faces declared in the Faces.toml file `tomlfile`.
-"""
-loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
-
-function Base.convert(::Type{Face}, spec::Dict{String,Any})
-    Face(if haskey(spec, "font") && spec["font"] isa String
-             spec["font"]::String
-         end,
-         if haskey(spec, "height") && (spec["height"] isa Int || spec["height"] isa Float64)
-             spec["height"]::Union{Int,Float64}
-         end,
-         if haskey(spec, "weight") && spec["weight"] isa String
-             Symbol(spec["weight"]::String)
-         elseif haskey(spec, "bold") && spec["bold"] isa Bool
-             ifelse(spec["bold"]::Bool, :bold, :normal)
-         end,
-         if haskey(spec, "slant") && spec["slant"] isa String
-             Symbol(spec["slant"]::String)
-         elseif haskey(spec, "italic") && spec["italic"] isa Bool
-             ifelse(spec["italic"]::Bool, :italic, :normal)
-         end,
-         if haskey(spec, "foreground") && spec["foreground"] isa String
-             tryparse(SimpleColor, spec["foreground"]::String)
-         elseif haskey(spec, "fg") && spec["fg"] isa String
-             tryparse(SimpleColor, spec["fg"]::String)
-         end,
-         if haskey(spec, "background") && spec["background"] isa String
-             tryparse(SimpleColor, spec["background"]::String)
-         elseif haskey(spec, "bg") && spec["bg"] isa String
-             tryparse(SimpleColor, spec["bg"]::String)
-         end,
-         if !haskey(spec, "underline")
-         elseif spec["underline"] isa Bool
-             spec["underline"]::Bool
-         elseif spec["underline"] isa String
-             tryparse(SimpleColor, spec["underline"]::String)
-         elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
-             color_str, style_str = (spec["underline"]::Vector{String})
-             color = tryparse(SimpleColor, color_str)
-             (color, Symbol(style_str))
-         end,
-         if !haskey(spec, "strikethrough")
-         elseif spec["strikethrough"] isa Bool
-             spec["strikethrough"]::Bool
-         elseif spec["strikethrough"] isa String
-             tryparse(SimpleColor, spec["strikethrough"]::String)
-         end,
-         if haskey(spec, "inverse") && spec["inverse"] isa Bool
-             spec["inverse"]::Bool end,
-         if !haskey(spec, "inherit")
-             Symbol[]
-         elseif spec["inherit"] isa String
-             [Symbol(spec["inherit"]::String)]
-         elseif spec["inherit"] isa Vector{String}
-             [Symbol(name) for name in spec["inherit"]::Vector{String}]
-         else
-             Symbol[]
-         end)
 end
