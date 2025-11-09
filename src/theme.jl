@@ -240,6 +240,27 @@ _mergedface(face::Face) = face
 _mergedface(face::Symbol) = get(Face, FACES.current[], face)
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
 
+# To support mixed sysimage/external copies of the package
+function _mergedface(maybeface::Any)
+    ftype = typeof(maybeface)
+    if nameof(ftype) == :Face &&
+        nameof(parentmodule(ftype)) == :StyledStrings &&
+        fieldnames(ftype) == fieldnames(Face)
+        Face(maybeface.font,
+             maybeface.height,
+             maybeface.weight,
+             maybeface.slant,
+             maybeface.foreground,
+             maybeface.background,
+             maybeface.underline,
+             maybeface.strikethrough,
+             maybeface.inverse,
+             maybeface.inherit)
+    else
+        throw(MethodError(_mergedface, (maybeface,)))
+    end
+end
+
 """
     getface(faces)
 
