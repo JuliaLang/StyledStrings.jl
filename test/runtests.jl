@@ -3,7 +3,8 @@
 using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
-    @styled_str, styled, StyledMarkup, getface, addface!, loadface!, resetfaces!,
+    @styled_str, styled, StyledMarkup, getface, addface!, loadface!, withfaces, resetfaces!,
+    rgbcolor, blend, recolor, setcolors!,
     AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 
@@ -160,28 +161,28 @@ end
              slant = :oblique, foreground = :green, background = :magenta,
              underline = (:blue, :curly), strikethrough = true,
              inverse = true, inherit = [:iface])
-    StyledStrings.resetfaces!()
+    resetfaces!()
     @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
     @test haskey(FACES.current[], :testface) == false
     @test haskey(FACES.current[], :anotherface) == false
     # `withfaces`
-    @test StyledStrings.withfaces(:testface => Face(font="test")) do
+    @test withfaces(:testface => Face(font="test")) do
         get(FACES.current[], :testface, nothing)
     end == Face(font="test")
     @test haskey(FACES.current[], :testface) == false
-    @test StyledStrings.withfaces(:red => :green) do
+    @test withfaces(:red => :green) do
         get(FACES.current[], :red, nothing)
     end == Face(foreground=:green)
-    @test StyledStrings.withfaces(:red => [:green, :inverse]) do
+    @test withfaces(:red => [:green, :inverse]) do
         get(FACES.current[], :red, nothing)
     end == Face(inherit=[:green, :inverse])
-    @test StyledStrings.withfaces(:red => nothing) do
+    @test withfaces(:red => nothing) do
         get(FACES.current[], :red, nothing)
     end === nothing
-    @test StyledStrings.withfaces(Dict(:green => Face(foreground=:blue))) do
+    @test withfaces(Dict(:green => Face(foreground=:blue))) do
         get(FACES.current[], :green, nothing)
     end == Face(foreground=:blue)
-    @test StyledStrings.withfaces(() -> 1) == 1
+    @test withfaces(() -> 1) == 1
     # Basic merging
     let f1 = Face(height=140, weight=:bold, inherit=[:a])
         f2 = Face(height=1.5, weight=:light, inherit=[:b])
@@ -216,7 +217,7 @@ end
         @test getface([:d, :c]).foreground.value == :red
         @test getface([[:d, :c]]).foreground.value == :blue
         @test getface(:f).foreground.value == :blue
-        StyledStrings.resetfaces!()
+        resetfaces!()
     end
     # Equality/hashing equivalence
     let testfaces = [Face(foreground=:blue),
@@ -640,4 +641,60 @@ end
     @test printstyled(aio, "d", reverse=true)   |> isnothing
     @test printstyled(aio, "e", color=:green)   |> isnothing
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
+end
+
+@testset "Recoloring" begin
+    @testset "RGB" begin
+        @test rgbcolor(:red) == FACES.basecolors[:red]
+        @test rgbcolor(SimpleColor(:red)) == FACES.basecolors[:red]
+        withfaces([:indirect => Face(foreground=:another),
+                   :another => Face(foreground=:final),
+                   :final => Face(foreground=:red)]) do
+                       @test rgbcolor(:indirect) == FACES.basecolors[:red]
+                   end
+        @test rgbcolor(:unknown) == StyledStrings.UNRESOLVED_COLOR_FALLBACK
+    end
+    @testset "Blending" begin
+        @test blend((r = 0x00, g = 0x00, b = 0xff) => 0.5, (r = 0xff, g=0xff, b=0x00) => 0.5) ==
+            (r = 0x6b, g = 0xaa, b = 0xc6)
+        @test blend(SimpleColor(0x0000ff) => 0.5, SimpleColor(0xffff00) => 0.5) ==
+            SimpleColor(0x6baac6)
+        @test blend(SimpleColor(0x000000) => 0.2, SimpleColor(0xffffff) => 0.6, SimpleColor(0x00ff00) => 0.2) ==
+            SimpleColor(0x9fbe9c)
+        withfaces([:blue => Face(foreground=0x0000ff),
+                   :yellow => Face(foreground=0xffff00)]) do
+                       @test blend(:blue => 0.5, :yellow => 0.5) == SimpleColor(0x6baac6)
+                   end
+    end
+    @testset "Theme change" begin
+        lightfbg = [:foreground => (r = 0x00, g = 0x00, b = 0x00),
+                    :background => (r = 0xff, g = 0xff, b = 0xff),
+                    :yellow     => (r = 0xfc, g = 0xce, b = 0x7b)]
+        darkfbg = [:foreground => (r = 0xff, g = 0xff, b = 0xff),
+                   :background => (r = 0x00, g = 0x00, b = 0x00),
+                   :yellow     => (r = 0xa7, g = 0x7e, b = 0x27)]
+        setcolors!(lightfbg)
+        counter = Ref(0)
+        recolor() do
+            counter[] += 1
+        end
+        @test counter[] == 0
+        addface!(:test_lightdark => Face(foreground=0x000001))
+        addface!(:test_lightdark => Face(foreground=0x000002), :light)
+        addface!(:test_lightdark => Face(foreground=0x000003), :dark)
+        @test rgbcolor(:test_lightdark).b == 0x01
+        setcolors!(lightfbg)
+        @test counter[] == 1
+        @test rgbcolor(:test_lightdark).b == 0x02
+        setcolors!(darkfbg)
+        @test counter[] == 2
+        @test rgbcolor(:test_lightdark).b == 0x03
+        recolor() do
+            loadface!(:test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
+        end
+        setcolors!(lightfbg)
+        @test getface(:test_lightdark).foreground.value == (r = 0x9d, g = 0x99, b = 0x92)
+        setcolors!(darkfbg)
+        @test getface(:test_lightdark).foreground.value == (r = 0x43, g = 0x40, b = 0x3a)
+    end
 end
