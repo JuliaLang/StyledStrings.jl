@@ -16,6 +16,7 @@ include("theme.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
+include("show.jl")
 
 using .StyledMarkup
 
