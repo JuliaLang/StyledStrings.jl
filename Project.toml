@@ -1,10 +1,10 @@
 name = "StyledStrings"
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 authors = ["TEC <git@tecosaur.net>"]
-version = "1.13.0"
+version = "1.14.0"
 
 [compat]
-julia = "1.11"
+julia = "1.14"
 
 [extras]
 Supposition = "5a0628fe-1738-4658-9b6d-0b7605a9755b"
