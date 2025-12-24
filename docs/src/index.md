@@ -334,8 +334,12 @@ arbitrarily nest and overlap, \colorbox[HTML]{3a3a3a}{\color[HTML]{33d079}like
 ```@docs
 StyledStrings.@styled_str
 StyledStrings.styled
+StyledStrings.@face_str
+StyledStrings.@defpalette!
+StyledStrings.@registerpalette!
+StyledStrings.@usepalettes!
 StyledStrings.Face
-StyledStrings.addface!
+StyledStrings.remapfaces
 StyledStrings.withfaces
 StyledStrings.SimpleColor
 StyledStrings.parse(::Type{StyledStrings.SimpleColor}, ::String)
@@ -343,4 +347,10 @@ StyledStrings.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.merge(::StyledStrings.Face, ::StyledStrings.Face)
 StyledStrings.blend
 StyledStrings.recolor
+```
+
+### Deprecated API
+
+```@docs
+StyledStrings.addface!
 ```
