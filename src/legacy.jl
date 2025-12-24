@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, Face, loadface!, face!, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, FACES, Face, @face_str, loadface!, face!, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -87,10 +87,12 @@ const RENAMED_COLORS = Dict{Symbol, Symbol}(
     :light_cyan    => :bright_cyan,
     :light_white   => :bright_white)
 
-legacy_color(color::Symbol) =
+function legacy_color(color::Symbol)
     if color in NAMED_COLORS
-        SimpleColor(get(RENAMED_COLORS, color, color))
+        name = get(RENAMED_COLORS, color, color)
+        SimpleColor(FACES.pool[name])
     end
+end
 
 function legacy_color(color::String)
     namedcolours = map(String, NAMED_COLORS)
@@ -110,14 +112,14 @@ Try to emulate the effect of the various `*_color()` functions of `Base`, by
 loading any specified colours as foregrounds of the relevant faces.
 """
 function load_env_colors!()
-    for (fname, envkey) in ((:error,     "JULIA_ERROR_COLOR"),
-                            (:warn,      "JULIA_WARN_COLOR"),
-                            (:info,      "JULIA_INFO_COLOR"),
-                            (:log_debug, "JULIA_DEBUG_COLOR"))
+    for (face, envkey) in ((face"error",     "JULIA_ERROR_COLOR"),
+                           (face"warn",      "JULIA_WARN_COLOR"),
+                           (face"info",      "JULIA_INFO_COLOR"),
+                           (face"log_debug", "JULIA_DEBUG_COLOR"))
         if haskey(ENV, envkey)
             ecolor = legacy_color(ENV[envkey])
             if !isnothing(ecolor)
-                loadface!(fname => Face(foreground = ecolor))
+                loadface!(face => Face(foreground = ecolor))
             end
         end
     end
