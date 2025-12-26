@@ -354,12 +354,12 @@ const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
     :black => 900)
 
 function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bool=true)
-    priorattr = false
+    priorattr = Ref(false)
     function printattr(io, attr, valparts...)
-        if priorattr
+        if priorattr[]
             print(io, "; ")
         else
-            priorattr = true
+            priorattr[] = true
         end
         print(io, attr, ": ", valparts...)
     end

@@ -707,14 +707,16 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                 [(29:28+ncodeunits(String(key)), :face, :warning)]),
                     -length(str_key) - 2)
         end
-        if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
-            push!(kwargs, Expr(:kw, key, val))
-        elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
-            push!(kwargs, key => val)
-        else
-            styerr!(state, AnnotatedString("Contains repeated face key '$key'",
-                                            [(29:28+ncodeunits(String(key)), :face, :warning)]),
-                    -length(str_key) - 2)
+        let key = key # Avoid boxing from closure capture
+            if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
+                push!(kwargs, Expr(:kw, key, val))
+            elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
+                push!(kwargs, key => val)
+            else
+                styerr!(state, AnnotatedString("Contains repeated face key '$key'",
+                                                [(29:28+ncodeunits(String(key)), :face, :warning)]),
+                        -length(str_key) - 2)
+            end
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
         skipwhitespace!(state)
@@ -746,25 +748,25 @@ add it to `newstyles`.
 function read_face_or_keyval!(state::State, i::Int, char::Char, newstyles)
     function read_curlywrapped!(state)
         popfirst!(state.s) # first '{'
-        chars = Char[]
+        buffer = Char[]
         escaped = false
         while !isempty(state.s)
             _, c = popfirst!(state.s)
             if escaped && (c ∈ ('\\', '{', '}') || (c == '$' && ismacro(state)))
-                push!(chars, c)
+                push!(buffer, c)
                 escaped = false
             elseif escaped
-                push!(chars, '\\', c)
+                push!(buffer, '\\', c)
                 escaped = false
             elseif c == '\\'
                 escaped = true
             elseif c == '}'
                 break
             else
-                push!(chars, c)
+                push!(buffer, c)
             end
         end
-        String(chars)
+        String(buffer)
     end
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
