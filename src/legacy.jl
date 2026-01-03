@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, FACES, Face, @face_str, loadface!, face!, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, FACES, Face, @face_str, setface!, face!, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -119,7 +119,7 @@ function load_env_colors!()
         if haskey(ENV, envkey)
             ecolor = legacy_color(ENV[envkey])
             if !isnothing(ecolor)
-                loadface!(face => Face(foreground = ecolor))
+                setface!(face => Face(foreground = ecolor))
             end
         end
     end

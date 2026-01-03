@@ -69,22 +69,13 @@ function mkunregisteredface(name::Symbol, use::Bool)
             weaknothing(SimpleColor), weaknothing(SimpleColor), weaknothing(SimpleColor),
             weaknothing(Symbol), Memory{Face}()))
         if !isnothing(existing)
-            # 'Upgrade' an customisation-only face to an in-use face
+            # 'Upgrade' a customisation-only face to an in-use face
             delete!(FACES.names, existing)
-            if haskey(FACES.modifications.base, existing)
-                val = FACES.modifications.base[existing]
-                delete!(FACES.modifications.base, existing)
-                FACES.modifications.base[uface] = val
-            end
-            if haskey(FACES.modifications.light, existing)
-                val = FACES.modifications.light[existing]
-                delete!(FACES.modifications.light, existing)
-                FACES.modifications.light[uface] = val
-            end
-            if haskey(FACES.modifications.dark, existing)
-                val = FACES.modifications.dark[existing]
-                delete!(FACES.modifications.dark, existing)
-                FACES.modifications.dark[uface] = val
+            for mods in FACES.modifications
+                mface = get(mods, existing, nothing)
+                isnothing(mface) && continue
+                delete!(mods, existing)
+                mods[uface] = mface
             end
         end
         FACES.unregistered[name] = uface
@@ -480,8 +471,8 @@ function register_displace!(unreg::Face, reg::Face, fullname::Symbol)
         isnothing(mface) && continue
         delete!(mods, unreg)
         mods[reg] = mface
-        if cat ∈ (:base, FACES.current_theme)
-            FACES.current.default[reg] = merge(get(FACES.current.default, reg, reg), mface)
+        if cat ∈ (:base, FACES.current_theme[])
+            FACES.current.default[reg] = override(get(FACES.current.default, reg, reg), mface)
         end
     end
     if unreg.f.height == UNDEF_INUSE_HEIGHT_FLAG
