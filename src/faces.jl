@@ -49,9 +49,8 @@ A [`Face`](@ref) is a collection of graphical attributes for displaying text.
 Faces control how text is displayed in the terminal, and possibly other
 places too.
 
-Most of the time, a [`Face`](@ref) will be stored in the global faces dicts as a
-unique association with a *face name* Symbol, and will be most often referred to
-by this name instead of the [`Face`](@ref) object itself.
+Most of the time, a [`Face`](@ref) will be given a name in a palette (see
+[`@defpalette!`](@ref)) and be referred to by that name with [`face""`](@ref @face_str).
 
 # Attributes
 
@@ -77,10 +76,25 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
   - a `Tuple{SimpleColor, Symbol}`: The text should be underlined in the specified
     SimpleColor, and using the style specified by the Symbol, as before.
 - `strikethrough` (a `Bool`): Whether the text should be struck through.
-- `inverse` (a `Bool`): Whether the foreground and background colors should be
-  inverted.
-- `inherit` (a `Vector{Symbol}`): Names of faces to inherit from,
-  with earlier faces taking priority. All faces inherit from the `:default` face.
+- `inverse` (a `Bool`): Whether the foreground and background colors should
+  be swapped.
+- `inherit` (a `Vector{Face}`): Faces to inherit from, with earlier faces
+  taking priority. All faces inherit from the `default` face.
+
+# Examples
+
+```
+julia> Face(foreground = face"red", weight = :bold, underline=true)
+Face (sample)
+        weight: bold
+    foreground: ■ red
+     underline: true
+
+julia> Face(slant = :italic, inherit = face"emphasis")
+Face (sample)
+         slant: italic
+       inherit: emphasis(*)
+```
 """ Face
 
 @doc """
