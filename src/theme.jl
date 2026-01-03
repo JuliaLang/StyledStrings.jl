@@ -494,21 +494,19 @@ face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRa
 ## Reading face definitions from a dictionary ##
 
 """
-    loadface!(original::Face => update::Face, [theme::Symbol = :base])
+    setface!(original::Face => update::Face, [theme::Symbol = :base])
 
 Merge the current value of `original` with `update`.
 
-To reset a face, `update` can be set to `nothing`.
-
 # Examples
 
-```jldoctest; setup = :(import StyledStrings: Face, loadface!)
-julia> loadface!(:red => Face(foreground=0xff0000))
+```jldoctest; setup = :(import StyledStrings: Face, setface!)
+julia> setface!(:red => Face(foreground=0xff0000))
 Face (sample)
     foreground: #ff0000
 ```
 """
-function loadface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
+function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
         current = FACES.current[]
         if FACES.current.default === current # Only save top-level modifications
@@ -534,14 +532,14 @@ Merge the current value of the face `name` with `update`.
 """
 function loadface!((name, update)::Pair{Symbol, Face}, theme::Symbol = :base)
     Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
                    :loadface!)
-    loadface!(lookmakeface(name, false) => update, theme)
+    setface!(lookmakeface(name, false) => update, theme)
 end
 
 function loadface!((name, _)::Pair{Symbol, Nothing})
     Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
                  :loadface!)
     if haskey(FACES.current[], name)
         resetfaces!(name)
@@ -566,7 +564,7 @@ function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}
         fnest = filter((_, v)::Pair -> v isa Dict, spec)
         if !isempty(fspec)
             face = lookmakeface(Symbol(fullname), false)
-            loadface!(face => convert(Face, fspec), theme)
+            setface!(face => convert(Face, fspec), theme)
         end
         !isempty(fnest) &&
             loaduserfaces!(fnest, fullname, theme)
@@ -686,7 +684,7 @@ Register a hook function `f` to be called whenever the colors change.
 Usually hooks will be called once after terminal colors have been
 determined. These hooks enable dynamic retheming, but are specifically *not* run when faces
 are changed. They sit in between the default faces and modifications layered on
-top with `loadface!` and user customisations.
+top with `setface!` and user customisations.
 """
 function recolor(f::Function)
     @lock recolor_lock push!(recolor_hooks, f)
