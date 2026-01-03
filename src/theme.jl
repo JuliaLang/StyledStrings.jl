@@ -15,7 +15,9 @@ const FACES = let
     shadow = Face(foreground=bright_black)
     region = Face(background=0x636363)
     emphasis = Face(foreground=blue)
+    link = Face(underline=blue)
     code = Face(foreground=cyan)
+    key = Face(inherit=code)
     error = Face(foreground=bright_red)
     warning = Face(foreground=yellow)
     success = Face(foreground=green)
@@ -67,8 +69,10 @@ const FACES = let
         :shadow => shadow,
         :region => region,
         :emphasis => emphasis,
+        :link => link,
         :highlight => Face(inherit=emphasis, inverse=true),
         :code => code,
+        :key => key,
         # Styles of generic content categories
         :error => error,
         :warning => warning,
