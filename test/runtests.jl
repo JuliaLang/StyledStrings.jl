@@ -4,7 +4,7 @@ using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
     @styled_str, styled, StyledMarkup, @face_str, getface, addface!, loadface!, withfaces, resetfaces!,
-    rgbcolor, blend, recolor, setcolors!,
+    rgbcolor, blend, recolor, setface!, setcolors!,
     AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 
@@ -247,13 +247,13 @@ end
     @test Face(inherit=face"red") != Face(inherit=face"blue")
     # Adding a face then resetting
     testface = hacky_addface!(:testface, copy(Face()))
-    @test loadface!(testface => Face(font="test")) == Face(font="test")
+    @test setface!(testface => Face(font="test")) == Face(font="test")
     @test get(FACES.current[], testface, nothing) == Face(font="test")
-    @test loadface!(face"bold" => Face(weight=:extrabold)) == Face(weight=:extrabold)
+    @test setface!(face"bold" => Face(weight=:extrabold)) == Face(weight=:extrabold)
     @test FACES.current[][face"bold"] == Face(weight=:extrabold)
     resetfaces!(face"bold")
     @test !haskey(FACES.current[], face"bold")
-    @test loadface!(testface => Face(height=2.0)) == Face(font="test", height=2.0)
+    @test setface!(testface => Face(height=2.0)) == Face(font="test", height=2.0)
     @test get(FACES.current[], testface, nothing) == Face(font="test", height=2.0)
     resetfaces!(testface)
     @test get(FACES.current[], testface, nothing) === nothing
@@ -451,6 +451,16 @@ end
     @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette! begin x.dark = Face(weight = :bold) end))
     @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
     @test StyledStrings.facename(TestPaletteUser, heading) == :heading
+    # A placeholder customised before use hands its customisation on to the registered face,
+    # and once in use is remapped to it
+    setface!(StyledStrings.lookmakeface(:zzz_placeholder, false) => Face(font = "custom"))
+    placeholder = StyledStrings.lookmakeface(:zzz_placeholder)
+    registered = copy(Face())
+    @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_placeholder)
+    @test getface(registered).font == "custom"
+    @test FACES.remapping[][placeholder] === registered
+    @test !haskey(FACES.unregistered, :zzz_placeholder)
+    resetfaces!(registered)
 end
 
 @testset "Styled Markup" begin
@@ -909,8 +919,34 @@ end
         setcolors!(darkfbg)
         @test counter[] == 2
         @test rgbcolor(SimpleColor(test_lightdark)).b == 0x03
+        # Theme switch
+        setcolors!(lightfbg)
+        setface!(face"red" => Face(font="lightonly"), :light)
+        @test getface(face"red").font == "lightonly"
+        setcolors!(darkfbg)
+        @test getface(face"red").font == "monospace"
+        resetfaces!(face"red")
+        # Modifications and theme variants layer over the base face
+        setface!(face"red" => Face(font="always"))
+        setcolors!(darkfbg)
+        @test getface(face"red").foreground.value === face"red"
+        @test getface(face"red").font == "always"
+        resetfaces!(face"red")
+        test_variant = hacky_addface!(:test_variant, Face(font="base"))
+        hacky_addface!(:test_variant, Face(foreground=0x000002), :light)
+        setcolors!(lightfbg)
+        @test getface(test_variant).font == "base"
+        @test getface(test_variant).foreground.value.b == 0x02
+        # Placeholder displacement
+        placeholder = StyledStrings.lookmakeface(:zzz_displaced, false)
+        setface!(placeholder => Face(font="lightmod"), :light)
+        setcolors!(lightfbg)
+        registered = Face(weight=:bold)
+        @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_displaced)
+        @test getface(registered).font == "lightmod"
+        resetfaces!(registered)
         recolor() do
-            loadface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
+            setface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
         end
         setcolors!(lightfbg)
         @test getface(test_lightdark).foreground.value == (r = 0x9d, g = 0x99, b = 0x92)

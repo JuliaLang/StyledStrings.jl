@@ -540,21 +540,19 @@ face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRa
 ## Reading face definitions from a dictionary ##
 
 """
-    loadface!(original::Face => update::Face, [theme::Symbol = :base])
+    setface!(original::Face => update::Face, [theme::Symbol = :base])
 
 Merge the current value of `original` with `update`.
 
-To reset a face, `update` can be set to `nothing`.
-
 # Examples
 
-```jldoctest; setup = :(import StyledStrings: Face, loadface!)
-julia> loadface!(:red => Face(foreground=0xff0000))
+```jldoctest; setup = :(import StyledStrings: Face, setface!)
+julia> setface!(face"red" => Face(foreground=0xff0000))
 Face (sample)
     foreground: #ff0000
 ```
 """
-function loadface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
+function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
         current = FACES.current[]
         if FACES.current.default === current # Only save top-level modifications
@@ -580,14 +578,14 @@ Merge the current value of the face `name` with `update`.
 """
 function loadface!((name, update)::Pair{Symbol, Face}, theme::Symbol = :base)
     Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
                    :loadface!)
-    loadface!(lookmakeface(name, false) => update, theme)
+    setface!(lookmakeface(name, false) => update, theme)
 end
 
 function loadface!((name, _)::Pair{Symbol, Nothing})
     Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
                  :loadface!)
     if haskey(FACES.current[], name)
         resetfaces!(name)
@@ -612,7 +610,7 @@ function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}
         fnest = filter((_, v)::Pair -> v isa Dict, spec)
         if !isempty(fspec)
             face = lookmakeface(Symbol(fullname), false)
-            loadface!(face => convert(Face, fspec), theme)
+            setface!(face => convert(Face, fspec), theme)
         end
         !isempty(fnest) &&
             loaduserfaces!(fnest, fullname, theme)
@@ -732,7 +730,7 @@ Register a hook function `f` to be called whenever the colors change.
 Usually hooks will be called once after terminal colors have been
 determined. These hooks enable dynamic retheming, but are specifically *not* run when faces
 are changed. They sit in between the default faces and modifications layered on
-top with `loadface!` and user customisations.
+top with `setface!` and user customisations.
 """
 function recolor(f::Function)
     @lock recolor_lock push!(recolor_hooks, f)
@@ -772,19 +770,10 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
         FACES.current_theme[] = newtheme
         # Reset all themes to defaults
         current = FACES.current[]
-        for theme in keys(FACES.themes), (name, _) in FACES.modifications[theme]
-            default = get(FACES.pool, name, nothing)
-            isnothing(default) && continue
-            current[name] = default
-        end
+        empty!(current)
         if newtheme ∈ keys(FACES.themes)
             for (name, face) in FACES.themes[newtheme]
-                cface = get(current, name, nothing)
-                current[name] = if isnothing(cface)
-                    face
-                else
-                    override(current[name], face)
-                end
+                current[name] = override(get(current, name, name), face)
             end
         end
         # Run recolor hooks
@@ -792,15 +781,10 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
             hook()
         end
         # Layer on modifications
-        for theme in keys(FACES.themes)
+        for theme in keys(FACES.modifications)
             theme ∈ (:base, newtheme) || continue
             for (name, face) in FACES.modifications[theme]
-                cface = get(current, name, nothing)
-                current[name] = if isnothing(cface)
-                    face
-                else
-                    override(current[name], face)
-                end
+                current[name] = override(get(current, name, name), face)
             end
         end
     finally
