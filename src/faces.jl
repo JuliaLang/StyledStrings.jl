@@ -77,10 +77,25 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
   - a `Tuple{SimpleColor, Symbol}`: The text should be underlined in the specified
     SimpleColor, and using the style specified by the Symbol, as before.
 - `strikethrough` (a `Bool`): Whether the text should be struck through.
-- `inverse` (a `Bool`): Whether the foreground and background colors should be
-  inverted.
+- `inverse` (a `Bool`): Whether the foreground and background colors should
+  be swapped.
 - `inherit` (a `Vector{Symbol}`): Names of faces to inherit from,
   with earlier faces taking priority. All faces inherit from the `:default` face.
+
+# Examples
+
+```
+julia> Face(foreground = face"red", weight = :bold, underline=true)
+Face (sample)
+        weight: bold
+    foreground: ■ red
+     underline: true
+
+julia> Face(slant = :italic, inherit = face"emphasis")
+Face (sample)
+         slant: italic
+       inherit: emphasis(*)
+```
 """ Face
 
 @doc """

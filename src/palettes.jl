@@ -118,6 +118,10 @@ Obtain the `Face` identified in the current scope by a certain name.
 
 Basic faces are always available, as well as any pulled in with
 [`@usepalettes!`](@ref) or defined with [`@defpalette!`](@ref).
+
+!!! compat "StyledStrings 1.14"
+    This macro was introduced in the v1.14 release of StyledStrings/Julia.
+    It supplants the previous use of `Symbol`s to name faces.
 """
 macro face_str(name::String)
     isempty(name) && return Face()

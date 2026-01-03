@@ -36,8 +36,8 @@ characters 1 through to 7 are bold and red).
 
 Regions of a string are styled by applying [`Face`](@ref StyledStrings.Face)s
 (think "typeface") to them — a structure that holds styling information. As a
-convenience, faces in the global faces dictionary (e.g. `shadow`) can just be
-named instead of giving the [`Face`](@ref StyledStrings.Face) directly.
+convenience, faces can be named (e.g. `shadow`) and then referenced instead of
+giving the [`Face`](@ref StyledStrings.Face) directly.
 
 Along with these capabilities, we also provide a convenient way for constructing
 [`AnnotatedString`](@ref Base.AnnotatedString)s, detailed in [Styled String
@@ -61,42 +61,52 @@ along for the ride".
 
 This string type is fundamental to the [StyledStrings stdlib](@ref
 stdlib-styledstrings), which uses `:face`-labelled annotations to hold styling
-information.
+information, but arbitrary textual metadata can also be held with the string,
+such as part of speech labels.
 
-When concatenating a [`AnnotatedString`](@ref Base.AnnotatedString), take care to use
-[`annotatedstring`](@ref StyledStrings.annotatedstring) instead of [`string`](@ref) if you want
-to keep the string annotations.
+The annotations of a [`AnnotatedString`](@ref Base.AnnotatedString) can be
+accessed and modified via the [`annotations`](@ref StyledStrings.annotations)
+and [`annotate!`](@ref StyledStrings.annotate!) functions. Concatenating a
+[`AnnotatedString`](@ref Base.AnnotatedString) with `*` preserves annotations,
+but using [`string`](@ref) (e.g. `string("a", "b", "c")`) will drop annotations
+and return a `String`. To preserve annotations, use [`annotatedstring`](@ref
+StyledStrings.annotatedstring) instead.
 
 ```jldoctest
-julia> str = AnnotatedString("hello there", [(1:5, :word, :greeting), (7:11, :label, 1)])
+julia> str = AnnotatedString("hello there", [(1:5, :pos, :interjection), (7:11, :pos, :pronoun)])
 "hello there"
-
-julia> length(str)
-11
 
 julia> lpad(str, 14)
 "   hello there"
 
 julia> typeof(lpad(str, 7))
-AnnotatedString{String}
+AnnotatedString{String, Symbol}
 
-julia> str2 = AnnotatedString(" julia", [(2:6, :face, :magenta)])
+julia> str2 = AnnotatedString(" julia", [(2:6, :pos, :noun)])
 " julia"
 
-julia> annotatedstring(str, str2)
+julia> str3 = Base.annotatedstring(str, str2)
 "hello there julia"
 
-julia> str * str2 == annotatedstring(str, str2) # *-concatenation works
+julia> Base.annotations(str3)
+3-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Symbol}}:
+ (region = 1:5, label = :pos, value = :interjection)
+ (region = 7:11, label = :pos, value = :pronoun)
+ (region = 13:17, label = :pos, value = :noun)
+
+julia> str1 * str2 == str3 # *-concatenation works
 true
 ```
 
-The annotations of a [`AnnotatedString`](@ref Base.AnnotatedString) can be accessed
-and modified via the [`annotations`](@ref StyledStrings.annotations) and
-[`annotate!`](@ref StyledStrings.annotate!) functions.
+Note that here the `AnnotatedString` type parameters depend on both the string
+being wrapped, as well as the type of the annotation values.
 
-## Styling via [`AnnotatedString`](@ref Base.AnnotatedString)s
+!!! compat "Julia 1.14"
+    The use of a type parameter for annotation values was introduced with Julia 1.14.
 
 ## [Faces](@id stdlib-styledstrings-faces)
+
+Styles are specified through the `Face` type, which is designed to represent a common set of useful typeface attributes across multiple mediums (e.g. Terminals, HTML renderers, and LaTeX/Typst). Suites of faces can be defined in packages, conveniently referenced by name, reused in other packages, and [customised by users](@ref stdlib-styledstrings-face-toml).
 
 ### The `Face` type
 
@@ -116,86 +126,185 @@ namely:
 - `inherit`
 
 For details on the particular forms these attributes take, see the
-[`Face`](@ref StyledStrings.Face) docstring, but of particular interest is `inherit` as it allows
-you to _inherit_ attributes from other [`Face`](@ref StyledStrings.Face)s.
+[`Face`](@ref StyledStrings.Face) docstring. However, it is worth drawing
+particular attention to `inherit`, as it allows us to _inherit_ attributes from other
+[`Face`](@ref StyledStrings.Face)s.
 
-### The global faces dictionary
+The attributes that specify color (`foreground`, `background`, and optionally `underline`) may either specify a 24-bit RGB color (e.g. `#4063d8`) or name another face whose foreground color is used. In this way a set of named colors can be created by defining faces with foreground colors.
 
-To make referring to particular styles more convenient, there is a global
-`Dict{Symbol, Face}` that allows for [`Face`](@ref StyledStrings.Face)s to be
-referred to simply by name. Packages can add faces to this dictionary via the
-[`addface!`](@ref StyledStrings.addface!) function, and the loaded faces can be
-easily [customized](@ref stdlib-styledstrings-face-toml).
+!!! compat "Julia 1.14"
+    Direct use of `Face`s as colors was introduced with Julia 1.14.
 
-!!! warning "Appropriate face naming"
-    Any package registering new faces should ensure that they are prefixed
-    by the package name, i.e. follow the format `mypackage_myface`.
-    This is important for predictability, and to prevent name clashes.
+```@repl demo
+juliablue = Face(foreground = 0x4063d8)  # Hex-style color
+juliapurple = Face(foreground = (r = 0x95, g = 0x58, b = 0xb2)) # RGB tuple
+Face(foreground = juliablue, underline = juliapurple)
+```
 
-    Furthermore, packages should take care to use (and introduce) *semantic*
-    faces (like `code`) over direct colours and styles (like `cyan`). This is helpful
-    in a number of ways, from making the intent in usage more obvious, aiding
-    composability, and making user customisation more intuitive.
+Notice that the foreground and underline color are labelled as "unregistered".
+While assigning `Face`s to variables is fine for one-off use, it is often more
+useful to create named faces that you can reuse, and other packages can build on.
 
-There are two set of exemptions to the package-prefix rule:
-- the set of basic faces that are part of the default value of the faces dictionary
-- faces introduced by Julia's own standard library, namely `JuliaSyntaxHighlighting`
+### [Named faces and `face""`](@id stdlib-styledstrings-named-faces)
 
-#### [Basic faces](@id stdlib-styledstrings-basic-faces)
+StyledStrings comes with 32 named faces. The `default` face fully specifies all
+attributes, and represents the expected "ground state" of displayed text. The
+`foreground` and `background` faces give the default foreground and background
+of the `default` face. For convenience, the faces `bold`, `light`, `italic`,
+`underline`, `strikethrough`, and `inverse` are defined to save the trouble of
+frequently creating `Face`s just to set the relevant attribute.
 
-Basic faces are intended to represent a general idea that is widely applicable.
+We then have 16 faces for the 8 standard terminal colors, and their bright
+variants: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`,
+`bright_black`/`grey`/`gray`, `bright_red`, `bright_green`, `bright_yellow`,
+`bright_blue`, `bright_magenta`, `bright_cyan`, and `bright_white`. These
+`Face`s, together with `foreground` and `background` are special in that they
+are their own foreground. This is unique to these 18 faces, as their particular
+color will depend on the terminal they are shown in.
 
-For setting some text with a certain attribute, we have the `bold`, `light`,
-`italic`, `underline`, `strikethrough`, and `inverse` faces.
-
-There are also named faces for the 16 terminal colors: `black`, `red`, `green`,
-`yellow`, `blue`, `magenta`, `cyan`, `white`, `bright_black`/`grey`/`gray`,
-`bright_red`, `bright_green`, `bright_blue`, `bright_magenta`, `bright_cyan`,
-and `bright_white`.
-
-For shadowed text (i.e. dim but there) there is the `shadow` face. To indicate a
+A small collection of semantic faces are also defined, for common uses. For
+shadowed text (i.e. dim but there) there is the `shadow` face. To indicate a
 selected region, there is the `region` face. Similarly for emphasis and
 highlighting the `emphasis` and `highlight` faces are defined. There is also
-`code` for code-like text.
+`code` for code-like text, `key` for keybindings, and `link` for links. For
+visually indicating the severity of messages, the `error`, `warning` (with the
+alias: `warn`), `success`, `info`, `note`, and `tip` faces are defined.
 
-For visually indicating the severity of messages, the `error`, `warning`,
-`success`, `info`, `note`, and `tip` faces are defined.
+These faces can be easily retrieved using the [`face""`](@ref @face_str) macro.
+For instance, `face"blue"` returns the `Face` that defines the color blue, and
+`face"emphasis"` returns the `Face` defined for marking emphasised text.
 
-### [Customisation of faces (`Faces.toml`)](@id stdlib-styledstrings-face-toml)
-
-It is good for the name faces in the global face dictionary to be customizable.
-Theming and aesthetics are nice, and it is important for accessibility reasons
-too. A TOML file can be parsed into a list of [`Face`](@ref StyledStrings.Face) specifications that
-are merged with the pre-existing entry in the face dictionary.
-
-A [`Face`](@ref StyledStrings.Face) is represented in TOML like so:
-
-```toml
-[facename]
-attribute = "value"
-...
-
-[package.facename]
-attribute = "value"
+```@repl demo
+face"default"
+face"highlight"
+face"tip"
 ```
 
-For example, if the `shadow` face is too hard to read it can be made brighter
-like so:
+!!! compat "Julia 1.14"
+    The `face""` macro and current face naming system was introduced with Julia 1.14.
+    In Julia 1.11 through to 1.13 (and the backwards compatibility package registered in General)
+    faces are named with `Symbol`s, and a global faces dictionary is used. The old API is still
+    supported for backwards compatibility, but it is strongly recommended to support the new
+    system by putting palette definitions behind a version gate if compatibility with older library
+    versions is required.
 
-```toml
-[shadow]
-foreground = "white"
+### [Palettes](@id stdlib-styledstrings-face-palettes)
+
+While the base faces provided are often enough for basic styling, they convey
+little semantic meaning. Instead of a package say using `face"bold"` or an
+anonymous `Face` for table headers it would be more appropriate to create a
+named face for each distinct purpose. This benefits three sets of people:
+- Package authors: as it's much easier to implement readable code and consistent styling by naming the styles you use
+- The ecosystem: as it allows for style reuse across packages
+- End users: as named faces allow for customisation (more on that later)
+
+!!! tip "Effective use of named faces"
+    It is _strongly_ recommended that packages should take care to use and introduce
+    semantic faces (like `code` and `table_header`) over direct colors and styles (like `cyan`). 
+    
+Sets of named faces are created with the [`@defpalette!`](@ref) macro. Simply
+wrap a series of `<name> = Face(...)` statements in a `begin ... end` block and
+declare all the faces you want to create. For example:
+
+```julia
+@defpalette! begin
+    table_header = Face(weight = :bold, underline = true)
+    table_row_even = Face(background = bright_black)
+    table_row_odd = Face(background = black)
+    table_separator = Face(foreground = yellow)
+end
 ```
 
-On initialization, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
+All faces defined by [`@defpalette!`](@ref) are recognised by [`face""`](@ref
+@face_str). In our table example, this means that `face"table_header"` will work
+just as `face"cyan"` does.
+
+To support face customisation, along with other runtime features, it is
+necessary that whenever `@defpalette!` is used a call to `@registerpalette!` is
+put in the module's `__init__` function.
+
+```julia
+function __init__()
+    @registerpalette!
+end
+```
+
+The ability to use a face defined within a module, like `face"table_header"`, is
+specific to that module. Should `face"table_header"` be put in another module,
+it will not be found. In order to use faces defined in another module or
+package, we can invoke [`@usepalettes!`](@ref). This imports the faces defined
+by the modules provided as arguments.
+
+```julia
+@usepalettes! MyColors
+
+face"burgundy" # defined in MyColors
+```
+
+!!! note "Declare and import faces before using them"
+    Face resolution with `face""` is performed at macro-expansion (compile) time.
+    A consequence of this is that faces must be defined and imported with `@defpalette!`
+    and `@usepalettes!` before any `face""` calls referencing those faces.
+    
+It is also possible to specify a color provided by another module using a
+qualified name, of the form `face"<module path>.<name>`. In our example,
+`face"MyColors.burgundy"` could be used if `@usepalettes!` wasn't called.
+
+### [Dynamic face theming](@id stdlib-styledstrings-theming)
+
+When trying to create well-designed content for the terminal, only being able to assume 8 colors with two shades, but not knowing what those colors are, can be frustratingly limiting. However, reaching outside the 16 shades is fraught. Take picking a highlight color. For any single color you pick, there's a user with a terminal theme that makes the resulting content unreadable.
+
+By hooking into `REPL` initialisation, `StyledStrings` is able to query the terminal state and determine what the actual colors used by the terminal are. This allows for simplistic light/dark detection, as well as more sophisticated color blending.
+
+Light and dark variants of a face can be embedded in the `@usepalettes!` call that defines the faces, by using `.light` and `.dark` suffixes. For example:
+
+```julia
+@defpalette! begin
+    table_highlight = Face(background = 0xc2990b) # A muddy yellow. Not great but often legible
+    table_highlight.light = Face(background = 0xffda90) # A pale yellow for light themes
+    table_highlight.dark = Face(background = 0x876804) # A dull yellow for dark themes
+end
+```
+
+Users can customise the light and dark face variants, even if no variants are
+declared in `@defpalette!`. At runtime, the light and dark variants will
+automatically be applied when a light/dark terminal theme is detected.
+
+This helps us avoid the worst case of illegible content, but we can still do better. People are still using odd themes which make it hard to pick shades and hues that are completely reliable, and it's easy to clash with the color hues already used in the terminal color theme (for example, if the particular green you pick clashes). To produce the best experience, we can _blend_ the colors already used in the terminal theme to produce the best hue and shade. This is done with three key functions:
+- [`recolor`](@ref) as a hook for when theme information has been collected/updated
+- [`blend`](@ref) for blending colors
+- [`setface!`](@ref) for updating the face style
+
+Using these tools, we can set `table_highlight` to fit in seamlessly with the existing terminal theme.
+
+```julia
+# Must be placed within `__init__`
+StyledStrings.recolor() do
+    faintyellow = StyledStrings.blend(face"yellow", face"background", 0.7)
+    StyledStrings.setface!(face"table_highlight", Face(background = faintyellow))
+end
+```
+
+This capability is most valuable when reaching for colors in-between those offered by the terminal, or based on the particular foreground/background shades or hues. 
+
+!!! warning "Terminal compatability"
+    Colour detection and retheming "just work" across almost all common environments.
+    However, there are, a few situations in which the terminal emulator fails to provide the required information. We currently know of:
+    - Konsole (it lies about the colours, results will just be a little off)
+    - Vterm (doesn't report anything)
+    - iTerm2 with Tmux (doesn't report anything)
+    - Wezterm via WSL (doesn't report anything)
 
 ### Applying faces to a `AnnotatedString`
 
 By convention, the `:face` attributes of a [`AnnotatedString`](@ref
 Base.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
-that currently apply. This can be given in multiple forms, as a single `Symbol`
-naming a [`Face`](@ref StyledStrings.Face)s in the global face dictionary, a
-[`Face`](@ref StyledStrings.Face) itself, or a vector of either.
+that currently apply. 
+
+!!! compat "Julia 1.14"
+    Faces used to be given by either a single `Face`, a `Symbol` naming a face, or a vector
+    of `Face`s/`Symbol`s. As of version 1.14 this is deprecated and only supported for
+    backwards compatibility. This should not be used in any new code.
 
 The `show(::IO, ::MIME"text/plain", ::AnnotatedString)` and `show(::IO,
 ::MIME"text/html", ::AnnotatedString)` methods both look at the `:face` attributes
@@ -206,7 +315,7 @@ them to the properties list afterwards, or use the convenient [Styled String
 literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
-str1 = AnnotatedString("blue text", [(1:9, :face, :blue)])
+str1 = AnnotatedString("blue text", [(1:9, :face, face"blue")])
 str2 = styled"{blue:blue text}"
 str1 == str2
 sprint(print, str1, context = :color => true)
@@ -225,11 +334,11 @@ them to be used to express annotations with (nestable) `{annotations...:text}`
 constructs.
 
 The `annotations...` component is a comma-separated list of three types of annotations.
-- Face names
+- Face names (resolved using the same process described for `face""`)
 - Inline `Face` expressions `(key=val,...)`
 - `key=value` pairs
 
-Interpolation is possible everywhere except for inline face keys.
+Interpolation is possible everywhere except for inline face _keys_.
 
 For more information on the grammar, see the extended help of the
 [`styled"..."`](@ref @styled_str) docstring.
@@ -326,8 +435,77 @@ arbitrarily nest and overlap, \colorbox[HTML]{3a3a3a}{\color[HTML]{33d079}like
 \endgroup
 ```
 
-## [API reference](@id stdlib-styledstrings-api)
+## [Customisation](@id stdlib-styledstrings-customisation)
 
+### [Face configuration files (`Faces.toml`)](@id stdlib-styledstrings-face-toml)
+
+It is good for the name faces in the global face dictionary to be customizable.
+Theming and aesthetics are nice, and it is important for accessibility reasons
+too. A TOML file can be parsed into a list of [`Face`](@ref StyledStrings.Face) specifications that
+are merged with the pre-existing entry in the face dictionary.
+
+A [`Face`](@ref StyledStrings.Face) is represented in TOML like so:
+
+```toml
+[facename]
+attribute = "value"
+...
+
+[package.facename]
+attribute = "value"
+```
+
+For example, if the `shadow` face is too hard to read it can be made brighter
+like so:
+
+```toml
+[shadow]
+foreground = "white"
+```
+
+Should the package `MyTables` define a `table_header` face, you could change its
+color in the same manner:
+
+```toml
+[MyTables]
+table_header.foreground = "blue"
+```
+
+Light and dark face variants may be set under the top-level tables `[light]` and `[dark]`. For instance, to set the table header to magenta in light mode, one may use:
+
+```toml
+[light.MyTables]
+table_header.foreground = "magenta"
+```
+
+On initialization, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
+
+### Face remapping
+
+One package may construct a styled string without any knowledge of how it is intended to be used. Should you find yourself wanting to substitute particular faces applied by a method, you can wrap the method in [`remapfaces`](@ref) to substitute the faces applied during construction.
+
+```@repl demo
+StyledStrings.remapfaces(face"warning" => face"error") do
+    styled"you should be {warning:very concerned}"
+end
+```
+
+This changes the annotations in the styled strings produced within the `remapfaces` call.
+
+### Display-time face rebinding
+
+While `remapfaces` is applied during styled string construction, it is also possible to change the meaning of each face while they are printed. This is done via [`withfaces`](@ref).
+
+```@repl demo
+withfaces(face"yellow" => face"red", face"green" => face"blue") do
+    println(styled"{yellow:red} and {green:blue} mixed make {magenta:purple}")
+end
+```
+
+This is best applied when you want to temporarily change how faces appear,
+without modifying the underlying string data.
+
+## [API reference](@id stdlib-styledstrings-api)
 
 ### Styling and Faces
 
@@ -345,8 +523,9 @@ StyledStrings.SimpleColor
 StyledStrings.parse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.merge(::StyledStrings.Face, ::StyledStrings.Face)
-StyledStrings.blend
 StyledStrings.recolor
+StyledStrings.blend
+StyledStrings.setface!
 ```
 
 ### Deprecated API
