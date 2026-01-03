@@ -84,6 +84,21 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
   inverted.
 - `inherit` (a `Vector{Symbol}`): Names of faces to inherit from,
   with earlier faces taking priority. All faces inherit from the `:default` face.
+
+# Examples
+
+```
+julia> Face(foreground = face"red", weight = :bold, underline=true)
+Face (sample)
+        weight: bold
+    foreground: ■ red
+     underline: true
+
+julia> Face(slant = :italic, inherit = face"emphasis")
+Face (sample)
+         slant: italic
+       inherit: emphasis(*)
+```
 """ Face
 
 @doc """
