@@ -4,7 +4,7 @@ using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
     @styled_str, styled, StyledMarkup, @face_str, getface, addface!, loadface!, withfaces, resetfaces!,
-    rgbcolor, blend, recolor, setcolors!,
+    rgbcolor, blend, recolor, setface!, setcolors!,
     AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 
@@ -243,13 +243,13 @@ end
     @test Face(inherit=face"red") != Face(inherit=face"blue")
     # Adding a face then resetting
     testface = hacky_addface!(:testface, copy(Face()))
-    @test loadface!(testface => Face(font="test")) == Face(font="test")
+    @test setface!(testface => Face(font="test")) == Face(font="test")
     @test get(FACES.current[], testface, nothing) == Face(font="test")
-    @test loadface!(face"bold" => Face(weight=:extrabold)) == Face(weight=:extrabold)
+    @test setface!(face"bold" => Face(weight=:extrabold)) == Face(weight=:extrabold)
     @test FACES.current[][face"bold"] == Face(weight=:extrabold)
     resetfaces!(face"bold")
     @test !haskey(FACES.current[], face"bold")
-    @test loadface!(testface => Face(height=2.0)) == Face(font="test", height=2.0)
+    @test setface!(testface => Face(height=2.0)) == Face(font="test", height=2.0)
     @test get(FACES.current[], testface, nothing) == Face(font="test", height=2.0)
     resetfaces!(testface)
     @test get(FACES.current[], testface, nothing) === nothing
@@ -837,7 +837,7 @@ end
         @test counter[] == 2
         @test rgbcolor(SimpleColor(test_lightdark)).b == 0x03
         recolor() do
-            loadface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
+            setface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
         end
         setcolors!(lightfbg)
         @test getface(test_lightdark).foreground.value == (r = 0x9d, g = 0x99, b = 0x92)
