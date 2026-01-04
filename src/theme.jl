@@ -1,30 +1,11 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-"""
-Globally named [`Face`](@ref)s.
-
-`default` gives the initial values of the faces, and `current` holds the active
-(potentially modified) set of faces. This two-set system allows for any
-modifications to the active faces to be undone.
-"""
-const FACES = let
+const STANDARD_FACES = let
+    # Colours
     (; black, red, green, yellow, blue, magenta, cyan, white,
      bright_black, bright_red, bright_green, bright_yellow,
      bright_blue, bright_magenta, bright_cyan, bright_white,
      foreground, background) = BASE_FACES
-    shadow = Face(foreground=bright_black)
-    region = Face(background=0x636363)
-    emphasis = Face(foreground=blue)
-    link = Face(underline=blue)
-    code = Face(foreground=cyan)
-    key = Face(inherit=code)
-    error = Face(foreground=bright_red)
-    warning = Face(foreground=yellow)
-    success = Face(foreground=green)
-    info = Face(foreground=bright_cyan)
-    note = Face(foreground=bright_black)
-    tip = Face(foreground=bright_green)
-    repl_prompt = Face(weight=:bold)
     default = Face(FaceDef(
         "monospace", 120,      # font, height
         0x00, 0x00,            # strikethrough, inverse
@@ -34,106 +15,105 @@ const FACES = let
         SimpleColor(WEAK_NOTHING_FACE), # underline (color)
         strongnothing(Symbol), # underline (style)
         Memory{Face}()))
-    # Pool: The foundation of all other faces
-    POOL = IdDict{Symbol, Face}(
-        :default => default,
-        :foreground => foreground,
-        :background => background,
-        # Property faces
-        :bold => Face(weight=:bold),
-        :light => Face(weight=:light),
-        :italic => Face(slant=:italic),
-        :underline => Face(underline=true),
-        :strikethrough => Face(strikethrough=true),
-        :inverse => Face(inverse=true),
-        # Basic color faces
-        :black => black,
-        :red => red,
-        :green => green,
-        :yellow => yellow,
-        :blue => blue,
-        :magenta => magenta,
-        :cyan => cyan,
-        :white => white,
-        :bright_black => bright_black,
-        :grey => bright_black,
-        :gray => bright_black,
-        :bright_red => bright_red,
-        :bright_green => bright_green,
-        :bright_yellow => bright_yellow,
-        :bright_blue => bright_blue,
-        :bright_magenta => bright_magenta,
-        :bright_cyan => bright_cyan,
-        :bright_white => bright_white,
-        # Useful common faces
-        :shadow => shadow,
-        :region => region,
-        :emphasis => emphasis,
-        :link => link,
-        :highlight => Face(inherit=emphasis, inverse=true),
-        :code => code,
-        :key => key,
-        # Styles of generic content categories
-        :error => error,
-        :warning => warning,
-        :success => success,
-        :info => info,
-        :note => note,
-        :tip => tip,
-        # Stacktraces (on behalf of Base)
-        # :julia_stacktrace_frameindex => Face(),
-        # :julia_stacktrace_location => Face(inherit=shadow),
-        # :julia_stacktrace_filename => Face(underline=true, inherit=julia_stacktrace_location),
-        # :julia_stacktrace_fileline => Face(inherit=julia_stacktrace_filename),
-        # :julia_stacktrace_repetition => Face(inherit=warning),
-        # :julia_stacktrace_inlined => Face(inherit=julia_stacktrace_repetition),
-        # :julia_stacktrace_basemodule => Face(inherit=shadow),
-        # Log messages
-        :log_error => Face(foreground=error, bold=true),
-        :log_warn => Face(foreground=warning, bold=true),
-        :log_info => Face(foreground=info, bold=true),
-        :log_debug => Face(foreground=blue, bold=true),
-        # Julia prompts
-        :REPL_prompt => repl_prompt,
-        :REPL_prompt_julia => Face(inherit=[green, repl_prompt]),
-        :REPL_prompt_help => Face(inherit=[yellow, repl_prompt]),
-        :REPL_prompt_shell => Face(inherit=[red, repl_prompt]),
-        :REPL_prompt_pkg => Face(inherit=[blue, repl_prompt]),
-        :REPL_prompt_beep => Face(inherit=[shadow, repl_prompt]))
-    light = IdDict{Face, Face}(
-        region => Face(background=0xaaaaaa),
-    )
-    dark = IdDict{Face, Face}(
-        region => Face(background=0x363636),
-    )
-    basecolors = IdDict{Face, RGBTuple}( # Based on Gnome HIG colours
-        foreground     => (r = 0xf6, g = 0xf5, b = 0xf4),
-        background     => (r = 0x24, g = 0x1f, b = 0x31),
-        black          => (r = 0x1c, g = 0x1a, b = 0x23),
-        red            => (r = 0xa5, g = 0x1c, b = 0x2c),
-        green          => (r = 0x25, g = 0xa2, b = 0x68),
-        yellow         => (r = 0xe5, g = 0xa5, b = 0x09),
-        blue           => (r = 0x19, g = 0x5e, b = 0xb3),
-        magenta        => (r = 0x80, g = 0x3d, b = 0x9b),
-        cyan           => (r = 0x00, g = 0x97, b = 0xa7),
-        white          => (r = 0xdd, g = 0xdc, b = 0xd9),
-        bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
-        bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
-        bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
-        bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
-        bright_blue    => (r = 0x35, g = 0x83, b = 0xe4),
-        bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
-        bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
-        bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
+    # Property faces
+    bold = Face(weight=:bold)
+    light = Face(weight=:light)
+    italic = Face(slant=:italic)
+    underline = Face(underline=true)
+    strikethrough = Face(strikethrough=true)
+    inverse = Face(inverse=true)
+    # Useful common faces
+    shadow = Face(foreground=bright_black)
+    region = Face(background=0x636363)
+    emphasis = Face(foreground=blue)
+    link = Face(underline=blue)
+    highlight = Face(inherit=emphasis, inverse=true)
+    code = Face(foreground=cyan)
+    key = Face(inherit=code)
+    # Styles of generic content categories
+    error = Face(foreground=bright_red)
+    warning = Face(foreground=yellow)
+    success = Face(foreground=green)
+    info = Face(foreground=bright_cyan)
+    note = Face(foreground=bright_black)
+    tip = Face(foreground=bright_green)
+    # Log messages
+    log_error = Face(foreground=error, bold=true)
+    log_warn = Face(foreground=warning, bold=true)
+    log_info = Face(foreground=info, bold=true)
+    log_debug = Face(foreground=blue, bold=true)
+    # Julia prompts
+    REPL_prompt = Face(weight=:bold)
+    REPL_prompt_julia = Face(inherit=[green, REPL_prompt])
+    REPL_prompt_help = Face(inherit=[yellow, REPL_prompt])
+    REPL_prompt_shell = Face(inherit=[red, REPL_prompt])
+    REPL_prompt_pkg = Face(inherit=[blue, REPL_prompt])
+    REPL_prompt_beep = Face(inherit=[shadow, REPL_prompt])
+    # All together now
+    (; default, foreground, background,
+     # Property faces
+     bold, light, italic, underline, strikethrough, inverse,
+     # Basic color faces
+     black, red, green, yellow, blue, magenta, cyan, white,
+     bright_black, bright_red, bright_green, bright_yellow,
+     bright_blue, bright_magenta, bright_cyan, bright_white,
+     # Useful common faces
+     shadow, region, emphasis, link, highlight, code, key,
+     # Styles of generic content categories
+     error, warning, success, info, note, tip,
+     # Log messages
+     log_error, log_warn, log_info, log_debug,
+     # Julia prompts
+     REPL_prompt, REPL_prompt_julia, REPL_prompt_help,
+     REPL_prompt_shell, REPL_prompt_pkg, REPL_prompt_beep)
+end
+
+"""
+Globally named [`Face`](@ref)s.
+
+`default` gives the initial values of the faces, and `current` holds the active
+(potentially modified) set of faces. This two-set system allows for any
+modifications to the active faces to be undone.
+"""
+const FACES = let
+    # Bidirectional mapping of names to faces
+    POOL = IdDict{Symbol, Face}(pairs(STANDARD_FACES))
     NAMES = IdDict(f => n for (n, f) in POOL)
     # Aliases
     NAMES[WEAK_NOTHING_FACE] = :__WEAK_NOTHING__
     NAMES[STRONG_NOTHING_FACE] = :__STRONG_NOTHING__
-    POOL[:warn] = warning
-    # -
+    POOL[:warn] = STANDARD_FACES.warning
+    POOL[:grey] = STANDARD_FACES.bright_black
+    POOL[:gray] = STANDARD_FACES.bright_black
+    # Themes and base colors
+    light = IdDict{Face, Face}(
+        STANDARD_FACES.region => Face(background=0xaaaaaa),
+    )
+    dark = IdDict{Face, Face}(
+        STANDARD_FACES.region => Face(background=0x363636),
+    )
+    basecolors = IdDict{Face, RGBTuple}( # Based on Gnome HIG colours
+        BASE_FACES.foreground     => (r = 0xf6, g = 0xf5, b = 0xf4),
+        BASE_FACES.background     => (r = 0x24, g = 0x1f, b = 0x31),
+        BASE_FACES.black          => (r = 0x1c, g = 0x1a, b = 0x23),
+        BASE_FACES.red            => (r = 0xa5, g = 0x1c, b = 0x2c),
+        BASE_FACES.green          => (r = 0x25, g = 0xa2, b = 0x68),
+        BASE_FACES.yellow         => (r = 0xe5, g = 0xa5, b = 0x09),
+        BASE_FACES.blue           => (r = 0x19, g = 0x5e, b = 0xb3),
+        BASE_FACES.magenta        => (r = 0x80, g = 0x3d, b = 0x9b),
+        BASE_FACES.cyan           => (r = 0x00, g = 0x97, b = 0xa7),
+        BASE_FACES.white          => (r = 0xdd, g = 0xdc, b = 0xd9),
+        BASE_FACES.bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
+        BASE_FACES.bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
+        BASE_FACES.bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
+        BASE_FACES.bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
+        BASE_FACES.bright_blue    => (r = 0x35, g = 0x83, b = 0xe4),
+        BASE_FACES.bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
+        BASE_FACES.bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
+        BASE_FACES.bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4))
+    # Combined structure
     (pool = POOL,
      names = NAMES,
-     default = default,
      unregistered = IdDict{Symbol, Face}(),
      themes = (; light, dark),
      current_theme = Ref(:base),
@@ -352,7 +332,7 @@ function withfaces(f, keyvals_itr)
     if eltype(keyvals_itr) <: Pair{Face}
     elseif eltype(keyvals_itr) <: Pair{Symbol}
         keyvals_itr = Iterators.map(keyvals_itr) do (k, v)
-            get(FACES.pool, k, FACES.default) => v
+            get(FACES.pool, k, STANDARD_FACES.default) => v
         end
     else
         throw(MethodError(withfaces, (f, keyvals_itr)))
@@ -362,10 +342,10 @@ function withfaces(f, keyvals_itr)
         if new isa Face
             newfaces[face] = new
         elseif new isa Symbol
-            newf = get(FACES.pool, new, FACES.default)
+            newf = get(FACES.pool, new, STANDARD_FACES.default)
             newfaces[face] = get(FACES.current[], newf, newf)
         elseif new isa Vector{Symbol}
-            newfs = [get(FACES.pool, n, FACES.default) for n in new]
+            newfs = [get(FACES.pool, n, STANDARD_FACES.default) for n in new]
             newfaces[face] = Face(inherit=[get(FACES.current[], nf, nf) for nf in newfs])
         elseif new isa Vector{Face}
             newfaces[face] = Face(inherit=new)
@@ -392,7 +372,7 @@ withfaces(f) = f()
 
 # Putting these inside `getface` causes the julia compiler to box it
 _mergedface(face::Face) = get(FACES.current[], face, face)
-_mergedface(face::Symbol) = get(FACES.pool, face, FACES.default)
+_mergedface(face::Symbol) = get(FACES.pool, face, STANDARD_FACES.default)
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
 
 # To support mixed sysimage/external copies of the package
@@ -422,7 +402,7 @@ Obtain the final merged face from `faces`, an iterator of
 [`Face`](@ref)s, face name `Symbol`s, and lists thereof.
 """
 function getface(faces)
-    cdefault = get(FACES.current[], :default, FACES.default)
+    cdefault = get(FACES.current[], :default, STANDARD_FACES.default)
     isempty(faces) && return cdefault
     combined = mapfoldl(_mergedface, merge, faces)::Face
     if !isempty(combined.inherit)
@@ -441,15 +421,15 @@ function getface(annotations::Vector{@NamedTuple{label::Symbol, value::V}}) wher
     getface(faces)
 end
 
-getface(face::Face) = merge(get(FACES.current[], :default, FACES.default), merge(Face(), get(FACES.current[], face, face)))
-getface(face::Symbol) = getface(get(FACES.pool, face, FACES.default))
+getface(face::Face) = merge(get(FACES.current[], :default, STANDARD_FACES.default), merge(Face(), get(FACES.current[], face, face)))
+getface(face::Symbol) = getface(get(FACES.pool, face, STANDARD_FACES.default))
 
 """
     getface()
 
 Obtain the default face.
 """
-getface() = get(FACES.current[], :default, FACES.default)
+getface() = get(FACES.current[], :default, STANDARD_FACES.default)
 
 ## Face/AnnotatedString integration ##
 
