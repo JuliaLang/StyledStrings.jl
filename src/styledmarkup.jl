@@ -514,8 +514,6 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             tryparse(SimpleColor, color)
         elseif startswith(color, "0x") && length(color) == 8
             tryparse(SimpleColor, '#' * color[3:end])
-        elseif !ismacro(state)
-            SimpleColor(get(FACES.pool, Symbol(color), FACES.default))
         else
             resolveface(state, color)
         end
