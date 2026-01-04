@@ -245,6 +245,8 @@ end
     @test Face(height=1) == Face(height=1)
     @test Face(height=1) != Face(height=2)
     @test Face(inherit=face"red") != Face(inherit=face"blue")
+    # Standard faces
+    @test all(f -> f.weight == :bold, (face"log_error", face"log_warn", face"log_info", face"log_debug"))
     # Adding a face then resetting
     testface = hacky_addface!(:testface, copy(Face()))
     @test setface!(testface => Face(font="test")) == Face(font="test")
@@ -257,6 +259,17 @@ end
     @test get(FACES.current[], testface, nothing) == Face(font="test", height=2.0)
     resetfaces!(testface)
     @test get(FACES.current[], testface, nothing) === nothing
+    # Customising the default face
+    setface!(face"default" => Face(font="custom"))
+    @test getface().font == "custom"
+    @test getface(face"red").font == "custom"
+    resetfaces!(face"default")
+    @test getface().font == "monospace"
+    with_terminfo(vt100) do
+        setface!(face"default" => Face(weight=:bold))
+        @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "\e[1mx\e[22my"
+        resetfaces!(face"default")
+    end
     # Loading from TOML (a Dict)
     anotherface = hacky_addface!(:anotherface, copy(Face()))
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
@@ -292,6 +305,11 @@ end
         get(FACES.current[], face"green", nothing)
     end == Face(foreground=face"blue")
     @test withfaces(() -> 1) == 1
+    # Unknown face names
+    @test getface([face"red", :nonexistent]) == getface(face"red")
+    @test withfaces(face"red" => :nonexistent) do
+        getface(face"red")
+    end == getface()
     cleanup_hacky_faces!()
     # Basic merging
     let f1 = Face(height=140, weight=:bold, inherit=[face"bold"])
@@ -516,6 +534,7 @@ end
     @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face, Face(inverse=true))])
     @test stylazy"{(inherit=bface):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=bface))])
     @test stylazy"{(inherit=[aface,bface]):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=[aface, bface]))])
+    @test FACES.names[annotations(styled("{(fg=nocolour):x}"))[1].value.foreground.value] == :nocolour
     # Curly bracket escaping
     @test styled"some \{string" == AnnotatedString("some {string")
     @test styled"some string\}" == AnnotatedString("some string}")
