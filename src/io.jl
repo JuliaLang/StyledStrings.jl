@@ -9,25 +9,29 @@ table. The standard colors are 0-7, and high intensity colors 8-15.
 The high intensity colors are prefixed by "bright_". The "bright_black" color is
 given two aliases: "grey" and "gray".
 """
-const ANSI_4BIT_COLORS = Dict{Symbol, Int}(
-    :black => 0,
-    :red => 1,
-    :green => 2,
-    :yellow => 3,
-    :blue => 4,
-    :magenta => 5,
-    :cyan => 6,
-    :white => 7,
-    :bright_black => 8,
-    :grey => 8,
-    :gray => 8,
-    :bright_red => 9,
-    :bright_green => 10,
-    :bright_yellow => 11,
-    :bright_blue => 12,
-    :bright_magenta => 13,
-    :bright_cyan => 14,
-    :bright_white => 15)
+const ANSI_4BIT_COLORS = IdDict{Face, Int}(
+    face"black"          => 0,
+    face"red"            => 1,
+    face"green"          => 2,
+    face"yellow"         => 3,
+    face"blue"           => 4,
+    face"magenta"        => 5,
+    face"cyan"           => 6,
+    face"white"          => 7,
+    face"bright_black"   => 8,
+    face"grey"           => 8,
+    face"gray"           => 8,
+    face"bright_red"     => 9,
+    face"bright_green"   => 10,
+    face"bright_yellow"  => 11,
+    face"bright_blue"    => 12,
+    face"bright_magenta" => 13,
+    face"bright_cyan"    => 14,
+    face"bright_white"   => 15)
+
+const FGBG_FACES =
+    (foreground = FACES.pool[:foreground],
+     background = FACES.pool[:background])
 
 """
     ansi_4bit(color::Integer, background::Bool=false)
@@ -111,40 +115,34 @@ If `color` is unknown, no output is produced.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
     if category == '4'
-        if color.value ∈ (:background, FACES.basecolors[:background])
+        if color.value ∈ (FGBG_FACES.background, FACES.basecolors[FGBG_FACES.background])
             return print(io, "\e[", category, "9m")
-        elseif color.value == :foreground
+        elseif color.value == FGBG_FACES.foreground
             return print(io, "\e[47m") # Technically not quite, but close enough
         end
-    elseif color.value ∈ (:foreground, FACES.basecolors[:foreground])
+    elseif color.value ∈ (FGBG_FACES.foreground, FACES.basecolors[FGBG_FACES.foreground])
         return print(io, "\e[", category, "9m")
-    elseif category == '3' && color.value == :background
+    elseif category == '3' && color.value == FGBG_FACES.background
         return print(io, "\e[30m") # Technically not quite, but close enough
     end
-    for _ in 1:MAX_COLOR_FORWARDS
-        color.value isa RGBTuple && break
-        fg = get(FACES.current[], color.value, Face()).foreground
-        isnothing(fg) && return
-        color == fg && break
-        color = fg
-    end
-    if color.value isa RGBTuple
-        if Base.get_have_truecolor()
-            termcolor24bit(io, color.value, category)
-        else
-            termcolor8bit(io, color.value, category)
+    cfinal = finalcolor(color)
+    if cfinal isa Face
+        ansi = get(ANSI_4BIT_COLORS, cfinal, nothing)
+        isnothing(ansi) && return # Unknown color
+        print(io, "\e[")
+        if category == '3' || category == '4'
+            print(io, ansi_4bit(ansi, category == '4'))
+        elseif category == '5'
+            print(io, "58;5;", ansi)
         end
-        return
+        print(io, 'm')
+    elseif cfinal isa RGBTuple
+        if Base.get_have_truecolor()
+            termcolor24bit(io, cfinal, category)
+        else
+            termcolor8bit(io, cfinal, category)
+        end
     end
-    ansi = get(ANSI_4BIT_COLORS, color.value, nothing)
-    isnothing(ansi) && return
-    print(io, "\e[")
-    if category == '3' || category == '4'
-        print(io, ansi_4bit(ansi, category == '4'))
-    elseif category == '5'
-        print(io, "58;5;", ansi)
-    end
-    print(io, 'm')
 end
 
 """
@@ -191,43 +189,42 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
             print(io, ifelse(face.slant ∈ (:italic, :oblique),
                              ANSI_STYLE_CODES.start_italics,
                              ANSI_STYLE_CODES.end_italics))
-        elseif face.slant ∈ (:italic, :oblique) && face.underline ∈ (nothing, false)
+        elseif face.slant ∈ (:italic, :oblique) && isnothing(face.underline)
             print(io, ANSI_STYLE_CODES.start_underline)
-        elseif face.slant ∉ (:italic, :oblique) && lastface.underline ∈ (nothing, false)
+        elseif face.slant ∉ (:italic, :oblique) && isnothing(lastface.underline)
             print(io, ANSI_STYLE_CODES.end_underline)
         end
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
-    face.underline == lastface.underline ||
-        if haskey(Base.current_terminfo(), :set_underline_style) ||
-           get(Base.current_terminfo(), :can_style_underline, false)
-            if face.underline isa Tuple # Color and style
-                color, style = face.underline
-                print(io, "\e[4:",
-                        if style == :straight;   '1'
-                        elseif style == :double; '2'
-                        elseif style == :curly;  '3'
-                        elseif style == :dotted; '4'
-                        elseif style == :dashed; '5'
-                        else '0' end, 'm')
-                !isnothing(color) && termcolor(io, color, '5')
-            elseif face.underline isa SimpleColor
-                if !(lastface.underline isa SimpleColor || lastface.underline == true)
+    (face.f.underline == lastface.f.underline && face.f.underline_style == lastface.f.underline_style) ||
+        if haskey(Base.current_terminfo(), :set_underline_style) || get(Base.current_terminfo(), :can_style_underline, false)
+            ul, ulstyle = face.f.underline, face.f.underline_style
+            lastul, lastulstyle = lastface.f.underline, lastface.f.underline_style
+            if ulstyle != lastulstyle && !isnothinglike(ulstyle)
+                if isnothinglike(lastulstyle) && ulstyle == :straight
                     print(io, ANSI_STYLE_CODES.start_underline)
+                else
+                    print(io, "\e[4:",
+                          if ulstyle == :straight;   '1'
+                          elseif ulstyle == :double; '2'
+                          elseif ulstyle == :curly;  '3'
+                          elseif ulstyle == :dotted; '4'
+                          elseif ulstyle == :dashed; '5'
+                          else '0' end, 'm')
                 end
-                termcolor(io, face.underline, '5')
-            else
-                if lastface.underline isa SimpleColor || lastface.underline isa Tuple && first(lastface.underline) isa SimpleColor
-                    termcolor(io, SimpleColor(:foreground), '5')
-                end
-                print(io, ifelse(face.underline == true,
-                                ANSI_STYLE_CODES.start_underline,
-                                ANSI_STYLE_CODES.end_underline))
             end
+            if !isnothinglike(ul)
+                termcolor(io, ul, '5')
+            elseif !isnothinglike(lastul)
+                termcolor(io, SimpleColor(FGBG_FACES.foreground), '5')
+            end
+            if isnothinglike(ulstyle) && !isnothinglike(lastulstyle)
+                print(io, ANSI_STYLE_CODES.end_underline)
+            end
+        elseif isnothing(face.underline)
+            print(io, ANSI_STYLE_CODES.end_underline)
         else
-            print(io, ifelse(face.underline !== false,
-                             ANSI_STYLE_CODES.start_underline,
-                             ANSI_STYLE_CODES.end_underline))
+            print(io, ANSI_STYLE_CODES.start_underline)
         end
     face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
         print(io, ifelse(face.strikethrough === true,
@@ -243,10 +240,9 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
-    default = FACES.themes.base[:default]
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
-        lastface::Face = default
+        lastface::Face = FACES.default
         for (str, styles) in eachregion(s)
             face = getface(styles)
             link = let idx=findfirst(==(:link) ∘ first, styles)
@@ -259,7 +255,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             !isnothing(link) && write(buf, "\e]8;;\e\\")
             lastface = face
         end
-        termstyle(buf, default, lastface)
+        termstyle(buf, FACES.default, lastface)
         write(io, seekstart(buf))
     elseif s isa AnnotatedString
         string_writer(io, s.string)
@@ -272,10 +268,10 @@ end
 # ------------
 # Hook into the AnnotatedDisplay invalidation barrier
 
-Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function} =
+Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) where {F <: Function} =
     _ansi_writer(f, io, s)
 
-function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar)
+function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar{<:Any, >:Face})
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
         bytes = write(io, c.char)
@@ -286,7 +282,7 @@ function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedC
     end
 end
 
-function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar)
+function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar{<:Any, >:Face})
     if get(io, :color, false) == true
         out = IOBuffer()
         show(out, c.char)
@@ -299,7 +295,7 @@ function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar)
     end
 end
 
-Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) =
     show_html(io, s)
 
 # Also see `legacy.jl:126` for `styled_write`.
@@ -307,15 +303,27 @@ Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:Annotated
 # End AnnotatedDisplay hooks
 # ------------
 
+const HTML_FGBG = (
+    foreground = "#000000",
+    background = "#ffffff"
+)
+
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
     default = getface()
-    if background && color.value ∈ (:background, default.background)
-        return print(io, "initial")
-    elseif !background && color.value ∈ (:foreground, default.foreground)
-        return print(io, "initial")
+    if color.value ∈ (FGBG_FACES.background, default.background)
+        if background
+            return print(io, "initial")
+        elseif default.background.value == FGBG_FACES.background
+            return print(io, HTML_FGBG.background)
+        end
+    elseif color.value ∈ (FGBG_FACES.foreground, default.foreground)
+        if !background
+            return print(io, "initial")
+        elseif default.foreground.value == FGBG_FACES.foreground
+            return print(io, HTML_FGBG.foreground)
+        end
     end
     (; r, g, b) = rgbcolor(color)
-    default = getface()
     print(io, '#')
     r < 0x10 && print(io, '0')
     print(io, string(r, base=16))
@@ -373,39 +381,30 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
         printattr(io, "background-color")
         htmlcolor(io, background, true)
     end
-    face.underline == lastface.underline ||
-        if face.underline isa Tuple # Color and style
-            color, style = face.underline
-            printattr(io, "text-decoration")
-            if !isnothing(color)
-                htmlcolor(io, color)
-                print(io, ' ')
-            end
-            print(io, if style == :straight "solid "
-                  elseif style == :double   "double "
-                  elseif style == :curly    "wavy "
-                  elseif style == :dotted   "dotted "
-                  elseif style == :dashed   "dashed "
-                  else "" end, "underline")
-        elseif face.underline isa SimpleColor
-            printattr(io, "text-decoration")
-            htmlcolor(io, face.underline)
-            if lastface.underline isa Tuple && last(lastface.underline) != :straight
-                print(io, " solid")
-            end
-            print(io, " underline")
-        else # must be a Bool
-            printattr(io, "text-decoration")
-            if lastface.underline isa SimpleColor
-                print(io, "currentcolor ")
-            elseif lastface.underline isa Tuple
-                first(lastface.underline) isa SimpleColor &&
-                    print(io, "currentcolor ")
-                last(lastface.underline) != :straight &&
-                    print(io, "straight ")
-            end
-            print(io, ifelse(face.underline, "underline", "none"))
+    if (face.f.underline != lastface.f.underline || face.f.underline_style != lastface.f.underline_style) && !(isnothinglike(face.f.underline_style) && isnothinglike(lastface.f.underline_style))
+        # @show face.f.underline face.f.underline_style lastface.f.underline lastface.f.underline_style
+        color, style = face.f.underline, face.f.underline_style
+        printattr(io, "text-decoration")
+        if isnothinglike(style)
+            print(io, "none")
+        elseif !isnothinglike(color)
+            htmlcolor(io, color)
+            print(io, ' ')
+        elseif !isnothinglike(lastface.f.underline)
+            print(io, "currentcolor ")
         end
+        if isnothinglike(style)
+        elseif style == :straight && (isnothinglike(lastface.f.underline_style) || lastface.f.underline_style == :straight)
+            print(io, "underline")
+        else
+            print(io, if style == :straight "solid "
+                elseif style == :double   "double "
+                elseif style == :curly    "wavy "
+                elseif style == :dotted   "dotted "
+                elseif style == :dashed   "dashed "
+                else "" end, "underline")
+        end
+    end
     face.strikethrough == lastface.strikethrough ||
         !face.strikethrough && face.underline !== false ||
         printattr(io, "text-decoration", ifelse(face.strikethrough, "line-through", "none"))
