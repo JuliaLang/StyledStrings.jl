@@ -1,7 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-const MAGIC_DEFPALETTE_VARNAME = gensym("magic-defpalette-variable")
-const MAGIC_USEPALETTE_VARNAME = gensym("magic-usepalette-variable")
+const MAGIC_DEFPALETTE_VARNAME = Symbol("##styledstrings-defpalette-variable#")
+const MAGIC_USEPALETTE_VARNAME = Symbol("##styledstrings-usepalette-variable#")
+
+const var"##styledstrings-defpalette-variable#" = (; base = STANDARD_FACES)
 
 # A height of 0xff8... is invalid, and so can be used as a flag.
 const UNDEF_CUSTOM_HEIGHT_FLAG = 0xff800001
