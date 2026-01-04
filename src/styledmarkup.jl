@@ -46,7 +46,7 @@ Of course, as usual, the devil is in the details.
 module StyledMarkup
 
 using Base: AnnotatedString, annotations, annotatedstring
-using ..StyledStrings: FACES, Face, SimpleColor,
+using ..StyledStrings: FACES, STANDARD_FACES, Face, SimpleColor,
     lookupface, lookmakeface, MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
@@ -512,7 +512,7 @@ function read_inlineface!(state::State, i::Int, char::Char)
         elseif startswith(color, "0x") && length(color) == 8
             tryparse(SimpleColor, '#' * color[3:end])
         elseif !ismacro(state)
-            SimpleColor(get(FACES.pool, Symbol(color), FACES.default))
+            SimpleColor(get(FACES.pool, Symbol(color), STANDARD_FACES.default))
         else
             resolveface(state, color)
         end

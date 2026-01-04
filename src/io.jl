@@ -245,7 +245,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     load_customisations!()
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
-        lastface::Face = FACES.default
+        lastface::Face = STANDARD_FACES.default
         for (str, styles) in eachregion(s)
             face = getface(styles)
             link = let idx=findfirst(==(:link) ∘ first, styles)
@@ -258,7 +258,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             !isnothing(link) && write(buf, "\e]8;;\e\\")
             lastface = face
         end
-        termstyle(buf, FACES.default, lastface)
+        termstyle(buf, STANDARD_FACES.default, lastface)
         write(io, seekstart(buf))
     elseif s isa AnnotatedString
         string_writer(io, s.string)
