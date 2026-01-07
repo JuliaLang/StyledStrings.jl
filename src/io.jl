@@ -408,7 +408,7 @@ const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
     :extrabold => 800,
     :black => 900)
 
-function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bool=true)
+function cssattrs(io::IO, face::Face, lastface::Face=getface())
     priorattr = Ref(false)
     function printattr(io, attr, valparts...)
         if priorattr[]
@@ -418,10 +418,12 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
         end
         print(io, attr, ": ", valparts...)
     end
-    face.font == lastface.font ||
-        printattr(io, "font-family", ifelse(escapequotes, "&quot;", "\""),
-                  replace(face.font, '"' => "\\&quot;", ''' => "&#39;"),
-                  ifelse(escapequotes, "&quot;", "\""))
+    if face.font != lastface.font
+        printattr(io, "font-family")
+        print(io, "\"")
+        replace(io, face.font, '"' => "&quot;", '&' => "&amp;", '<' => "&lt;", '\\' => "\\\\")
+        print(io, "\"")
+    end
     face.height == lastface.height ||
         printattr(io, "font-size", string(face.height ÷ 10), "pt")
     face.weight == lastface.weight ||
@@ -461,11 +463,11 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
             print(io, "underline")
         else
             print(io, if style == :straight "solid "
-                elseif style == :double   "double "
-                elseif style == :curly    "wavy "
-                elseif style == :dotted   "dotted "
-                elseif style == :dashed   "dashed "
-                else "" end, "underline")
+                  elseif style == :double   "double "
+                  elseif style == :curly    "wavy "
+                  elseif style == :dotted   "dotted "
+                  elseif style == :dashed   "dashed "
+                  else "" end, "underline")
         end
     end
     face.strikethrough == lastface.strikethrough ||
@@ -475,7 +477,7 @@ end
 
 function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "<span style=\"")
-    cssattrs(io, face, lastface, true)
+    cssattrs(io, face, lastface)
     print(io, "\">")
 end
 
