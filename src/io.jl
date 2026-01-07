@@ -239,6 +239,65 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                          ANSI_STYLE_CODES.end_reverse))
 end
 
+"""
+    safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
+
+Percent-encode `uri` as necessary to ensure it is a valid URI.
+"""
+function safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
+    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+    nib2hex(n::UInt8) = UInt8('0') + n + (((n + 0x6) >> 4) * 0x7)
+    escbytes = 0
+    for b in uribytes
+        if !isalphnum(b) && b ∉ allowedspecials
+            escbytes += 1
+        end
+    end
+    if iszero(escbytes)
+        uri
+    else
+        off, buf = 0, Base.StringMemory(length(uribytes) + 2 * escbytes)
+        for (i, b) in enumerate(uribytes)
+            b = uribytes[i]
+            if isalphnum(b) || b ∈ allowedspecials
+                buf[i+off] = b
+            else
+                buf[i+off] = UInt8('%')
+                buf[i+off+1] = nib2hex(b >> 4)
+                buf[i+off+2] = nib2hex(b & 0xf)
+                off += 2
+            end
+        end
+        Base.unsafe_takestring(buf)
+    end
+end
+
+"""
+    uriformat(link::String)
+
+Ensure that `link` is a properly formatted URI.
+
+If link does not start with an [RFC 2396](https://www.ietf.org/rfc/rfc2396.txt) compliant `protocol://`
+prefix, it is treated as a file path and converted to a `file://` URI.
+
+Otherwise, the link is percent-encoded as necessary to ensure it is a valid URI.
+"""
+function uriformat(link::String)
+    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+    i, bytes = 1, codeunits(link)
+    while i <= length(bytes)
+        b = bytes[i]
+        if isalphnum(b) || b ∈ map(UInt8, ('+', '-', '.'))
+            i += 1
+        elseif b == UInt8(':') && (i > 2 || get(bytes, i+1, 0x00) ∉ (UInt8('\\', '/'))) # Skip Windows drive letters
+            return safeuri(link, bytes, ((UInt8(c) for c in "-_.!~*'():@&=+\$,%/?#[]@")...,))
+        else
+            break
+        end
+    end
+    Base.Filesystem.uripath(link)
+end
+
 function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function}
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
@@ -248,10 +307,11 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         lastface::Face = STANDARD_FACES.default
         for (str, styles) in eachregion(s)
             face = getface(styles)
-            link = let idx=findfirst(==(:link) ∘ first, styles)
+            link = let idx = findfirst(==(:link) ∘ first, styles)
                 if !isnothing(idx)
-                    string(last(styles[idx]))::String
-                end end
+                    uriformat(string(styles[idx].value)::String)
+                end
+            end
             !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
             termstyle(buf, face, lastface)
             string_writer(buf, str)
@@ -431,8 +491,9 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         face = getface(styles)
         link = let idx=findfirst(==(:link) ∘ first, styles)
             if !isnothing(idx)
-                string(last(styles[idx]))::String
-            end end
+                uriformat(string(styles[idx].value)::String)
+            end
+        end
         !isnothing(link) && print(buf, "<a href=\"", link, "\">")
         if face == getface()
             print(buf, "</span>" ^ stylestackdepth)
