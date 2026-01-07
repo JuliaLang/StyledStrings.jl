@@ -740,6 +740,10 @@ styfuzz()
 end
 
 @testset "ANSI encoding" begin
+    # Link formatting
+    @test StyledStrings.uriformat("https://x.y/z w") == "https://x.y/z%20w"
+    @test StyledStrings.uriformat("a:b") == "a:b"
+    @test startswith(StyledStrings.uriformat("C:\\Users\\x"), "file://")
     # 4-bit color
     @test StyledStrings.ansi_4bit(
         StyledStrings.ANSI_4BIT_COLORS[face"cyan"], false) == 36
