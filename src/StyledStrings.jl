@@ -18,9 +18,10 @@ include("palettes.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
-include("show.jl")
 
 using .StyledMarkup
+
+include("show.jl")
 
 const HAVE_LOADED_CUSTOMISATIONS = Base.Threads.Atomic{Bool}(false)
 
