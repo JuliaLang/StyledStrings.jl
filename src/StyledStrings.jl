@@ -18,9 +18,10 @@ include("palettes.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
-include("show.jl")
 
 using .StyledMarkup
+
+include("show.jl")
 
 HAVE_LOADED_CUSTOMISATIONS = false
 
