@@ -43,7 +43,7 @@ end
 function Base.show(io::IO, ::MIME"text/plain", face::Face)
     mod = get(io, :module, Main)
     name = facename(mod, face)
-    face = get(FACES.current[], face, face) # Get customised face
+    cface = get(FACES.current[], face, face) # Get customised face
     function showval(io::IO, value)
         if value isa SimpleColor
             color = value.value
@@ -84,6 +84,27 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 print(io, ')')
             else
                 print(io, ulstyle)
+            end
+        end
+    end
+    function printfield(io::IO, origface::Face, curface::Face, field::Symbol, valdisplay::F) where {F <: Function}
+        oval, cval = getproperty(origface, field), getproperty(curface, field)
+        all(isnothingflavour, (oval, cval)) && return
+        print(io, '\n', lpad(String(field), 14, ' '), ": ")
+        if isnothingflavour(cval)
+            print(io, styled"{light:unset}")
+        else
+            valdisplay(io, cval)
+        end
+        if isnothingflavour(oval)
+            print(io, styled" {light,grey:(default unset)}")
+        elseif oval != cval
+            if valdisplay == print
+                print(io, styled" {light:(default: $oval)}")
+            else
+                print(io, styled" {light:(default: }")
+                valdisplay(io, oval)
+                print(io, styled"{light:)}")
             end
         end
     end
@@ -133,34 +154,53 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         isempty(setfields) || print(io, ":")
         fieldnamepad = 14
         for field in (:font, :height, :weight, :slant)
-            if !isnothing(getproperty(face, field))
-                print(io, '\n', lpad(String(field), fieldnamepad, ' '), ": ",
-                      getproperty(face, field))
-            end
+            printfield(io, face, cface, field, print)
         end
         for field in (:foreground, :background)
-            if !isnothing(getproperty(face, field))
-                print(io, '\n', lpad(String(field), fieldnamepad, ' '), ": ")
-                showcolor(io, getproperty(face, field))
-            end
+            printfield(io, face, cface, field, showcolor)
         end
-        if !isweaknothing(face.f.underline_style)
+        if !isweaknothing(face.f.underline_style) || !isweaknothing(cface.f.underline_style)
+            oul, osty, cul, csty = face.f.underline, face.f.underline_style, cface.f.underline, cface.f.underline_style
             print(io, '\n', lpad("underline", fieldnamepad, ' '), ": ")
-            showunderlineval(io, face.f.underline, face.f.underline_style, false)
+            if isweaknothing(csty)
+                print(io, styled"{light:unset}")
+            else
+                showunderlineval(io, cul, csty, false)
+            end
+            if isweaknothing(osty)
+                print(io, styled" {light,grey:(default unset)}")
+            elseif oul != cul || osty != csty
+                print(io, styled" {light:(default: }")
+                showunderlineval(io, oul, osty, false)
+                print(io, styled"{light:)}")
+            end
         end
         for field in (:strikethrough, :inverse)
-            if !isnothing(getproperty(face, field))
-                print(io, '\n', lpad(String(field), fieldnamepad, ' '), ": ",
-                      getproperty(face, field))
-            end
+            printfield(io, face, cface, field, print)
         end
-        if !isempty(face.inherit)
+        if !all(isempty, (face.inherit, cface.inherit))
             print(io, '\n', lpad("inherit", fieldnamepad, ' '), ": ")
-            isfirst = true
-            for iface in face.inherit
-                if isfirst; isfirst = false else print(io, ", ") end
-                iname = something(facename(mod, iface), "(unregistered)")
-                print(io, iname, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
+            if isempty(cface.inherit)
+                print(io, styled"{light:unset}")
+            else
+                isfirst = true
+                for iface in face.inherit
+                    if isfirst; isfirst = false else print(io, ", ") end
+                    iname = something(facename(mod, iface), "(unregistered)")
+                    print(io, iname, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
+                end
+            end
+            if isempty(face.inherit)
+                print(io, styled" {light,grey:(default unset)}")
+            elseif face.inherit != cface.inherit
+                print(io, styled" {light:(default: }")
+                isfirst = true
+                for iface in face.inherit
+                    if isfirst; isfirst = false else print(io, ", ") end
+                    iname = something(facename(mod, iface), "(unregistered)")
+                    print(io, iname, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
+                end
+                print(io, styled"{light:)}")
             end
         end
     end
