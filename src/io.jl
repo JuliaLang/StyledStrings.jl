@@ -61,7 +61,7 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
         rr = (r + r2) / 2
         (2 + r/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
     end
-    to6cube(value) = (value - 35) ÷ 40
+    to6cube(value) = max(0, value - 35) ÷ 40
     from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
     sixcube = (0, 95:40:255...)
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
