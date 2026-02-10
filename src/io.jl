@@ -239,6 +239,17 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                          ANSI_STYLE_CODES.end_reverse))
 end
 
+@static if isdefined(Base, :unannotate)
+    # This function uses SubString and AnnotatedString internals, but for current
+    # and future versions, Base.unannotate is defined, and so this cannot break
+    # in the future.
+    const unannotate = Base.unannotate
+else
+    function unannotate(s::SubString{AnnotatedString{S}}) where S
+        SubString{S}(s.string.string, s.offset, s.ncodeunits, Val(:noshift))
+    end
+end
+
 function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function}
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
@@ -264,8 +275,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     elseif s isa AnnotatedString
         string_writer(io, s.string)
     elseif s isa SubString
-        string_writer(
-            io, SubString(s.string.string, s.offset, s.ncodeunits, Val(:noshift)))
+        string_writer(io, unannotate(s))
     end
 end
 
