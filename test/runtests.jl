@@ -7,6 +7,8 @@ using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
     AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 
+@test isempty(Test.detect_closure_boxes(StyledStrings))
+
 const NON_STDLIB_TESTS = Main == @__MODULE__
 if NON_STDLIB_TESTS
     include("styfuzz.jl") # For use in the "Styled Markup" testset
