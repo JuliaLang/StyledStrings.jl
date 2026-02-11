@@ -18,16 +18,17 @@ StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit
 StyledStrings.setcolors!
 StyledStrings.face!
+StyledStrings.override
 StyledStrings.getface
 StyledStrings.load_customisations!
 StyledStrings.loadface!
 StyledStrings.loaduserfaces!
 StyledStrings.resetfaces!
+StyledStrings.finalcolor
 StyledStrings.rgbcolor
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
-StyledStrings.try_rgbcolor
 ```
 
 ## Styled Markup parsing
@@ -46,6 +47,8 @@ StyledStrings.StyledMarkup
 StyledStrings.StyledMarkup.State
 StyledStrings.StyledMarkup.isnextchar
 StyledStrings.StyledMarkup.ismacro
+StyledStrings.StyledMarkup.offadd!
+StyledStrings.StyledMarkup.annotpromote!
 StyledStrings.StyledMarkup.styerr!
 StyledStrings.StyledMarkup.hygienic_eval
 StyledStrings.StyledMarkup.addpart!
@@ -58,7 +61,10 @@ StyledStrings.StyledMarkup.begin_style!
 StyledStrings.StyledMarkup.end_style!
 StyledStrings.StyledMarkup.read_annotation!
 StyledStrings.StyledMarkup.read_inlineface!
+StyledStrings.StyledMarkup.addannot!
 StyledStrings.StyledMarkup.read_face_or_keyval!
+StyledStrings.StyledMarkup.promote_type_3u
+StyledStrings.StyledMarkup.interpface
 StyledStrings.StyledMarkup.run_state_machine!
 StyledStrings.StyledMarkup.annotatedstring_optimize!
 ```
