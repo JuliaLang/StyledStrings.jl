@@ -48,7 +48,7 @@ using StyledStrings
 styled"{yellow:hello} {blue:there}"
 ```
 
-## [Annotated Strings](@id man-annotated-strings)
+## [Annotated Strings](@id stdlib-annotated-strings)
 
 It is sometimes useful to be able to hold metadata relating to regions of a
 string. A [`AnnotatedString`](@ref Base.AnnotatedString) wraps another string and
