@@ -8,16 +8,20 @@ using Base.ScopedValues: ScopedValue, with, @with
 # While these are imported from Base, we claim them as part of the `StyledStrings` API.
 export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring
 
-export @styled_str
-public Face, addface!, withfaces, styled, SimpleColor, blend, recolor
+export @styled_str, @face_str, Face
+export @defpalette!, @usepalettes!, @registerpalette!
+public withfaces, remapfaces, styled, SimpleColor, blend, recolor, setface!
 
 include("faces.jl")
 include("theme.jl")
+include("palettes.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
 
 using .StyledMarkup
+
+include("show.jl")
 
 const HAVE_LOADED_CUSTOMISATIONS = Base.Threads.Atomic{Bool}(false)
 
