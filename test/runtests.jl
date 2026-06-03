@@ -9,6 +9,8 @@ using .StyledMarkup: MalformedStylingMacro
 
 @test isempty(Test.detect_closure_boxes(StyledStrings))
 
+@test isempty(Test.detect_ambiguities(StyledStrings))
+
 const NON_STDLIB_TESTS = Main == @__MODULE__
 if NON_STDLIB_TESTS
     include("styfuzz.jl") # For use in the "Styled Markup" testset
