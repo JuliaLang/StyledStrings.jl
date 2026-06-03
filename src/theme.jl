@@ -591,7 +591,8 @@ SimpleColor(■ #74be93)
 """
 function blend end
 
-function blend(primaries::Pair{RGBTuple, <:Real}...)
+function blend(x1::Pair{RGBTuple, <:Real}, x2::Pair{RGBTuple, <:Real}...)
+    primaries = (x1, x2...)
      function oklab(rgb::RGBTuple)
         r, g, b = (rgb.r / 255)^2.2, (rgb.g / 255)^2.2, (rgb.b / 255)^2.2
         l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
@@ -626,8 +627,10 @@ end
 blend(base::RGBTuple, primaries::Pair{RGBTuple, <:Real}...) =
     blend(base => 1.0 - sum(last, primaries), primaries...)
 
-blend(primaries::Pair{<:Union{Symbol, SimpleColor}, <:Real}...) =
+function blend(x1::Pair{<:Union{Symbol, SimpleColor}, <:Real}, x2::Pair{<:Union{Symbol, SimpleColor}, <:Real}...)
+    primaries = (x1, x2...)
     SimpleColor(blend((rgbcolor(c) => w for (c, w) in primaries)...))
+end
 
 blend(base::Union{Symbol, SimpleColor}, primaries::Pair{<:Union{Symbol, SimpleColor}, <:Real}...) =
     SimpleColor(blend(rgbcolor(base), (rgbcolor(c) => w for (c, w) in primaries)...))
