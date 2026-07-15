@@ -40,4 +40,4 @@ StyledStrings.withfaces(:yellow => StyledStrings.Face(foreground=:red), :green =
     println(colorio, styled"{yellow:red} and {green:blue} mixed make {magenta:purple}")
 end
 
-StyledStrings.HAVE_LOADED_CUSTOMISATIONS[] = false
+StyledStrings.HAVE_LOADED_CUSTOMISATIONS = false

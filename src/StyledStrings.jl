@@ -19,7 +19,7 @@ include("legacy.jl")
 
 using .StyledMarkup
 
-const HAVE_LOADED_CUSTOMISATIONS = Base.Threads.Atomic{Bool}(false)
+HAVE_LOADED_CUSTOMISATIONS = false
 
 """
     load_customisations!(; force::Bool=false)
@@ -36,7 +36,7 @@ Unless `force` is set, customisations are only applied when this function is
 called for the first time, and subsequent calls are a no-op.
 """
 function load_customisations!(; force::Bool=false)
-    !force && HAVE_LOADED_CUSTOMISATIONS[] && return
+    !force && HAVE_LOADED_CUSTOMISATIONS && return
     (function ()
          @noinline
          if !isempty(DEPOT_PATH)
@@ -44,7 +44,7 @@ function load_customisations!(; force::Bool=false)
              isfile(userfaces) && loaduserfaces!(userfaces)
          end
          Legacy.load_env_colors!()
-         HAVE_LOADED_CUSTOMISATIONS[] = true
+         global HAVE_LOADED_CUSTOMISATIONS = true
      end)()
     nothing
 end
