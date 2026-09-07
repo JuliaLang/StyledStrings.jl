@@ -193,7 +193,7 @@ read(seekstart(aio), AnnotatedString)
 
 StyledStrings adds a specialised [`printstyled`](@ref) method `printstyled(::AnnotatedIOBuffer, ...)` that means that you can pass an `AnnotatedIOBuffer` as IO to "legacy" code written to use `printstyled`, and extract all the styling as though it had used [`styled"..."`](@ref @styled_str) macros.
 
-```@repl
+```@repl examples
 aio = AnnotatedIOBuffer()
 printstyled(aio, 'c', color=:red)
 printstyled(aio, 'o', color=:yellow)
