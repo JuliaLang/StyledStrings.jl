@@ -259,19 +259,24 @@ function foreignface(face)
         fieldnames(T) == fieldnames(Face)
         color(c) = isnothing(c) ? nothing : SimpleColor(c.value)
         underline = face.underline
-        return Face(font = face.font, height = face.height,
-                    weight = face.weight, slant = face.slant,
-                    foreground = color(face.foreground),
-                    background = color(face.background),
-                    underline = if underline isa Tuple
+        # The positional constructor, so that this compiles to plain field copies. The
+        # keyword one is a dynamic call here as its keyword tuple is not concrete.
+        return Face(face.font,
+                    face.height,
+                    face.weight,
+                    face.slant,
+                    color(face.foreground),
+                    color(face.background),
+                    if underline isa Tuple
                         (color(underline[1]), underline[2])
                     elseif underline isa Union{Nothing, Bool}
                         underline
                     else
                         color(underline)
                     end,
-                    strikethrough = face.strikethrough, inverse = face.inverse,
-                    inherit = face.inherit)
+                    face.strikethrough,
+                    face.inverse,
+                    face.inherit)
     end
     throw(MethodError(_mergedface, (face,)))
 end
