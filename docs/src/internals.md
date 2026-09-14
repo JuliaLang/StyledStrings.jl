@@ -18,6 +18,7 @@ StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit
 StyledStrings.setcolors!
 StyledStrings.face!
+StyledStrings.foreignface
 StyledStrings.getface
 StyledStrings.load_customisations!
 StyledStrings.loadface!
