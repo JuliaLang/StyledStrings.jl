@@ -128,7 +128,7 @@ Base.convert(::Type{SimpleColor}, face::Face) = SimpleColor(face)
 Base.convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
 
 function Base.convert(::Type{SimpleColor}, namedcolor::Symbol)
-    Base.depwarn("Creating a SimpleColor from a face name Symbol is deprecated as of v1.14. Use faces directly instead, such as from `face\"colourname\"`", :convert)
+    # Base.depwarn("Creating a SimpleColor from a face name Symbol is deprecated as of v1.14. Use faces directly instead, such as from `face\"colourname\"`", :convert)
     SimpleColor(lookmakeface(namedcolor, false))
 end
 
@@ -317,10 +317,10 @@ function Face(; font::Union{Nothing, String} = nothing,
         mem[1] = inherit
         mem
     elseif inherit isa Vector{Symbol} # Backwards compat (1)
-        Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
+        # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
         [lookmakeface(fname) for fname in inherit].ref.mem
     elseif inherit isa Symbol # Backwards compat (2)
-        Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
+        # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
         mem = Memory{Face}(undef, 1)
         mem[1] = lookmakeface(inherit)
         mem
