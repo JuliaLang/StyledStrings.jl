@@ -690,7 +690,9 @@ end
             render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
             print(StyledStrings.getface([face]) == StyledStrings.getface([ours]), ",", render(face) == render(ours))
             """
-        cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) -e $script`
+        # Julia's own test suite runs this without an active project.
+        project = isnothing(Base.active_project()) ? `` : `--project=$(Base.active_project())`
+        cmd = `$(Base.julia_cmd()) --startup-file=no $project -e $script`
         out = read(pipeline(cmd; stderr), String)
         @test out in ("true,true", "same copy")
     end
