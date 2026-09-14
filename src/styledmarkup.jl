@@ -919,33 +919,33 @@ the {link={https://en.wikipedia.org/wiki/Laziness}:lazy} dog"
 
 This macro can be described by the following EBNF grammar:
 
-```ebnf
-styledstring = { styled | interpolated | escaped | plain } ;
+```styled
+{code:styledstring} {julia_assignment:=} {julia_type:\\{} {code:styled} {julia_operator:|} {code:interpolated} {julia_operator:|} {code:escaped} {julia_operator:|} {code:plain} {julia_type:\\}} {julia_comment:;}
 
-specialchar = '{' | '}' | '\$' | '\\\"' ;
-anychar = [\\u0-\\u1fffff] ;
-plain = { anychar - specialchar } ;
-escaped = '\\\\', specialchar ;
+{code:specialchar} {julia_assignment:=} {julia_string:'\\{'} {julia_operator:|} {julia_string:'\\}'} {julia_operator:|} {julia_string:'\$'} {julia_operator:|} {julia_string:'\\\"'} {julia_comment:;}
+{code:anychar} {julia_assignment:=} [{julia_char:\\u0{julia_operator:-}\\u1fffff}] {julia_comment:;}
+{code:plain} {julia_assignment:=} {julia_type:\\{} {code:anychar} {julia_operator:-} {code:specialchar} {julia_type:\\}} {julia_comment:;}
+{code:escaped} {julia_assignment:=} {julia_string:'\\\\'}{light:,} {code:specialchar} {julia_comment:;}
 
-interpolated = '\$', ? expr ? | '\$(', ? expr ?, ')' ;
+{code:interpolated} {julia_assignment:=} {julia_string:'\$'}{light:,} {julia_macro:? expr ?} {julia_operator:|} {julia_string:'\$('}{light:,} {julia_macro:? expr ?}{light:,} {julia_string:')'} {julia_comment:;}
 
-styled = '{', ws, annotations, ':', content, '}' ;
-content = { interpolated | plain | escaped | styled } ;
-annotations = annotation | annotations, ws, ',', ws, annotation ;
-annotation = face | inlineface | keyvalue ;
-ws = { ' ' | '\\t' | '\\n' } ; (* whitespace *)
+{code:styled} {julia_assignment:=} {julia_string:'\\{'}{light:,} {code:ws}{light:,} {code:annotations}{light:,} {julia_string:':'}{light:,} {code:content}{light:,} {julia_string:'\\}'} {julia_comment:;}
+{code:content} {julia_assignment:=} {julia_type:\\{} {code:interpolated} {julia_operator:|} {code:plain} {julia_operator:|} {code:escaped} {julia_operator:|} {code:styled} {julia_type:\\}} {julia_comment:;}
+{code:annotations} {julia_assignment:=} {code:annotation} {julia_operator:|} {code:annotations}{light:,} {code:ws}{light:,} {julia_string:','}{light:,} {code:ws}{light:,} {code:annotation} {julia_comment:;}
+{code:annotation} {julia_assignment:=} {code:face} {julia_operator:|} {code:inlineface} {julia_operator:|} {code:keyvalue} {julia_comment:;}
+{code:ws} {julia_assignment:=} {julia_type:\\{} {julia_string:' '} {julia_operator:|} {julia_string:'\\t'} {julia_operator:|} {julia_string:'\\n'} {julia_type:\\}} {julia_comment:; (* whitespace *)}
 
-face = facename | interpolated ;
-facename = [A-Za-z0-9_]+ ;
+{code:face} {julia_assignment:=} {code:facename} {julia_operator:|} {code:interpolated} {julia_comment:;}
+{code:facename} {julia_assignment:=} [{julia_char:A{julia_operator:-}Za{julia_operator:-}z0{julia_operator:-}9_}]{julia_operator:+} {julia_comment:;}
 
-inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
-faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
+{code:inlineface} {julia_assignment:=} {julia_string:'('}{light:,} {code:ws}{light:,} {julia_type:[} {code:faceprop} {julia_type:]}{light:,} {julia_type:\\{} {code:ws}{light:,} {julia_string:','}{light:,} {code:faceprop} {julia_type:\\}}{light:,} {code:ws}{light:,} {julia_string:')'} {julia_comment:;}
+{code:faceprop} {julia_assignment:=} [{julia_char:a{julia_operator:-}z}]{julia_operator:+}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} [{julia_operator:^}{julia_char:,)}]{julia_operator:+} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_comment:;}
 
-keyvalue = key, ws, '=', ws, value ;
-key = ( [^\\0\${}=,:], [^\\0=,:]* ) | interpolated ;
-value = simplevalue | curlybraced | interpolated ;
-curlybraced = '{' { escaped | plain } '}' ;
-simplevalue = [^\${},:], [^,:]* ;
+{code:keyvalue} {julia_assignment:=} {code:key}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {code:value} {julia_comment:;}
+{code:key} {julia_assignment:=} {julia_type:(} [{julia_operator:^}{julia_char:\\0\$\\{\\}=,:}]{light:,} [{julia_operator:^}{julia_char:\\0=,:}]{julia_operator:*} {julia_type:)} {julia_operator:|} {code:interpolated} {julia_comment:;}
+{code:value} {julia_assignment:=} {code:simplevalue} {julia_operator:|} {code:curlybraced} {julia_operator:|} {code:interpolated} {julia_comment:;}
+{code:curlybraced} {julia_assignment:=} {julia_string:'\\{'} {julia_type:\\{} {code:escaped} {julia_operator:|} {code:plain} {julia_type:\\}} {julia_string:'\\}'} {julia_comment:;}
+{code:simplevalue} {julia_assignment:=} [{julia_operator:^}{julia_char:\$\\{\\},:}]{light:,} [{julia_operator:^}{julia_char:,:}]{julia_operator:*} {julia_comment:;}
 ```
 
 An extra stipulation not encoded in the above grammar is that `plain` should be
@@ -954,30 +954,30 @@ a valid input to [`unescape_string`](@ref), with `specialchar` kept.
 The above grammar for `inlineface` is simplified, as the actual implementation
 is a bit more sophisticated. The full behaviour is given below.
 
-```ebnf
-faceprop = ( 'face', ws, '=', ws, ( ? string ? | interpolated ) ) |
-           ( 'height', ws, '=', ws, ( ? number ? | interpolated ) ) |
-           ( 'weight', ws, '=', ws, ( symbol | interpolated ) ) |
-           ( 'slant', ws, '=', ws, ( symbol | interpolated ) ) |
-           ( ( 'foreground' | 'fg' | 'background' | 'bg' ),
-               ws, '=', ws, ( simplecolor | interpolated ) ) |
-           ( 'underline', ws, '=', ws, ( underline | interpolated ) ) |
-           ( 'strikethrough', ws, '=', ws, ( bool | interpolated ) ) |
-           ( 'inverse', ws, '=', ws, ( bool | interpolated ) ) |
-           ( 'inherit', ws, '=', ws, ( inherit | interpolated ) ) ;
+```styled
+{code:faceprop} {julia_assignment:=} {julia_type:(} {julia_string:'face'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {julia_macro:? string ?} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'height'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {julia_macro:? number ?} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'weight'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:symbol} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'slant'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:symbol} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_type:(} {julia_string:'foreground'} {julia_operator:|} {julia_string:'fg'} {julia_operator:|} {julia_string:'background'} {julia_operator:|} {julia_string:'bg'} {julia_type:)},
+               {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:simplecolor} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'underline'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:underline} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'strikethrough'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:bool} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'inverse'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:bool} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_operator:|}
+           {julia_type:(} {julia_string:'inherit'}{light:,} {code:ws}{light:,} {julia_string:'='}{light:,} {code:ws}{light:,} {julia_type:(} {code:inherit} {julia_operator:|} {code:interpolated} {julia_type:)} {julia_type:)} {julia_comment:;}
 
-nothing = 'nothing' ;
-bool = 'true' | 'false' ;
-symbol = [^ ,)]+ ;
-hexcolor = ('#' | '0x'), [0-9a-f]{6} ;
-simplecolor = hexcolor | symbol | nothing ;
+{code:nothing} {julia_assignment:=} {julia_string:'nothing'} {julia_comment:;}
+{code:bool} {julia_assignment:=} {julia_string:'true'} {julia_operator:|} {julia_string:'false'} {julia_comment:;}
+{code:symbol} {julia_assignment:=} [{julia_operator:^}{julia_char: ,)}]{julia_operator:+} {julia_comment:;}
+{code:hexcolor} {julia_assignment:=} {julia_type:(} {julia_string:'#'} {julia_operator:|} {julia_string:'0x'} {julia_type:)}{light:,} [{julia_char:0{julia_operator:-}9a{julia_operator:-}f}]{6} {julia_comment:;}
+{code:simplecolor} {julia_assignment:=} {code:hexcolor} {julia_operator:|} {code:symbol} {julia_operator:|} {code:nothing} {julia_comment:;}
 
-underline = nothing | bool | simplecolor | underlinestyled;
-underlinestyled = '(', ws, ('' | nothing | simplecolor | interpolated), ws,
-                  ',', ws, ( symbol | interpolated ), ws ')' ;
+{code:underline} {julia_assignment:=} {code:nothing} {julia_operator:|} {code:bool} {julia_operator:|} {code:simplecolor} {julia_operator:|} {code:underlinestyled} {julia_comment:;}
+{code:underlinestyled} {julia_assignment:=} {julia_string:'('}{light:,} {code:ws}{light:,} {julia_type:(} {julia_string:''} {julia_operator:|} {code:nothing} {julia_operator:|} {code:simplecolor} {julia_operator:|} {code:interpolated} {julia_type:)}{light:,} {code:ws},
+                  {julia_string:','}{light:,} {code:ws}{light:,} {julia_type:(} {code:symbol} {julia_operator:|} {code:interpolated} {julia_type:)}{light:,} {code:ws} {julia_string:')'} {julia_comment:;}
 
-inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval;
-inheritval = ws, ':'?, symbol ;
+{code:inherit} {julia_assignment:=} {julia_type:(} {julia_string:'['}{light:,} {code:inheritval}{light:,} {julia_type:\\{} {julia_string:','}{light:,} {code:inheritval} {julia_type:\\}}{light:,} {julia_string:']'} {julia_type:)} {julia_operator:|} {code:inheritval} {julia_comment:;}
+{code:inheritval} {julia_assignment:=} {code:ws}{light:,} {julia_string:':'}{julia_operator:?}{light:,} {code:symbol} {julia_comment:;}
 ```
 """
 macro styled_str(raw_content::String)
