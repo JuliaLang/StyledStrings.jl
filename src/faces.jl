@@ -548,6 +548,47 @@ Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 _mergedface(face::Face) = face
 _mergedface(face::Symbol) = get(Face, FACES.current[], face)
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
+_mergedface(face::Any) = _mergedface(foreignface(face))
+
+"""
+    foreignface(face) -> Face
+
+Rebuild `face`, a `Face` from another copy of StyledStrings, as one of ours.
+
+More than one copy of StyledStrings can be loaded at once: the REPL runs on a private copy
+of the stdlib, which is not necessarily the one user code loads (see `Base.require_stdlib`),
+and only the last loaded copy's `Base.AnnotatedDisplay` hooks are active. A `Face` the REPL
+attaches to its output (its bracket highlighting, say) then reaches `getface` as a value of a
+type that is not our `Face`, but has the same fields, holding values of Base types or of the
+other copy's `SimpleColor`.
+"""
+function foreignface(face)
+    T = typeof(face)
+    if nameof(T) === :Face && nameof(parentmodule(T)) === :StyledStrings &&
+        fieldnames(T) == fieldnames(Face)
+        color(c) = isnothing(c) ? nothing : SimpleColor(c.value)
+        underline = face.underline
+        # The positional constructor, so that this compiles to plain field copies. The
+        # keyword one is a dynamic call here as its keyword tuple is not concrete.
+        return Face(face.font,
+                    face.height,
+                    face.weight,
+                    face.slant,
+                    color(face.foreground),
+                    color(face.background),
+                    if underline isa Tuple
+                        (color(underline[1]), underline[2])
+                    elseif underline isa Union{Nothing, Bool}
+                        underline
+                    else
+                        color(underline)
+                    end,
+                    face.strikethrough,
+                    face.inverse,
+                    face.inherit)
+    end
+    throw(MethodError(_mergedface, (face,)))
+end
 
 """
     getface(faces)
