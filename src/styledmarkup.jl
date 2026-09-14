@@ -601,7 +601,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         if isnextchar(state, ':')
             popfirst!(state.s)
             facename, lastchar = readsymbol!(state, lastchar)
-            Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
+            # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
             push!(inherit, resolveface(state, facename))
         elseif isnextchar(state, '[')
             popfirst!(state.s)
@@ -610,7 +610,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 skipwhitespace!(state)
                 nextchar = last(peek(state.s))
                 if nextchar == ':'
-                    Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
+                    # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
                     popfirst!(state.s)
                 elseif nextchar == ']'
                     popfirst!(state.s)
@@ -978,7 +978,7 @@ function interpface end
 interpface(face::Face, ::Module, ::Bool) = face
 
 function interpface(face::Symbol, mod::Module, strict::Bool)
-    Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
+    # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
     if strict
         lookupface(mod, face)
     else
