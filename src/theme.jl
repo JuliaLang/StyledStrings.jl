@@ -198,9 +198,9 @@ Face (sample)
 ```
 """
 function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
-    Base.depwarn("`addface!` is deprecated as of v1.14 and will be removed in a future release. \
-                  Please define faces with `@defpalette!` and `@registerpalette!` instead.",
-                   :addface!)
+    # Base.depwarn("`addface!` is deprecated as of v1.14 and will be removed in a future release. \
+    #               Please define faces with `@defpalette!` and `@registerpalette!` instead.",
+    #                :addface!)
     @lock FACES.lock if theme === :base
         haskey(FACES.pool, name) && @warn lazy"Face $name already exists, overriding"
         unreg = get(FACES.unregistered, name, nothing)
@@ -243,9 +243,9 @@ it is deleted, a warning message is printed, and `nothing` returned.
     Please specify the face to be reset directly using `resetfaces(::Face)`.
 """
 function resetfaces!(name::Symbol, theme::Symbol = :base)
-    Base.depwarn("`resetfaces!` is deprecated as of v1.14 and will be removed in a future release. \
-                  Please specify the face to be reset directly using `resetfaces(::Face)`.",
-                   :resetfaces!)
+    # Base.depwarn("`resetfaces!` is deprecated as of v1.14 and will be removed in a future release. \
+    #               Please specify the face to be reset directly using `resetfaces(::Face)`.",
+    #                :resetfaces!)
     face = get(FACES.pool, name, nothing)
     if !isnothing(face)
         resetfaces!(face, theme)
@@ -356,9 +356,9 @@ function withfaces(f, keyvals_itr)
 end
 
 function withfaces(f, keyvals::Pair{Symbol, <:Union{Symbol, Vector{Symbol}, Nothing}}...)
-    Base.depwarn("`withfaces` with `Symbol` face names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should specify the target faces directly as `Face`s (e.g. from `face\"\"`).",
-                   :withfaces)
+    # Base.depwarn("`withfaces` with `Symbol` face names is deprecated as of v1.14 and will be removed in a future release. \
+    #               Instead you should specify the target faces directly as `Face`s (e.g. from `face\"\"`).",
+    #                :withfaces)
     withfaces(f, keyvals)
 end
 
@@ -561,16 +561,16 @@ Merge the current value of the face `name` with `update`.
     Instead you should specify the target face directly as a `Face` (e.g. from `face""`).
 """
 function loadface!((name, update)::Pair{Symbol, Face}, theme::Symbol = :base)
-    Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
-                   :loadface!)
+    # Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
+    #               Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+    #                :loadface!)
     setface!(lookmakeface(name, false) => update, theme)
 end
 
 function loadface!((name, _)::Pair{Symbol, Nothing})
-    Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
-                  Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
-                 :loadface!)
+    # Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
+    #               Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
+    #              :loadface!)
     if haskey(FACES.current[], name)
         resetfaces!(name)
     end
