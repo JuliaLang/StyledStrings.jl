@@ -645,3 +645,53 @@ end
     @test printstyled(aio, "e", color=:green)   |> isnothing
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
 end
+
+# A look-alike for another copy of StyledStrings, whose `Face` is a distinct type with the
+# same fields.
+module OtherCopy
+    module StyledStrings
+        struct SimpleColor
+            value::Union{Symbol, NamedTuple}
+        end
+        struct Face
+            font; height; weight; slant; foreground; background
+            underline; strikethrough; inverse; inherit
+        end
+    end
+end
+
+@testset "Faces from another copy of StyledStrings" begin
+    # The REPL runs on a private copy of StyledStrings, so the faces it attaches to its
+    # output can reach the copy user code loaded as values of a foreign `Face` type
+    # (JuliaLang/julia#60034).
+    Other = OtherCopy.StyledStrings
+    other = Other.Face(nothing, nothing, :bold, nothing, Other.SimpleColor(:red),
+                       Other.SimpleColor((r=0x01, g=0x02, b=0x03)),
+                       (Other.SimpleColor(:blue), :curly), nothing, true, [:emphasis])
+    ours = Face(weight=:bold, foreground=:red, background=(r=0x01, g=0x02, b=0x03),
+                underline=(:blue, :curly), inverse=true, inherit=:emphasis)
+    @test StyledStrings.foreignface(other) == ours
+    @test getface([other]) == getface([ours])
+    @test getface([:emphasis, other]) == getface([:emphasis, ours])
+    @test getface(AnnotatedString("x", [(1:1, :face, other)]), 1) == getface([ours])
+    @test sprint(print, AnnotatedString("x", [(1:1, :face, other)]); context = :color => true) ==
+        sprint(print, AnnotatedString("x", [(1:1, :face, ours)]); context = :color => true)
+    @test_throws MethodError getface([1])
+    let
+        # And with an actual second copy, loaded before ours the way the REPL's is. When the
+        # package under test is the stdlib itself there is no second copy, and the script
+        # reports so instead.
+        script = """
+            other = Base.require_stdlib(Base.PkgId(Base.UUID("f489334b-da3d-4c2e-b8f0-e476e12c162b"), "StyledStrings"))
+            using StyledStrings
+            other === StyledStrings && (print("same copy"); exit())
+            face = other.Face(foreground = :red, weight = :bold)
+            ours = StyledStrings.Face(foreground = :red, weight = :bold)
+            render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
+            print(StyledStrings.getface([face]) == StyledStrings.getface([ours]), ",", render(face) == render(ours))
+            """
+        cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) -e $script`
+        out = read(pipeline(cmd; stderr), String)
+        @test out in ("true,true", "same copy")
+    end
+end
