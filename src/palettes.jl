@@ -150,7 +150,7 @@ end
 ```
 """
 macro defpalette!(pargs::Any...)
-    nsmodule = __module__
+    nsmodule = Ref(__module__)
     namespace = ""
     # Apply keyword arguments
     decls = collect(pargs)
@@ -167,7 +167,7 @@ macro defpalette!(pargs::Any...)
                 else
                     nsval = Core.eval(__module__, val)
                     if nsval isa Module
-                        nsmodule = nsval
+                        nsmodule[] = nsval
                     else
                         throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
                     end
@@ -180,7 +180,7 @@ macro defpalette!(pargs::Any...)
     end
     # Determine namespace
     if isempty(namespace)
-        parents = Module[nsmodule]
+        parents = Module[nsmodule[]]
         while parentmodule(first(parents)) != first(parents)
             pushfirst!(parents, parentmodule(first(parents)))
         end
@@ -296,10 +296,15 @@ macro defpalette!(pargs::Any...)
         foreach(dep -> get!(() -> gensym("$(dep)_face"), hoistfaces, dep), deps)
     end
     # Rewrite arguments
-    faceorlookup(f::Symbol) = @something(get(hoistfaces, f, nothing), Expr(:call, GlobalRef(@__MODULE__, :lookmakeface), nsmodule, QuoteNode(f)))
-    function faceorlookup(fe::Expr)
-        Meta.isexpr(fe, :., 2) || throw(ArgumentError("Invalid face reference expression `$fe`."))
-        Expr(:., Expr(:., Expr(:., fe.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), fe.args[2])
+    function faceorlookup(f) # A single method, so the binding is not boxed
+        if f isa Symbol
+            @something(get(hoistfaces, f, nothing),
+                       Expr(:call, GlobalRef(@__MODULE__, :lookmakeface), nsmodule[], QuoteNode(f)))
+        elseif Meta.isexpr(f, :., 2)
+            Expr(:., Expr(:., Expr(:., f.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), f.args[2])
+        else
+            throw(ArgumentError("Invalid face reference expression `$f`."))
+        end
     end
     for (; args) in values(parsed)
         for (i, (arg, value)) in enumerate(args)
@@ -309,7 +314,7 @@ macro defpalette!(pargs::Any...)
                 :background => faceorlookup(value)
             elseif arg == :inherit
                 :inherit => if Meta.isexpr(value, :vect)
-                    Expr(:vect, map(v -> faceorlookup(v), value.args)...)
+                    Expr(:vect, map(faceorlookup, value.args)...)
                 else
                     faceorlookup(value)
                 end
