@@ -106,6 +106,7 @@ const FACES = let base = Dict{Symbol, Face}(
      modifications = (base = Dict{Symbol, Face}(), light = Dict{Symbol, Face}(), dark = Dict{Symbol, Face}()),
      current = ScopedValue(copy(base)),
      basecolors = basecolors,
+     defaultcolors = copy(basecolors),
      lock = ReentrantLock())
 end
 
@@ -147,6 +148,8 @@ end
     resetfaces!()
 
 Reset the current global face dictionary to the default value.
+
+At the top level, this also discards any base colours set with `setcolors!`.
 """
 function resetfaces!()
     @lock FACES.lock begin
@@ -157,6 +160,7 @@ function resetfaces!()
         end
         if current === FACES.current.default # Only when top-level
             map(empty!, values(FACES.modifications))
+            merge!(empty!(FACES.basecolors), FACES.defaultcolors)
         end
         current
     end

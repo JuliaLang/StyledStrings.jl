@@ -168,6 +168,15 @@ end
     @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
     @test haskey(FACES.current[], :testface) == false
     @test haskey(FACES.current[], :anotherface) == false
+    # Colours reported by the terminal are global state too, and must not outlive a reset
+    StyledStrings.setcolors!([:black => (r=0x00, g=0x00, b=0x00),
+                              :foreground => (r=0xbb, g=0xc2, b=0xcf),
+                              :background => (r=0x24, g=0x27, b=0x30)])
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#000000"
+    @test FACES.basecolors[:foreground] == (r=0xbb, g=0xc2, b=0xcf)
+    StyledStrings.resetfaces!()
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#1c1a23"
+    @test FACES.basecolors == FACES.defaultcolors
     # `withfaces`
     @test StyledStrings.withfaces(:testface => Face(font="test")) do
         get(FACES.current[], :testface, nothing)
