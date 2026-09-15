@@ -585,6 +585,7 @@ function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}
     theme == :base && prefix ∈ map(String, setdiff(keys(FACES.themes), (:base,))) &&
         return loaduserfaces!(faces, nothing, Symbol(prefix))
     for (name, spec) in faces
+        spec isa Dict{String, Any} || continue
         fullname = if isnothing(prefix)
             name
         else
@@ -617,7 +618,7 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
         end
         if isnothing(val)
             weaknothing(T)
-        elseif val == "inherit"
+        elseif val isa String && val == "inherit"
             strongnothing(T)
         elseif T == SimpleColor && val isa String
             something(tryparse(SimpleColor, val), weaknothing(T))
@@ -632,16 +633,18 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
         end
     end
     font = safeget(spec, String, "font")
-    height = if !haskey(spec, "height")
-        weaknothing(UInt32)
-    elseif spec["height"] == "inherit"
-        strongnothing(UInt32)
-    elseif spec["height"] isa Int
-        UInt32(spec["height"])
-    elseif spec["height"] isa Float64
-        reinterpret(UInt32, Float32(spec["height"])) & ~(typemax(UInt32) >> 1)
-    else
-        weaknothing(UInt32)
+    height = let h = get(spec, "height", nothing)
+        if isnothing(h)
+            weaknothing(UInt32)
+        elseif h isa String && h == "inherit"
+            strongnothing(UInt32)
+        elseif h isa Int
+            UInt32(h)
+        elseif h isa Float64
+            reinterpret(UInt32, Float32(h)) & ~(typemax(UInt32) >> 1)
+        else
+            weaknothing(UInt32)
+        end
     end
     weight = if haskey(spec, "weight") && spec["weight"] isa String
         if spec["weight"]::String == "inherit"
@@ -694,7 +697,7 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     elseif spec["inherit"] isa Vector{String}
         [lookmakeface(Symbol(name)) for name in spec["inherit"]::Vector{String}]
     else
-        Symbol[]
+        Face[]
     end
     Face(FaceDef(font, height, strikethrough, inverse,
                  weight, slant, foreground, background,
