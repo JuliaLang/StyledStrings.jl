@@ -320,7 +320,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             face = getface(styles)
             link = let idx = findfirst(==(:link) ∘ first, styles)
                 if !isnothing(idx)
-                    uriformat(string(styles[idx].value)::String)
+                    uriformat(String(styles[idx].value))
                 end
             end
             !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
@@ -503,7 +503,7 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         face = getface(styles)
         link = let idx=findfirst(==(:link) ∘ first, styles)
             if !isnothing(idx)
-                uriformat(string(styles[idx].value)::String)
+                uriformat(String(styles[idx].value))
             end
         end
         !isnothing(link) && print(buf, "<a href=\"", link, "\">")

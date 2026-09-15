@@ -156,11 +156,11 @@ julia> tryparse(SimpleColor, "#nocolor")
 """
 function Base.tryparse(::Type{SimpleColor}, rgb::String)
     if ncodeunits(rgb) == 7 && first(rgb) == '#' &&
-        all(∈(('#',) ∪ ('0':'9') ∪ ('a':'f') ∪ ('A':'F')), rgb)
+        all(isxdigit, SubString(rgb, 2))
         SimpleColor(parse(UInt8, rgb[2:3], base=16),
                     parse(UInt8, rgb[4:5], base=16),
                     parse(UInt8, rgb[6:7], base=16))
-    elseif startswith(rgb, 'a':'z') || startswith(rgb, 'A':'Z')
+    elseif !isempty(rgb) && ('a' <= rgb[1] <= 'z' || 'A' <= rgb[1] <= 'Z')
         SimpleColor(lookmakeface(Symbol(rgb), false))
     else
         nothing
@@ -462,8 +462,12 @@ function Base.merge(a::FaceDef, b::FaceDef)
             b.font, b.height, b.strikethrough, b.inverse,
             b.weight, b.slant, b.foreground, b.background,
             b.underline, b.underline_style, Face[])
-        b_inheritance = map(f -> get(FACES.current[], f, f), Iterators.reverse(b.inherit))
-        b_resolved = merge(mapfoldl(f -> f.f, merge, b_inheritance), b_noinherit)
-        merge(a, b_resolved)
+        # A plain loop, not a fold: passing `merge` to a higher-order function makes the
+        # recursion through it uninferrable, which breaks trimming.
+        inherited = EMPTY_FACE.f
+        for face in Iterators.reverse(b.inherit)
+            inherited = merge(inherited, get(FACES.current[], face, face).f)
+        end
+        merge(a, merge(inherited, b_noinherit))
     end
 end
