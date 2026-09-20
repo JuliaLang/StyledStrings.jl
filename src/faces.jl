@@ -2,25 +2,30 @@
 
 const RGBTuple = NamedTuple{(:r, :g, :b), NTuple{3, UInt8}}
 
-# A precursor to `SimpleColor` that parameterises `_F`
-# to break the otherwise circular dependency.
-struct _SimpleColor{_F}
-    value::Union{_F, RGBTuple}
-end
+# Splitting `nothing` in two to allow for three-valued logic
+struct WeakNothing end
+struct StrongNothing end
 
-# A precursor to `Face` that parameterises `_F`
-# to break the otherwise circular dependency.
+# For efficient byte-shaped encoding of weight/slant/underline style
+const WEIGHT_NAMES = (:thin, :extralight, :light, :semilight, :normal, :medium, :semibold, :bold, :extrabold, :black)
+const SLANT_NAMES = (:italic, :oblique, :normal)
+const UNDERLINE_STYLE_NAMES = (:straight, :double, :curly, :dotted, :dashed)
+
+# A precursor to `Face` that parameterises `_F` to break the otherwise circular dependency.
+# The field order packs it into 56 bytes, one 64-byte `Face` allocation.
+# NOTE: The fact that 4-value unions are split by the compiler is critical to the efficient
+# layout of this struct, and performance of related code.
 struct _FaceDef{_F}
-    font::String
+    font::Union{String, WeakNothing, StrongNothing}
+    foreground::Union{_F, RGBTuple, WeakNothing, StrongNothing}
+    background::Union{_F, RGBTuple, WeakNothing, StrongNothing}
+    underline::Union{_F, RGBTuple, WeakNothing, StrongNothing}
     height::UInt32
+    weight::UInt8
+    slant::UInt8
+    underline_style::UInt8
     strikethrough::UInt8
     inverse::UInt8
-    weight::Symbol
-    slant::Symbol
-    foreground::_SimpleColor{_F}
-    background::_SimpleColor{_F}
-    underline::_SimpleColor{_F}
-    underline_style::Symbol
     inherit::Memory{_F}
 end
 
@@ -42,7 +47,9 @@ Base.setproperty!(::Face, ::Symbol, ::Any) = throw(ArgumentError("Faces are immu
 
 const FaceDef = _FaceDef{Face}
 
-const SimpleColor = _SimpleColor{Face}
+struct SimpleColor
+    value::Union{Face, RGBTuple}
+end
 
 @doc """
 A [`Face`](@ref) is a collection of graphical attributes for displaying text.
@@ -180,81 +187,52 @@ function Base.parse(::Type{SimpleColor}, rgb::String)
     color
 end
 
-# NOTE: We want three-valued logic for Face attributes.
-# This could be acomplished with two singleton types and then
-# using `Union{T, WeakNothing, StrongNothing}` for each attribute.
-# However, we engage in some shenanigans (using special sentinel values
-# that are not constructable by the user) instead for two reasons:
-# 1. To improve the memory layout of `FaceDef`, so there's less indirection
-# 2. To allow for having two flavours of `nothing`: "weak" and "strong".
-#    This allows for us to distinguish between unset attributes (weak)
-#    and attributes that should replace a set value with weak nothing (strong).
-# We can only do this because we have full knowledge and dominion
-# over the semantics of `FaceDef`.
-#
-# This is slightly funky. Please don't look too closely.
-# I hope that one day the compiler will let us use
-# `Union{T, WeakNothing, StrongNothing}` without compromise.
-
-const WEAK_NOTHING_SYMB = gensym("weak_nothing")
-const WEAK_NOTHING_STR = String(WEAK_NOTHING_SYMB)
-const WEAK_NOTHING_FACE = Face(FaceDef(
-    WEAK_NOTHING_STR, typemax(UInt32) >> 2, UInt8(0), UInt8(0), WEAK_NOTHING_SYMB, WEAK_NOTHING_SYMB,
-    SimpleColor((r = 0x00, g = 0x00, b = 0x00)), SimpleColor((r = 0x00, g = 0x00, b = 0x00)),
-    SimpleColor((r = 0x00, g = 0x00, b = 0x00)), WEAK_NOTHING_SYMB, Memory{Face}()))
-
-weaknothing(::Type{Symbol}) = WEAK_NOTHING_SYMB
-weaknothing(::Type{String}) = WEAK_NOTHING_STR
-weaknothing(::Type{N}) where {N<:Number} = - (0x2 * one(N))
-weaknothing(::Type{Face}) = WEAK_NOTHING_FACE
-weaknothing(::Type{SimpleColor}) = SimpleColor(weaknothing(Face))
+weaknothing(::Type{N}) where {N <: Unsigned} = -(0x2 * one(N))
 weaknothing(::Type{Bool}) = weaknothing(UInt8)
-weaknothing(::Type) = nothing
+weaknothing(::Type) = WeakNothing()
 weaknothing(x) = weaknothing(typeof(x))
 
-isweaknothing(x) = x === weaknothing(typeof(x))
+isweaknothing(::WeakNothing) = true
+isweaknothing(u::Unsigned) = u == weaknothing(typeof(u))
 isweaknothing(u::UInt32) = isnothingflavour(u) && !isstrongnothing(u)
-isweaknothing(s::String) = pointer(s) == pointer(WEAK_NOTHING_STR)
-isweaknothing(c::SimpleColor) = c.value isa Face && pointer_from_objref(c.value) == pointer_from_objref(WEAK_NOTHING_FACE)
+isweaknothing(::Any) = false
 
-const STRONG_NOTHING_SYMB = gensym("strong_nothing")
-const STRONG_NOTHING_STR = String(STRONG_NOTHING_SYMB)
-const STRONG_NOTHING_FACE = Face(FaceDef(
-    STRONG_NOTHING_STR, typemax(UInt32) >> 1, UInt8(0), UInt8(0), STRONG_NOTHING_SYMB, STRONG_NOTHING_SYMB,
-    SimpleColor((r = 0x00, g = 0x00, b = 0x00)), SimpleColor((r = 0x00, g = 0x00, b = 0x00)),
-    SimpleColor((r = 0x00, g = 0x00, b = 0x00)), STRONG_NOTHING_SYMB, Memory{Face}()))
-
-strongnothing(::Type{Symbol}) = STRONG_NOTHING_SYMB
-strongnothing(::Type{String}) = STRONG_NOTHING_STR
-strongnothing(::Type{N}) where {N<:Number} = -one(N)
-strongnothing(::Type{SimpleColor}) = SimpleColor(strongnothing(Face))
+strongnothing(::Type{N}) where {N <: Unsigned} = -one(N)
 strongnothing(::Type{Bool}) = strongnothing(UInt8)
-strongnothing(::Type) = nothing
+strongnothing(::Type) = StrongNothing()
 strongnothing(x) = strongnothing(typeof(x))
 
-isstrongnothing(x) = x === strongnothing(typeof(x))
-isstrongnothing(s::String) = pointer(s) == pointer(STRONG_NOTHING_STR)
-isstrongnothing(c::SimpleColor) = c.value isa Face && pointer_from_objref(c.value) == pointer_from_objref(STRONG_NOTHING_FACE)
+isstrongnothing(::StrongNothing) = true
+isstrongnothing(u::Unsigned) = u == strongnothing(typeof(u))
+isstrongnothing(::Any) = false
 
 isnothingflavour(x) = isweaknothing(x) || isstrongnothing(x)
 isnothingflavour(u::UInt32) = u & 0xff800000 == 0xff800000
 
+function attrbyte(names::Tuple{Vararg{Symbol}}, name::Symbol)
+    index = findfirst(==(name), names)
+    if !isnothing(index) UInt8(index - 1) end
+end
+
+const NORMAL_WEIGHT = attrbyte(WEIGHT_NAMES, :normal)
+const NORMAL_SLANT = attrbyte(SLANT_NAMES, :normal)
+const STRAIGHT_UNDERLINE = attrbyte(UNDERLINE_STYLE_NAMES, :straight)
+
+const NO_INHERIT = Memory{Face}()
 const EMPTY_FACE = Face(FaceDef(
-        weaknothing(String), weaknothing(UInt32), # font, height
-        weaknothing(Bool), weaknothing(Bool), # strikethrough, inverse
-        weaknothing(Symbol), weaknothing(Symbol), # weight, slant
-        weaknothing(SimpleColor), weaknothing(SimpleColor), # foreground, background
-        weaknothing(SimpleColor), weaknothing(Symbol), # underline, underline_style
-        Memory{Face}())) # inherit
+        WeakNothing(), WeakNothing(), WeakNothing(), WeakNothing(), # font, foreground, background, underline
+        weaknothing(UInt32), # height
+        weaknothing(UInt8), weaknothing(UInt8), weaknothing(UInt8), # weight, slant, underline_style
+        weaknothing(UInt8), weaknothing(UInt8), # strikethrough, inverse
+        NO_INHERIT))
 
 function new_recursive_fg_face()
     f = uninitialised_face() # We can't reference `f` before creation
     setfield!(f, :f, FaceDef(
-        weaknothing(String), weaknothing(UInt32),
+        WeakNothing(), f, WeakNothing(), WeakNothing(), # <- self-reference here (fg)
+        weaknothing(UInt32),
+        weaknothing(UInt8), weaknothing(UInt8), weaknothing(UInt8),
         weaknothing(UInt8), weaknothing(UInt8),
-        weaknothing(Symbol), weaknothing(Symbol),
-        SimpleColor(f), weaknothing(SimpleColor), # <- self-reference here (fg)
-        weaknothing(SimpleColor), weaknothing(Symbol),
         Memory{Face}()))
     f
 end
@@ -309,7 +287,7 @@ function Face(; font::Union{Nothing, String} = nothing,
         return EMPTY_FACE
     end
     inheritlist = if isnothing(inherit)
-        Memory{Face}()
+        NO_INHERIT
     elseif inherit isa Vector{Face}
         inherit.ref.mem
     elseif inherit isa Face
@@ -325,19 +303,24 @@ function Face(; font::Union{Nothing, String} = nothing,
         mem[1] = lookmakeface(inherit)
         mem
     end
-    ascolor(::Nothing) = weaknothing(SimpleColor)
-    ascolor(c::AbstractString) = parse(SimpleColor, c)
-    ascolor(c::Any) = convert(SimpleColor, c)
+    ascolor(::Nothing) = WeakNothing()
+    ascolor(c::Union{Face, RGBTuple}) = c
+    ascolor(c::AbstractString) = parse(SimpleColor, c).value
+    ascolor(c::Any) = convert(SimpleColor, c).value
+    asbyte(::Nothing, ::Tuple{Vararg{Symbol}}, ::String) = weaknothing(UInt8)
+    asbyte(name::Symbol, names::Tuple{Vararg{Symbol}}, attr::String) =
+        @something attrbyte(names, name) throw(ArgumentError(
+            "invalid Face $attr $(repr(name)), expected one of $(join(map(repr, names), ", ", " or "))"))
     ul, ulstyle = if isnothing(underline)
-        weaknothing(SimpleColor), weaknothing(Symbol)
+        WeakNothing(), weaknothing(UInt8)
     elseif underline isa Tuple{<:Any, Symbol}
-        ascolor(underline[1]), underline[2]
-    elseif underline in (:straight, :double, :curly, :dotted, :dashed)
-        weaknothing(SimpleColor), underline
+        ascolor(underline[1]), asbyte(underline[2], UNDERLINE_STYLE_NAMES, "underline style")
+    elseif underline in UNDERLINE_STYLE_NAMES
+        WeakNothing(), asbyte(underline, UNDERLINE_STYLE_NAMES, "underline style")
     elseif underline isa Bool
-        weaknothing(SimpleColor), ifelse(underline, :straight, strongnothing(Symbol))
+        WeakNothing(), ifelse(underline, STRAIGHT_UNDERLINE, strongnothing(UInt8))
     else
-        ascolor(underline), :straight
+        ascolor(underline), STRAIGHT_UNDERLINE
     end
     height1 = if isnothing(height)
         weaknothing(UInt32)
@@ -348,15 +331,16 @@ function Face(; font::Union{Nothing, String} = nothing,
         height < 0xff800000 || throw(ArgumentError("Face height in deci-pt must be less than $(0xff7fffff - 1)"))
         UInt32(height)
     end
-    f = FaceDef(something(font, weaknothing(String)),
-                height1,
-                something(strikethrough, weaknothing(Bool)),
-                something(inverse, weaknothing(Bool)),
-                something(weight, weaknothing(Symbol)),
-                something(slant, weaknothing(Symbol)),
+    f = FaceDef(something(font, WeakNothing()),
                 ascolor(foreground),
                 ascolor(background),
-                ul, ulstyle,
+                ul,
+                height1,
+                asbyte(weight, WEIGHT_NAMES, "weight"),
+                asbyte(slant, SLANT_NAMES, "slant"),
+                ulstyle,
+                something(strikethrough, weaknothing(Bool)),
+                something(inverse, weaknothing(Bool)),
                 inheritlist)
     Face(f)
 end
@@ -367,7 +351,8 @@ Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function
     if attr == :underline
         style = getfield(getfield(face, :f), :underline_style)
         if !isnothingflavour(val) || !isnothingflavour(style)
-            if !isnothingflavour(val) val end, style
+            (if !isnothingflavour(val) SimpleColor(val) end,
+             if !isnothingflavour(style) UNDERLINE_STYLE_NAMES[style + 1] end)
         end
     elseif isnothingflavour(val)
         nothing
@@ -377,6 +362,12 @@ Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function
         else # Float
             reinterpret(Float32, val & (typemax(UInt32) >> 1))
         end
+    elseif attr ∈ (:foreground, :background)
+        SimpleColor(val)
+    elseif attr == :weight
+        WEIGHT_NAMES[val + 1]
+    elseif attr == :slant
+        SLANT_NAMES[val + 1]
     elseif attr ∈ (:strikethrough, :inverse)
         val == 0x1
     else
@@ -384,27 +375,29 @@ Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function
     end
 end
 
-Base.propertynames(::Face) = setdiff(fieldnames(FaceDef), (:underline_style,))
+Base.propertynames(::Face) =
+    (:font, :height, :strikethrough, :inverse, :weight, :slant, :foreground, :background, :underline, :inherit)
 
 function Base.:(==)(a::FaceDef, b::FaceDef)
-    a.font            == b.font &&
-    a.height         === b.height &&
-    a.weight          == b.weight &&
-    a.slant           == b.slant &&
-    a.foreground      == b.foreground &&
-    a.background      == b.background &&
-    a.underline       == b.underline &&
-    a.underline_style == b.underline_style &&
-    a.strikethrough   == b.strikethrough &&
-    a.inverse         == b.inverse &&
-    a.inherit         == b.inherit
+    a.font            === b.font &&
+    a.foreground      === b.foreground &&
+    a.background      === b.background &&
+    a.underline       === b.underline &&
+    a.height          === b.height &&
+    a.weight          === b.weight &&
+    a.slant           === b.slant &&
+    a.underline_style === b.underline_style &&
+    a.strikethrough   === b.strikethrough &&
+    a.inverse         === b.inverse &&
+    a.inherit          == b.inherit
 end
 
 Base.:(==)(a::Face, b::Face) = a.f == b.f
 
 function Base.hash(f::FaceDef, h::UInt)
-    h = hash(f.font, hash(f.height, hash(f.weight, hash(f.slant, hash(FaceDef, h)))))
-    h = hash(f.foreground, hash(f.background, hash(f.underline, hash(f.underline_style, h))))
+    # Colours hash by identity, as they compare; structurally, the base faces would recurse
+    h = hash(f.font, hash(objectid(f.foreground), hash(objectid(f.background), hash(objectid(f.underline), hash(FaceDef, h)))))
+    h = hash(f.height, hash(f.weight, hash(f.slant, hash(f.underline_style, h))))
     h = hash(f.strikethrough, hash(f.inverse, h))
     foldl((h, face) -> hash(face, h), f.inherit; init = h)
 end
@@ -447,21 +440,20 @@ function Base.merge(a::FaceDef, b::FaceDef)
             reinterpret(UInt32, afloat * bfloat)
         end
         FaceDef(mergeattr(a.font, b.font),
-                abheight,
-                mergeattr(a.strikethrough, b.strikethrough),
-                mergeattr(a.inverse, b.inverse),
-                mergeattr(a.weight, b.weight),
-                mergeattr(a.slant, b.slant),
                 mergeattr(a.foreground, b.foreground),
                 mergeattr(a.background, b.background),
                 mergeattr(a.underline, b.underline),
+                abheight,
+                mergeattr(a.weight, b.weight),
+                mergeattr(a.slant, b.slant),
                 mergeattr(a.underline_style, b.underline_style),
+                mergeattr(a.strikethrough, b.strikethrough),
+                mergeattr(a.inverse, b.inverse),
                 a.inherit)
     else
         b_noinherit = FaceDef(
-            b.font, b.height, b.strikethrough, b.inverse,
-            b.weight, b.slant, b.foreground, b.background,
-            b.underline, b.underline_style, Face[])
+            b.font, b.foreground, b.background, b.underline, b.height,
+            b.weight, b.slant, b.underline_style, b.strikethrough, b.inverse, Face[])
         # A plain loop, not a fold: passing `merge` to a higher-order function makes the
         # recursion through it uninferrable, which breaks trimming.
         inherited = EMPTY_FACE.f

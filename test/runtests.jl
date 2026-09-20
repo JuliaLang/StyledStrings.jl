@@ -228,6 +228,18 @@ end
     @test Face(height=0.5).height == 0.5
     @test Face(weight=:bold).weight == :bold
     @test Face(slant=:italic).slant == :italic
+    for (attr, names) in ((:weight, StyledStrings.WEIGHT_NAMES), (:slant, StyledStrings.SLANT_NAMES))
+        for name in names
+            @test getproperty(Face(; attr => name), attr) === name
+        end
+        @test_throws ArgumentError Face(; attr => :unknown)
+    end
+    for style in StyledStrings.UNDERLINE_STYLE_NAMES
+        @test Face(underline=style).underline == (nothing, style)
+        @test Face(underline=(face"red", style)).underline == (SimpleColor(face"red"), style)
+    end
+    @test_throws ArgumentError Face(underline=(nothing, :unknown))
+    @test sizeof(StyledStrings.FaceDef) <= 7 * sizeof(Int) # A `Face` fits one 64-byte allocation
     @test Face(foreground=SimpleColor(face"red")).foreground == SimpleColor(face"red")
     @test Face(foreground=face"red").foreground == SimpleColor(face"red")
     @test Face(foreground=0xff0000).foreground == SimpleColor(0xff0000)
@@ -271,6 +283,8 @@ end
         resetfaces!(face"default")
     end
     # Loading from TOML (a Dict)
+    @test convert(Face, Dict{String, Any}("weight" => "wobbly", "underline" => ["red", "wavy"])) ==
+        Face(underline = face"red")   # Unknown names are left unset
     anotherface = hacky_addface!(:anotherface, copy(Face()))
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
@@ -1206,15 +1220,15 @@ Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = S
                     inherit=[face"emphasis", Face(slant=:italic)])
         got = StyledStrings._mergedface(other)
         @test got == ours
-        @test got.f.foreground.value === face"red"
+        @test got.f.foreground === face"red"
         @test got.f.inherit[1] === face"emphasis"
         @test StyledStrings._mergedface(Other.Face()) == Face()
         @test render(other) == render(ours)
         # Strong nothings, which only a field copy can carry over
-        strong, color = Other.strongnothing, Other.SimpleColor(Other.STRONG_NOTHING_FACE)
+        strong = Other.strongnothing
         sgot = StyledStrings._mergedface(Other.Face(Other.FaceDef(
-            strong(String), strong(UInt32), strong(Bool), strong(Bool), strong(Symbol), strong(Symbol),
-            color, color, color, strong(Symbol), Memory{Other.Face}()))).f
+            strong(String), strong(SimpleColor), strong(SimpleColor), strong(SimpleColor), strong(UInt32),
+            strong(UInt8), strong(UInt8), strong(UInt8), strong(Bool), strong(Bool), Memory{Other.Face}()))).f
         @test all(f -> StyledStrings.isstrongnothing(getfield(sgot, f)), setdiff(fieldnames(StyledStrings.FaceDef), (:inherit,)))
     end
     @test_throws MethodError getface([1])

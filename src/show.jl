@@ -61,42 +61,42 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
     end
     showcolor(io, color) = show(IOContext(io, :typeinfo => SimpleColor),
                                 MIME("text/plain"), color)
-    function showunderlineval(io::IO, ul, ulstyle, iscompact::Bool)
+    function showunderlineval(io::IO, ul, ulstyle::UInt8, iscompact::Bool)
         showulfn = if iscompact showval else showcolor end
         if isstrongnothing(ulstyle)
             print(io, "false")
-        elseif isnothingflavour(ul) && ulstyle == :straight
+        elseif isnothingflavour(ul) && ulstyle == STRAIGHT_UNDERLINE
             print(io, "true")
         elseif isnothingflavour(ul)
             if iscompact
-                show(io, ulstyle)
+                show(io, UNDERLINE_STYLE_NAMES[ulstyle + 1])
             else
-                print(io, ulstyle)
+                print(io, UNDERLINE_STYLE_NAMES[ulstyle + 1])
             end
-        elseif ulstyle == :straight
-            showulfn(io, ul)
+        elseif ulstyle == STRAIGHT_UNDERLINE || isnothingflavour(ulstyle)
+            showulfn(io, SimpleColor(ul))
         else
             iscompact && print(io, '(')
-            showulfn(io, ul)
+            showulfn(io, SimpleColor(ul))
             print(io, ", ")
             if iscompact
-                show(io, ulstyle)
+                show(io, UNDERLINE_STYLE_NAMES[ulstyle + 1])
                 print(io, ')')
             else
-                print(io, ulstyle)
+                print(io, UNDERLINE_STYLE_NAMES[ulstyle + 1])
             end
         end
     end
     function printfield(io::IO, origface::Face, curface::Face, field::Symbol, valdisplay::F) where {F <: Function}
         oval, cval = getproperty(origface, field), getproperty(curface, field)
-        all(isnothingflavour, (oval, cval)) && return
+        all(isnothing, (oval, cval)) && return
         print(io, '\n', lpad(String(field), 14, ' '), ": ")
-        if isnothingflavour(cval)
+        if isnothing(cval)
             print(io, styled"{light:unset}")
         else
             valdisplay(io, cval)
         end
-        if isnothingflavour(oval)
+        if isnothing(oval)
             print(io, styled" {light,grey:(default unset)}")
         elseif oval != cval
             if valdisplay == print
@@ -169,7 +169,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             end
             if isweaknothing(osty)
                 print(io, styled" {light,grey:(default unset)}")
-            elseif oul != cul || osty != csty
+            elseif oul !== cul || osty != csty
                 print(io, styled" {light:(default: }")
                 showunderlineval(io, oul, osty, false)
                 print(io, styled"{light:)}")

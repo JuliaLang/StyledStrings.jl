@@ -66,10 +66,10 @@ function mkunregisteredface(name::Symbol, use::Bool)
         !isnothing(existing) && (!use || getfield(existing, :f).height == UNDEF_INUSE_HEIGHT_FLAG) &&
             return existing
         uface = Face(FaceDef(
-            weaknothing(String), ifelse(use, UNDEF_INUSE_HEIGHT_FLAG, UNDEF_CUSTOM_HEIGHT_FLAG),
-            weaknothing(Bool), weaknothing(Bool), weaknothing(Symbol), weaknothing(Symbol),
-            weaknothing(SimpleColor), weaknothing(SimpleColor), weaknothing(SimpleColor),
-            weaknothing(Symbol), Memory{Face}()))
+            WeakNothing(), WeakNothing(), WeakNothing(), WeakNothing(),
+            ifelse(use, UNDEF_INUSE_HEIGHT_FLAG, UNDEF_CUSTOM_HEIGHT_FLAG),
+            weaknothing(UInt8), weaknothing(UInt8), weaknothing(UInt8),
+            weaknothing(UInt8), weaknothing(UInt8), Memory{Face}()))
         if !isnothing(existing)
             # 'Upgrade' a customisation-only face to an in-use face
             register_displace!(existing, uface, name)

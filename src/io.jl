@@ -210,49 +210,44 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         termcolor(io, face.foreground, '3')
     face.background == lastface.background ||
         termcolor(io, face.background, '4')
-    face.weight == lastface.weight || begin
-        if lastface.weight != :normal && face.weight != :normal
+    face.f.weight == lastface.f.weight || begin
+        if lastface.f.weight != NORMAL_WEIGHT && face.f.weight != NORMAL_WEIGHT
             print(io, ANSI_STYLE_CODES.normal_weight) # Reset before changing
         end
-        print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
-                  ANSI_STYLE_CODES.bold_weight
-              elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
+        weight = face.f.weight
+        print(io, if weight < NORMAL_WEIGHT
                   get(Base.current_terminfo(), :dim, "")
-              else # :normal
+              elseif weight == NORMAL_WEIGHT || isnothingflavour(weight)
                   ANSI_STYLE_CODES.normal_weight
+              else
+                  ANSI_STYLE_CODES.bold_weight
               end)
     end
-    face.slant == lastface.slant ||
-        if haskey(Base.current_terminfo(), :enter_italics_mode)
-            print(io, ifelse(face.slant ∈ (:italic, :oblique),
-                             ANSI_STYLE_CODES.start_italics,
-                             ANSI_STYLE_CODES.end_italics))
-        elseif face.slant ∈ (:italic, :oblique) && isnothing(face.underline)
-            print(io, ANSI_STYLE_CODES.start_underline)
-        elseif face.slant ∉ (:italic, :oblique) && isnothing(lastface.underline)
-            print(io, ANSI_STYLE_CODES.end_underline)
+    face.f.slant == lastface.f.slant ||
+        let slanted = face.f.slant < NORMAL_SLANT # italic or oblique
+            if haskey(Base.current_terminfo(), :enter_italics_mode)
+                print(io, ifelse(slanted, ANSI_STYLE_CODES.start_italics, ANSI_STYLE_CODES.end_italics))
+            elseif slanted && isnothing(face.underline)
+                print(io, ANSI_STYLE_CODES.start_underline)
+            elseif !slanted && isnothing(lastface.underline)
+                print(io, ANSI_STYLE_CODES.end_underline)
+            end
         end
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
-    (face.f.underline == lastface.f.underline && face.f.underline_style == lastface.f.underline_style) ||
+    (face.f.underline === lastface.f.underline && face.f.underline_style == lastface.f.underline_style) ||
         if haskey(Base.current_terminfo(), :set_underline_style) || get(Base.current_terminfo(), :can_style_underline, false)
             ul, ulstyle = face.f.underline, face.f.underline_style
             lastul, lastulstyle = lastface.f.underline, lastface.f.underline_style
             if ulstyle != lastulstyle && !isnothingflavour(ulstyle)
-                if isnothingflavour(lastulstyle) && ulstyle == :straight
+                if isnothingflavour(lastulstyle) && ulstyle == STRAIGHT_UNDERLINE
                     print(io, ANSI_STYLE_CODES.start_underline)
-                else
-                    print(io, "\e[4:",
-                          if ulstyle == :straight;   '1'
-                          elseif ulstyle == :double; '2'
-                          elseif ulstyle == :curly;  '3'
-                          elseif ulstyle == :dotted; '4'
-                          elseif ulstyle == :dashed; '5'
-                          else '0' end, 'm')
+                else # Kitty numbers the styles from 1 in `UNDERLINE_STYLE_NAMES` order
+                    print(io, "\e[4:", Char(UInt8('1') + ulstyle), 'm')
                 end
             end
             if !isnothingflavour(ul)
-                termcolor(io, ul, '5')
+                termcolor(io, SimpleColor(ul), '5')
             elseif !isnothingflavour(lastul)
                 termcolor(io, SimpleColor(FGBG_FACES.foreground), '5')
             end
@@ -448,17 +443,9 @@ function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
     writehex(r); writehex(g); writehex(b)
 end
 
-const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
-    :thin => 100,
-    :extralight => 200,
-    :light => 300,
-    :semilight => 300,
-    :normal => 400,
-    :medium => 500,
-    :semibold => 600,
-    :bold => 700,
-    :extrabold => 800,
-    :black => 900)
+# Indexed as `WEIGHT_NAMES` and `UNDERLINE_STYLE_NAMES`
+const HTML_WEIGHTS = (100, 200, 300, 300, 400, 500, 600, 700, 800, 900)
+const HTML_UNDERLINE_STYLES = ("solid", "double", "wavy", "dotted", "dashed")
 
 function cssattrs(io::IO, face::Face, lastface::Face=getface())
     priorattr = Ref(false)
@@ -478,10 +465,10 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
     end
     face.height == lastface.height ||
         printattr(io, "font-size", string(face.height ÷ 10), "pt")
-    face.weight == lastface.weight ||
-        printattr(io, "font-weight", get(HTML_WEIGHT_MAP, face.weight, 400))
-    face.slant == lastface.slant ||
-        printattr(io, "font-style", String(face.slant))
+    face.f.weight == lastface.f.weight ||
+        printattr(io, "font-weight", get(HTML_WEIGHTS, face.f.weight + 1, 400))
+    face.f.slant == lastface.f.slant ||
+        printattr(io, "font-style", String(get(SLANT_NAMES, face.f.slant + 1, :normal)))
     foreground, background =
         ifelse(face.inverse === true,
                (face.background, face.foreground),
@@ -498,28 +485,23 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         printattr(io, "background-color")
         htmlcolor(io, background, true)
     end
-    if (face.f.underline != lastface.f.underline || face.f.underline_style != lastface.f.underline_style) &&
+    if (face.f.underline !== lastface.f.underline || face.f.underline_style != lastface.f.underline_style) &&
         !(isnothingflavour(face.f.underline_style) && isnothingflavour(lastface.f.underline_style))
         color, style = face.f.underline, face.f.underline_style
         printattr(io, "text-decoration")
         if isnothingflavour(style)
             print(io, "none")
         elseif !isnothingflavour(color)
-            htmlcolor(io, color)
+            htmlcolor(io, SimpleColor(color))
             print(io, ' ')
         elseif !isnothingflavour(lastface.f.underline)
             print(io, "currentcolor ")
         end
         if isnothingflavour(style)
-        elseif style == :straight && (isnothingflavour(lastface.f.underline_style) || lastface.f.underline_style == :straight)
+        elseif style == STRAIGHT_UNDERLINE && (isnothingflavour(lastface.f.underline_style) || lastface.f.underline_style == STRAIGHT_UNDERLINE)
             print(io, "underline")
         else
-            print(io, if style == :straight "solid "
-                  elseif style == :double   "double "
-                  elseif style == :curly    "wavy "
-                  elseif style == :dotted   "dotted "
-                  elseif style == :dashed   "dashed "
-                  else "" end, "underline")
+            print(io, HTML_UNDERLINE_STYLES[style + 1], " underline")
         end
     end
     face.strikethrough == lastface.strikethrough ||
