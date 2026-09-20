@@ -832,6 +832,9 @@ styfuzz()
     @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, :n, 1)]), context = :color => true) == "x"
     # A styled char shows in HTML as a one-character string would
     @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
+    # A link spanning several styled regions is one hyperlink
+    @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
+        "\e]8;;https://x.org\e\\\e[1ma\e[22mb\e]8;;\e\\ c"
     # Escaping is applied to each run of text as it is styled
     @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
 end
