@@ -7,13 +7,13 @@ const STANDARD_FACES = let
      bright_blue, bright_magenta, bright_cyan, bright_white,
      foreground, background) = BASE_FACES
     default = Face(FaceDef(
-        "monospace", 120,      # font, height
-        0x00, 0x00,            # strikethrough, inverse
-        :normal, :normal,      # weight, slant
-        SimpleColor(foreground), # foreground
-        SimpleColor(background), # background
-        SimpleColor(WEAK_NOTHING_FACE), # underline (color)
-        strongnothing(Symbol), # underline (style)
+        "monospace",            # font
+        foreground, background, # foreground, background
+        WeakNothing(),          # underline (color)
+        120,                    # height
+        attrbyte(:weight, :normal), attrbyte(:slant, :normal),
+        strongnothing(UInt8),   # underline (style)
+        0x00, 0x00,             # strikethrough, inverse
         Memory{Face}()))
     # Property faces
     bold = Face(weight=:bold)
@@ -70,8 +70,6 @@ const FACES = let
     POOL = IdDict{Symbol, Face}(pairs(STANDARD_FACES))
     NAMES = IdDict(f => n for (n, f) in POOL)
     # Aliases
-    NAMES[WEAK_NOTHING_FACE] = :__WEAK_NOTHING__
-    NAMES[STRONG_NOTHING_FACE] = :__STRONG_NOTHING__
     POOL[:warn] = STANDARD_FACES.warning
     POOL[:grey] = STANDARD_FACES.bright_black
     POOL[:gray] = STANDARD_FACES.bright_black
@@ -144,15 +142,15 @@ function override(base::FaceDef, mods::FaceDef)
     end
     FaceDef(
         mergeattr(base, mods, :font),
-        mergeattr(base, mods, :height),
-        mergeattr(base, mods, :strikethrough),
-        mergeattr(base, mods, :inverse),
-        mergeattr(base, mods, :weight),
-        mergeattr(base, mods, :slant),
         mergeattr(base, mods, :foreground),
         mergeattr(base, mods, :background),
         mergeattr(base, mods, :underline),
+        mergeattr(base, mods, :height),
+        mergeattr(base, mods, :weight),
+        mergeattr(base, mods, :slant),
         mergeattr(base, mods, :underline_style),
+        mergeattr(base, mods, :strikethrough),
+        mergeattr(base, mods, :inverse),
         if isempty(mods.inherit)
             base.inherit
         else
@@ -374,43 +372,44 @@ The REPL runs on a private copy of the stdlib, which is not necessarily the one 
 loads (see `Base.require_stdlib`). Each copy displays its own faces, but a string may hold
 faces of both copies, so faces of one can reach the other's `getface`.
 
-Sentinel and named faces (base colours included) map to ours by identity, so that
-self-referential base faces terminate and theme overrides keyed on the equivalent face still
-apply. Other faces with our `FaceDef` layout are copied field by field, those with our
-properties are rebuilt from them, and anything else is a `MethodError`. A face name `Symbol`,
-which is how pre-1.14 copies refer to colours and inheritance, is looked up as ours.
+Named faces (base colours included) map to ours by identity, so that self-referential base
+faces terminate and theme overrides keyed on the equivalent face still apply. Other faces
+with our `FaceDef` layout are copied field by field, those with our properties are rebuilt
+from them, and anything else is a `MethodError`. A face name `Symbol`, which is how pre-1.14
+copies refer to colours and inheritance, is looked up as ours.
 """
 function foreignface(face)
     T = typeof(face)
     other = parentmodule(T)
     color(::Nothing) = nothing
     color(c)::Union{RGBTuple, Face} = if c.value isa RGBTuple c.value else foreignface(c.value) end
+    samelayout(t, s) = if t isa Union && s isa Union
+        issetequal(map(nameof, Base.uniontypes(t)), map(nameof, Base.uniontypes(s)))
+    else
+        !(t isa Union || s isa Union) && nameof(t) == nameof(s)
+    end
     if nameof(other) !== :StyledStrings || nameof(T) !== :Face
         throw(MethodError(_mergedface, (face,)))
-    elseif hasfield(T, :f) && fieldnames(fieldtype(T, :f)) == fieldnames(FaceDef) && map(nameof, fieldtypes(fieldtype(T, :f))) == map(nameof, fieldtypes(FaceDef))
-        if face === other.WEAK_NOTHING_FACE
-            WEAK_NOTHING_FACE
-        elseif face === other.STRONG_NOTHING_FACE
-            STRONG_NOTHING_FACE
+    end
+    name = if isdefined(other, :FACES) && hasproperty(other.FACES, :names) get(other.FACES.names, face, nothing) end
+    named = if !isnothing(name) get(FACES.pool, name, nothing) end
+    isnothing(named) || return named
+    if hasfield(T, :f) && fieldnames(fieldtype(T, :f)) == fieldnames(FaceDef) &&
+        all(splat(samelayout), zip(fieldtypes(fieldtype(T, :f)), fieldtypes(FaceDef)))
+        # Same layout: copy the fields, replacing only the nothings and the references to `other`'s faces
+        def = getfield(face, :f)
+        attr(x) = if x isa other.WeakNothing
+            WeakNothing()
+        elseif x isa other.StrongNothing
+            StrongNothing()
+        elseif x isa other.Face
+            foreignface(x)
         else
-            name = get(other.FACES.names, face, nothing)
-            named = if !isnothing(name) get(FACES.pool, name, nothing) end
-            isnothing(named) || return named
-            # Same encoding: copy the fields, rewriting only sentinels and references to `other`'s faces
-            def = getfield(face, :f)
-            sentinel(x) = if x === other.WEAK_NOTHING_STR || x === other.WEAK_NOTHING_SYMB
-                weaknothing(x)
-            elseif x === other.STRONG_NOTHING_STR || x === other.STRONG_NOTHING_SYMB
-                strongnothing(x)
-            else
-                x
-            end
-            Face(FaceDef(sentinel(def.font), def.height, def.strikethrough, def.inverse,
-                         sentinel(def.weight), sentinel(def.slant),
-                         SimpleColor(color(def.foreground)), SimpleColor(color(def.background)),
-                         SimpleColor(color(def.underline)), sentinel(def.underline_style),
-                         Face[foreignface(f) for f in def.inherit].ref.mem))
+            x
         end
+        Face(FaceDef(attr(def.font), attr(def.foreground), attr(def.background), attr(def.underline),
+                     def.height, def.weight, def.slant, def.underline_style, def.strikethrough, def.inverse,
+                     Face[foreignface(f) for f in def.inherit].ref.mem))
     elseif issetequal(propertynames(face), propertynames(EMPTY_FACE))
         underline = face.underline
         Face(font = face.font, height = face.height, weight = face.weight, slant = face.slant,
@@ -600,6 +599,10 @@ Load all faces declared in the Faces.toml file `tomlfile`.
 loaduserfaces!(tomlfile::String) = loaduserfaces!(Base.parsed_toml(tomlfile))
 
 function Base.convert(::Type{Face}, spec::Dict{String,Any})
+    function colorvalue(str::String)
+        color = tryparse(SimpleColor, str)
+        if isnothing(color) WeakNothing() else color.value end
+    end
     function safeget(spc::Dict{String, Any}, ::Type{T}, keys::String...) where {T}
         val = nothing
         for key in keys
@@ -611,7 +614,7 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
         elseif val isa String && val == "inherit"
             strongnothing(T)
         elseif T == SimpleColor && val isa String
-            something(tryparse(SimpleColor, val), weaknothing(T))
+            colorvalue(val)
         elseif T != SimpleColor && val isa T
             if T == Bool
                 UInt8(val)
@@ -620,6 +623,17 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
             end
         else
             weaknothing(T)
+        end
+    end
+    # A named attribute, or the boolean `flag` that sets it to `on`
+    function namedbyte(attr::Symbol, key::String, flag::String, on::Symbol)
+        val, isset = get(spec, key, nothing), get(spec, flag, nothing)
+        if val isa String
+            if val == "inherit" strongnothing(UInt8) else something(attrbyte(attr, Symbol(val)), weaknothing(UInt8)) end
+        elseif isset isa Bool
+            attrbyte(attr, if isset on else :normal end)
+        else
+            weaknothing(UInt8)
         end
     end
     font = safeget(spec, String, "font")
@@ -636,47 +650,25 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
             weaknothing(UInt32)
         end
     end
-    weight = if haskey(spec, "weight") && spec["weight"] isa String
-        if spec["weight"]::String == "inherit"
-            strongnothing(Symbol)
-        else
-            Symbol(spec["weight"]::String)
-        end
-    elseif haskey(spec, "bold") && spec["bold"] isa Bool
-        ifelse(spec["bold"]::Bool, :bold, :normal)
-    else
-        weaknothing(Symbol)
-    end
-    slant = if haskey(spec, "slant") && spec["slant"] isa String
-        if spec["slant"]::String == "inherit"
-            strongnothing(Symbol)
-        else
-            Symbol(spec["slant"]::String)
-        end
-    elseif haskey(spec, "italic") && spec["italic"] isa Bool
-        ifelse(spec["italic"]::Bool, :italic, :normal)
-    else
-        weaknothing(Symbol)
-    end
+    weight = namedbyte(:weight, "weight", "bold", :bold)
+    slant = namedbyte(:slant, "slant", "italic", :italic)
     foreground = safeget(spec, SimpleColor, "foreground", "fg")
     background = safeget(spec, SimpleColor, "background", "bg")
     ul, ulstyle = if !haskey(spec, "underline")
-        weaknothing(SimpleColor), weaknothing(Symbol)
+        WeakNothing(), weaknothing(UInt8)
     elseif spec["underline"] isa Bool
-        weaknothing(SimpleColor), ifelse(spec["underline"]::Bool, :straight, strongnothing(Symbol))
+        WeakNothing(), ifelse(spec["underline"]::Bool, attrbyte(:underline, :straight), strongnothing(UInt8))
     elseif spec["underline"] isa String
         if spec["underline"]::String == "inherit"
-            strongnothing(SimpleColor), strongnothing(Symbol)
+            StrongNothing(), strongnothing(UInt8)
         else
-            something(tryparse(SimpleColor, spec["underline"]::String),
-                      weaknothing(SimpleColor)), :straight
+            colorvalue(spec["underline"]::String), attrbyte(:underline, :straight)
         end
     elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
         color_str, style_str = (spec["underline"]::Vector{String})
-        color = something(tryparse(SimpleColor, color_str), weaknothing(SimpleColor))
-        color, Symbol(style_str)
+        colorvalue(color_str), something(attrbyte(:underline, Symbol(style_str)), attrbyte(:underline, :straight))
     else
-        weaknothing(SimpleColor), weaknothing(Symbol)
+        WeakNothing(), weaknothing(UInt8)
     end
     strikethrough = safeget(spec, Bool, "strikethrough")
     inverse = safeget(spec, Bool, "inverse")
@@ -689,9 +681,8 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     else
         Face[]
     end
-    Face(FaceDef(font, height, strikethrough, inverse,
-                 weight, slant, foreground, background,
-                 ul, ulstyle, inherit.ref.mem))
+    Face(FaceDef(font, foreground, background, ul, height,
+                 weight, slant, ulstyle, strikethrough, inverse, inherit.ref.mem))
 end
 
 ## Recolouring ##
@@ -815,7 +806,7 @@ Produces an `RGBTuple` or `Face` if successful, `nothing` otherwise.
 """
 function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
     for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
-        fg = face.f.foreground.value
+        fg = face.f.foreground
         if isnothingflavour(fg)
             isempty(face.inherit) && return nothing
             for iface in face.inherit
@@ -826,7 +817,7 @@ function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
             return fg
         else # fg isa Face
             face = get(FACES.current[], fg, fg)
-            face.f.foreground.value === fg && return face
+            face.f.foreground === fg && return face
         end
     end
 end
