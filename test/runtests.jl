@@ -796,6 +796,12 @@ end
 end
 
 @testset "ANSI encoding" begin
+    # A customised default face applies to unannotated text as to the rest
+    setface!(face"default" => Face(foreground = face"green"))
+    @test sprint(print, styled"plain", context = :color => true) == "\e[32mplain\e[39m"
+    @test sprint(print, styled"plain {bold:x}", context = :color => true) == "\e[32mplain \e[1mx\e[39m\e[22m"
+    resetfaces!(face"default")
+    @test sprint(print, styled"plain", context = :color => true) == "plain"
     # Link formatting
     @test StyledStrings.uriformat("https://x.y/z w") == "https://x.y/z%20w"
     @test StyledStrings.uriformat("a:b") == "a:b"
@@ -845,6 +851,10 @@ end
         @test startswith(first(ansi_change(background=FACES.basecolors[face"background"])), "\e[48;5;")
         @test ansi_change(weight=:light) == ("", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
+        # The bytes written are counted in an appending buffer too
+        pipe = PipeBuffer()
+        @test write(IOContext(pipe, :color => true), styled"{red:hello}") == 15
+        @test read(pipe, String) == "\e[31mhello\e[39m"
         # A char is written as a one-character string, against the same default face
         setface!(face"default" => Face(foreground = face"red"))
         c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = "https://x")])
