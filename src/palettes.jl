@@ -3,7 +3,10 @@
 const MAGIC_DEFPALETTE_VARNAME = Symbol("##styledstrings-defpalette-variable#")
 const MAGIC_USEPALETTE_VARNAME = Symbol("##styledstrings-usepalette-variable#")
 
-const var"##styledstrings-defpalette-variable#" = (; base = STANDARD_FACES)
+const var"##styledstrings-defpalette-variable#" =
+    (; base = STANDARD_FACES,
+     light = (; region = FACES.themes.light[STANDARD_FACES.region]),
+     dark = (; region = FACES.themes.dark[STANDARD_FACES.region]))
 
 # A height of 0xff8... is invalid, and so can be used as a flag.
 const UNDEF_CUSTOM_HEIGHT_FLAG = 0xff800001
@@ -128,7 +131,8 @@ and are preferentially used over any defined by [`@usepalettes!`](@ref).
 
 Within a `@defpalette!` block, faces (referenced as foreground, background,
 underline, or inherit attributes) should be referred to as variables, without
-any decoration. For instance, `blue` should be used over `face"blue"`.
+any decoration. For instance, `blue` should be used over `face"blue"`. Colours
+may also be given as literals, and any value as a `\$(...)` expression.
 
 Cyclic dependencies between faces (e.g. two faces inheriting from each other)
 are not possible, but the order of declaration is automatically determined.
@@ -137,9 +141,9 @@ are not possible, but the order of declaration is automatically determined.
 
 ```julia
 @defpalette! begin
-    important = Face(weight = bold, inherit = warning)
+    important = Face(weight = :bold, inherit = warning)
     topic = Face(foreground = blue)
-    heading = Face(foreground = important)
+    heading = Face(foreground = important, background = 0xf0f0f0)
 end
 ```
 """
@@ -160,11 +164,9 @@ macro defpalette!(pargs::Any...)
                     continue
                 else
                     nsval = Core.eval(__module__, val)
-                    if nsval isa Module
-                        nsmodule[] = nsval
-                    else
-                        throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
-                    end
+                    nsval isa Module || throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
+                    nsmodule[] = nsval
+                    "" # Derived from the module's path below
                 end
             else
                 throw(ArgumentError("Invalid @defpalette! argument `$decl`."))
@@ -194,6 +196,8 @@ macro defpalette!(pargs::Any...)
     # Parse declarations
     parsed = Dict{@NamedTuple{name::Symbol, theme::Symbol}, @NamedTuple{i::Int, args::Vector{Pair{Symbol, Any}}, deps::Vector{Symbol}, line::Union{LineNumberNode, Nothing}}}()
     lastline = nothing
+    isname(x) = x isa Symbol && x !== :nothing
+    isliteral(x) = x === :nothing || x isa Integer || x isa AbstractString
     for (i, decl) in enumerate(decls)
         if decl isa LineNumberNode
             lastline = decl
@@ -214,7 +218,6 @@ macro defpalette!(pargs::Any...)
         Meta.isexpr(facecall, :call) && facecall.args[1] == :Face || throw(ArgumentError("Invalid @defpalette! argument $decl, value (`$facecall`) must be a `Face(...)` expression."))
         faceargs = Pair{Symbol, Any}[]
         deps = Symbol[]
-        theme == :base || push!(deps, name)
         for arg in facecall.args[2:end]
             Meta.isexpr(arg, :kw, 2) || throw(ArgumentError("Invalid Face argument `$arg`."))
             k, v = arg.args
@@ -223,13 +226,13 @@ macro defpalette!(pargs::Any...)
             elseif k == :bg
                 k = :background
             end
-            if Meta.isexpr(v, :$, 1)
-                push!(faceargs, k => esc(v.args[1]))
+            if Meta.isexpr(v, :$, 1) # Kept as written, and unwrapped when the value is emitted
+                push!(faceargs, k => v)
                 continue
             end
             if k ∈ (:foreground, :background)
-                v isa Symbol && (push!(deps, v); true) ||
-                    Meta.isexpr(v, :., 2) || throw(ArgumentError("Invalid Face argument `$arg`, $k color value (`$v`) must be a variable name or a `\$(...)` expression."))
+                isname(v) && push!(deps, v)
+                isname(v) || isliteral(v) || Meta.isexpr(v, :., 2) || throw(ArgumentError("Invalid Face argument `$arg`, $k color value (`$v`) must be a face name, a color literal, or a `\$(...)` expression."))
             elseif k == :inherit
                 if v isa Symbol
                     push!(deps, v)
@@ -244,13 +247,16 @@ macro defpalette!(pargs::Any...)
                     throw(ArgumentError("Invalid Face argument `$arg`, inherit value (`$v`) must be a face name or a vector of face names."))
                 end
             elseif k == :underline
-                if v isa Symbol
+                if isname(v)
                     push!(deps, v)
-                elseif Meta.isexpr(v, :tuple, 2) && v.args[1] isa Symbol
+                elseif Meta.isexpr(v, :tuple, 2) && isname(v.args[1])
                     push!(deps, v.args[1])
                 end
             end
             push!(faceargs, k => v)
+        end
+        if theme != :base && name in deps
+            throw(ArgumentError("The $theme variant of face '$name' refers to '$name'. A variant is layered over its base face, so it cannot refer to it."))
         end
         parsed[(; name, theme)] = (; i, args = faceargs, deps, line = lastline)
     end
@@ -275,12 +281,10 @@ macro defpalette!(pargs::Any...)
     sort!(faceorder, by = x -> parsed[(; name = x, theme = :base)].i)
     hoistfaces = Dict{Symbol, Symbol}()
     for name in faceorder, rdep in revdeps[name]
+        get!(() -> gensym("$(name)_face"), hoistfaces, name)
         depfaces = parsed[(; name = rdep, theme = :base)].deps
         ind = findfirst(==(name), depfaces)::Int
-        if isempty(deleteat!(depfaces, ind))
-            hoistfaces[name] = gensym("$(name)_face")
-            push!(faceorder, rdep)
-        end
+        isempty(deleteat!(depfaces, ind)) && push!(faceorder, rdep)
     end
     length(faceorder) == length(allnames) ||
         throw(ArgumentError("Cyclic face dependencies detected in @defpalette! declaration: $(join(setdiff(allnames, faceorder), ", "))."))
@@ -291,11 +295,17 @@ macro defpalette!(pargs::Any...)
     end
     # Rewrite arguments
     function faceorlookup(f) # A single method, so the binding is not boxed
-        if f isa Symbol
+        if f === :nothing
+            nothing
+        elseif f isa Symbol
             @something(get(hoistfaces, f, nothing),
                        Expr(:call, GlobalRef(@__MODULE__, :lookmakeface), nsmodule[], QuoteNode(f)))
         elseif Meta.isexpr(f, :., 2)
             Expr(:., Expr(:., Expr(:., f.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), f.args[2])
+        elseif Meta.isexpr(f, :$, 1)
+            f.args[1]
+        elseif f isa Integer || f isa AbstractString
+            f
         else
             throw(ArgumentError("Invalid face reference expression `$f`."))
         end
@@ -320,6 +330,8 @@ macro defpalette!(pargs::Any...)
                 else
                     args[i]
                 end
+            elseif Meta.isexpr(value, :$, 1)
+                arg => value.args[1]
             else
                 args[i]
             end
@@ -351,7 +363,7 @@ macro defpalette!(pargs::Any...)
             else
                 push!(decls[theme], Expr(:kw, name, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...))))
             end
-        elseif isnothing(hoistname)
+        elseif name ∉ allnames
             throw(ArgumentError("A $theme variant of face '$name' is declared, without a base variant. Consider adding `$name = Face()` to the palette."))
         elseif isempty(args)
             push!(decls[theme], Expr(:kw, name, copy(Face())))
@@ -397,6 +409,11 @@ be used with [`face""`](@ref).
 ```
 """
 macro usepalettes!(names::Union{Expr, Symbol}...)
+    isempty(names) && throw(ArgumentError("@usepalettes! needs at least one module, as in `@usepalettes! Module`."))
+    checks = [:($isdefined($name, $(QuoteNode(MAGIC_DEFPALETTE_VARNAME))) ||
+                  $throw($ArgumentError($("`$name` has no palette to use. A palette is defined with `@defpalette!`, \
+                                         and a named palette is used as `$name.<palette name>`."))))
+              for name in names]
     refs = [Expr(:., name, QuoteNode(MAGIC_DEFPALETTE_VARNAME)) for name in reverse(names)]
     baserefs = [Expr(:., ref, QuoteNode(:base)) for ref in refs]
     lightrefs = [Expr(:., ref, QuoteNode(:light)) for ref in refs]
@@ -405,7 +422,7 @@ macro usepalettes!(names::Union{Expr, Symbol}...)
                 base = $merge($(baserefs...)),
                 light = $merge($(lightrefs...)),
                 dark = $merge($(darkrefs...))))
-    esc(Expr(:toplevel, :(const $MAGIC_USEPALETTE_VARNAME = $merged; nothing)))
+    esc(Expr(:toplevel, checks..., :(const $MAGIC_USEPALETTE_VARNAME = $merged; nothing)))
 end
 
 """
