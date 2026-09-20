@@ -777,6 +777,9 @@ struct CallableWriter end
     oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1)])
     @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
     @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
+    # A link spanning several styled regions is one hyperlink
+    @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
+        "\e]8;;https://x.org\e\\\e[1ma\e[22mb\e]8;;\e\\ c"
     # Escaping is applied to each run of text as it is styled
     @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
 end
