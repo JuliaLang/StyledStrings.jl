@@ -166,11 +166,9 @@ macro defpalette!(pargs::Any...)
                     continue
                 else
                     nsval = Core.eval(__module__, val)
-                    if nsval isa Module
-                        nsmodule[] = nsval
-                    else
-                        throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
-                    end
+                    nsval isa Module || throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
+                    nsmodule[] = nsval
+                    "" # Derived from the module's path below
                 end
             else
                 throw(ArgumentError("Invalid @defpalette! argument `$decl`."))
@@ -229,8 +227,8 @@ macro defpalette!(pargs::Any...)
             elseif k == :bg
                 k = :background
             end
-            if Meta.isexpr(v, :$, 1)
-                push!(faceargs, k => esc(v.args[1]))
+            if Meta.isexpr(v, :$, 1) # Evaluated as written, unwrapped when emitted
+                push!(faceargs, k => v)
                 continue
             end
             if k ∈ (:foreground, :background)
@@ -281,12 +279,10 @@ macro defpalette!(pargs::Any...)
     sort!(faceorder, by = x -> parsed[(; name = x, theme = :base)].i)
     hoistfaces = Dict{Symbol, Symbol}()
     for name in faceorder, rdep in revdeps[name]
+        get!(() -> gensym("$(name)_face"), hoistfaces, name)
         depfaces = parsed[(; name = rdep, theme = :base)].deps
         ind = findfirst(==(name), depfaces)::Int
-        if isempty(deleteat!(depfaces, ind))
-            hoistfaces[name] = gensym("$(name)_face")
-            push!(faceorder, rdep)
-        end
+        isempty(deleteat!(depfaces, ind)) && push!(faceorder, rdep)
     end
     length(faceorder) == length(allnames) ||
         throw(ArgumentError("Cyclic face dependencies detected in @defpalette! declaration: $(join(setdiff(allnames, faceorder), ", "))."))
@@ -302,6 +298,8 @@ macro defpalette!(pargs::Any...)
                        Expr(:call, GlobalRef(@__MODULE__, :lookmakeface), nsmodule[], QuoteNode(f)))
         elseif Meta.isexpr(f, :., 2)
             Expr(:., Expr(:., Expr(:., f.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), f.args[2])
+        elseif Meta.isexpr(f, :$, 1)
+            f.args[1]
         else
             throw(ArgumentError("Invalid face reference expression `$f`."))
         end
@@ -326,6 +324,8 @@ macro defpalette!(pargs::Any...)
                 else
                     args[i]
                 end
+            elseif Meta.isexpr(value, :$, 1)
+                arg => value.args[1]
             else
                 args[i]
             end

@@ -457,6 +457,53 @@ module TestPaletteUser
     @usepalettes! TestPalette
 end
 
+# Two palettes sharing a face name, one namespaced explicitly and referring across modules.
+module TestPaletteA
+    using StyledStrings
+    @defpalette! begin
+        shared = Face(weight = :bold)
+        onlya = Face(slant = :italic)
+    end
+    __init__() = @registerpalette!
+    const shared, onlya = face"shared", face"onlya"
+end
+
+module TestPaletteB
+    using StyledStrings
+    using ..TestPaletteA
+    @defpalette! namespace = "custom" begin
+        shared = Face(weight = :light)
+        cross = Face(foreground = TestPaletteA.shared)
+        std = Face(fg = red, bg = $(StyledStrings.SimpleColor(0x123456)), font = $(uppercase("mono")))
+        chain = Face(inherit = [shared, cross])
+        lazy = Face(inherit = zzz_undefined)
+    end
+    __init__() = @registerpalette!
+    const shared, cross, std, chain, lazy = face"shared", face"cross", face"std", face"chain", face"lazy"
+end
+
+# A palette namespaced under another module.
+module TestPaletteNamespaced
+    using StyledStrings
+    using ..TestPaletteA
+    @defpalette! namespace = TestPaletteA begin
+        nsface = Face()
+    end
+    __init__() = @registerpalette!
+    const nsface = face"nsface"
+end
+
+# An importer whose own palette shadows an imported face.
+module TestPaletteImporter
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @defpalette! begin
+        shared = Face(inverse = true)
+    end
+    @usepalettes! TestPaletteA TestPaletteB
+    const own, qualified, imported = face"shared", face"TestPaletteA.shared", face"onlya"
+end
+
 @testset "Palettes" begin
     (; heading, sub, topic) = TestPalette
     @test sub.inherit == [heading]
@@ -479,6 +526,47 @@ end
     @test FACES.remapping[][placeholder] === registered
     @test !haskey(FACES.unregistered, :zzz_placeholder)
     resetfaces!(registered)
+    @testset "Declaration errors" begin
+        declerror(decl) = macroexpand(TestPalette, :(@defpalette! $decl))
+        @test_throws r"Cyclic face dependencies" declerror(:(begin a = Face(inherit = b); b = Face(foreground = a) end))
+        @test_throws r"theme must be light or dark" declerror(:(begin a = Face(); a.blue = Face() end))
+        @test_throws r"Duplicate" declerror(:(begin a = Face(); a = Face() end))
+        @test_throws r"must be a `Face\(...\)` expression" declerror(:(begin a = 1 end))
+        @test_throws r"must be a variable name" declerror(:(begin a = Face(foreground = :red) end))
+        @test_throws r"must be a face name or a vector" declerror(:(begin a = Face(inherit = "b") end))
+        @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette! namespace = 1 begin a = Face() end))
+    end
+    @testset "References" begin
+        (; shared, cross, std, chain, lazy) = TestPaletteB
+        @test cross.foreground == SimpleColor(TestPaletteA.shared)
+        @test std.foreground == SimpleColor(face"red")
+        @test std.background == SimpleColor(0x123456)
+        @test std.font == "MONO"
+        @test chain.inherit == [shared, cross]
+        # A reference to an unknown face is a lazily interned placeholder
+        @test only(lazy.inherit) === FACES.unregistered[:zzz_undefined]
+        @test getface(lazy) == getface(Face())
+    end
+    @testset "Namespaces" begin
+        @test FACES.pool[:custom_shared] === TestPaletteB.shared
+        @test FACES.pool[Symbol(join(fullname(TestPaletteA), '_'), "_nsface")] === TestPaletteNamespaced.nsface
+    end
+    @testset "Imports" begin
+        (; own, qualified, imported) = TestPaletteImporter
+        @test own.inverse === true # The module's own palette shadows the imported face
+        @test qualified === TestPaletteA.shared
+        @test imported === TestPaletteA.onlya
+        @test StyledStrings.facename(TestPaletteImporter, imported) == :onlya
+        unknown = sprint(showerror, StyledStrings.UnknownFaceError(TestPaletteImporter, :nope))
+        @test occursin("shared", unknown) && occursin("TestPaletteA", unknown) && occursin("TestPaletteB", unknown)
+        @test occursin("No faces are defined", sprint(showerror, StyledStrings.UnknownFaceError(Main, :nope)))
+    end
+    @testset "Registration" begin
+        @test_logs (:warn, r"without a corresponding palette") @eval module TestNoPalette
+            using StyledStrings
+            @registerpalette!
+        end
+    end
 end
 
 @testset "Styled Markup" begin
