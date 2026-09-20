@@ -47,6 +47,7 @@ module StyledMarkup
 
 using Base: AnnotatedString, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
+    ATTRIBUTES,
     findface, lookupface, lookmakeface, MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
@@ -171,10 +172,9 @@ const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
                           "height", "weight", "slant", "underline",
                           "strikethrough", "inverse", "inherit")
 const LIKELY_FUTURE_FACE_ATTRS = (:shape, :style, :variant, :features, :alpha)
-const VALID_WEIGHTS = ("thin", "extralight", "light", "semilight", "normal",
-                       "medium", "semibold", "bold", "extrabold", "black")
-const VALID_SLANTS = ("italic", "oblique", "normal")
-const VALID_UNDERLINE_STYLES = ("straight", "double", "curly", "dotted", "dashed")
+const VALID_WEIGHTS = map(String, ATTRIBUTES.weights)
+const VALID_SLANTS = map(String, ATTRIBUTES.slants)
+const VALID_UNDERLINE_STYLES = map(String, ATTRIBUTES.underlines)
 
 """
     isnextchar(state::State, char::Char) -> Bool
@@ -753,7 +753,9 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             break
         end
     end
-    faceval = if ismacro(state)
+    faceval = if !isempty(state.errors)
+        Face() # Already reported; constructing it could throw first
+    elseif ismacro(state)
         faceex = Expr(:call, Face, kwargs...)
         if needseval
             faceex
