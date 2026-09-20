@@ -1082,6 +1082,27 @@ end
         @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_displaced)
         @test getface(registered).font == "lightmod"
         resetfaces!(registered)
+        # A variant registered before its base face follows it on displacement, at once
+        setcolors!(darkfbg)
+        StyledStrings.addface!(:zzz_early => Face(foreground=0x000004), :dark)
+        early = Face(foreground=0x000005)
+        StyledStrings.addface!(:zzz_early => early)
+        push!(HACKY_FACES, :zzz_early)
+        @test getface(early).foreground.value.b == 0x04
+        # A customisation of a face not yet used applies from its first use
+        StyledStrings.loaduserfaces!(Dict{String, Any}("zzz_configured" => Dict{String, Any}("font" => "configured")))
+        @test getface(styled"{zzz_configured:x}", 1).font == "configured"
+        # A palette registered after the last recolour has its variants applied at once
+        @eval module ZzzLatePalette
+            using StyledStrings
+            @defpalette! begin
+                late = Face(font = "base")
+                late.dark = Face(font = "dark")
+            end
+            @registerpalette!
+            const late = face"late"
+        end
+        @test getface(@eval ZzzLatePalette.late).font == "dark"
         recolor() do
             setface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
         end
