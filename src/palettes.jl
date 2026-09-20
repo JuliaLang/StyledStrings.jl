@@ -72,13 +72,7 @@ function mkunregisteredface(name::Symbol, use::Bool)
             weaknothing(Symbol), Memory{Face}()))
         if !isnothing(existing)
             # 'Upgrade' a customisation-only face to an in-use face
-            delete!(FACES.names, existing)
-            for mods in FACES.modifications
-                mface = get(mods, existing, nothing)
-                isnothing(mface) && continue
-                delete!(mods, existing)
-                mods[uface] = mface
-            end
+            register_displace!(existing, uface, name)
         end
         FACES.unregistered[name] = uface
         FACES.names[uface] = name
@@ -458,6 +452,7 @@ macro registerpalette!()
                 for theme in (:light, :dark), (name, variant) in pairs(palette[theme])
                     $gfaces.themes[theme][palette.base[name]] = variant
                 end
+                foreach($relayer!, values(palette.base))
             end
         else
             $register_palette_missing($file, $line)
@@ -477,15 +472,13 @@ Displace an unregistered face with a registered one in the global face registry.
 function register_displace!(unreg::Face, reg::Face, fullname::Symbol)
     delete!(FACES.unregistered, fullname)
     delete!(FACES.names, unreg)
-    for (cat, mods) in pairs(FACES.modifications)
-        mface = get(mods, unreg, nothing)
-        isnothing(mface) && continue
-        delete!(mods, unreg)
-        mods[reg] = mface
-        if cat ∈ (:base, FACES.current_theme[])
-            FACES.current.default[reg] = override(get(FACES.current.default, reg, reg), mface)
-        end
+    for tables in (FACES.themes, FACES.modifications), table in tables
+        row = get(table, unreg, nothing)
+        isnothing(row) && continue
+        delete!(table, unreg)
+        table[reg] = row
     end
+    relayer!(reg)
     if unreg.f.height == UNDEF_INUSE_HEIGHT_FLAG
         FACES.remapping.default[unreg] = reg
         FACES.remapping[][unreg] = reg

@@ -210,6 +210,7 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     elseif !haskey(FACES.themes[theme], name)
         face = lookmakeface(name, false)
         FACES.themes[theme][face] = default
+        relayer!(face)
     end
 end
 
@@ -722,6 +723,26 @@ top with `setface!` and user customisations.
 function recolor(f::Function)
     @lock recolor_lock push!(recolor_hooks, f)
     nothing
+end
+
+"""
+    relayer!(face::Face)
+
+Recompute the current definition of `face` from its variant for the current
+theme and its base and current-theme modifications, layered as `setcolors!` does.
+"""
+function relayer!(face::Face)
+    theme = FACES.current_theme[]
+    current = FACES.current.default
+    delete!(current, face)
+    function layer!(table)
+        update = get(table, face, nothing)
+        isnothing(update) && return
+        current[face] = override(get(current, face, face), update)
+    end
+    theme === :base || layer!(FACES.themes[theme])
+    layer!(FACES.modifications.base)
+    theme === :base || layer!(FACES.modifications[theme])
 end
 
 """
