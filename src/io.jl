@@ -317,19 +317,22 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     if get(io, :color, false)::Bool
         buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
         lastface::Face = STANDARD_FACES.default
+        lastlink::Union{String, Nothing} = nothing
         for (str, styles) in eachregion(s)
             face = getface(styles)
             link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
-                if !isnothing(idx)
-                    uriformat(String(styles[idx].value::AbstractString))
-                end
+                if !isnothing(idx) String(styles[idx].value::AbstractString) end
             end
-            !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
+            if link != lastlink # One hyperlink for all of a link's regions
+                isnothing(lastlink) || write(buf, "\e]8;;\e\\")
+                isnothing(link) || write(buf, "\e]8;;", uriformat(link), "\e\\")
+                lastlink = link
+            end
             termstyle(buf, face, lastface)
             string_writer(buf, str)
-            !isnothing(link) && write(buf, "\e]8;;\e\\")
             lastface = face
         end
+        isnothing(lastlink) || write(buf, "\e]8;;\e\\")
         termstyle(buf, STANDARD_FACES.default, lastface)
         write(io, seekstart(buf))
     elseif s isa AnnotatedString
