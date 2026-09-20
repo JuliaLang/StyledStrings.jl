@@ -339,36 +339,35 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
 end
 
 # ------------
-# Hook into the AnnotatedDisplay invalidation barrier
+# Hook into the AnnotatedDisplay style dispatch
 
-Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) where {F <: Function} =
-    _ansi_writer(f, io, s)
+"""
+    Styled
 
-function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar{<:Any, >:Face})
+The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face`: annotated strings whose
+values include `Face`s are displayed by StyledStrings. Another annotation value type can
+be displayed the same way by declaring `Styled()` as its style, provided
+[`getface`](@ref) can interpret its values.
+"""
+struct Styled <: AnnotatedDisplay.AbstractAnnotationStyle end
+
+AnnotatedDisplay.AnnotationStyle(::Type{Face}) = Styled()
+
+AnnotatedDisplay.awrite(textwriter::F, ::Styled, io::IO, s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) where {F} =
+    _ansi_writer(textwriter, io, s)
+
+function AnnotatedDisplay.awrite(textwriter::F, ::Styled, io::IO, c::AnnotatedChar) where {F}
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
-        bytes = write(io, c.char)
+        bytes = textwriter(io, c.char)
         termstyle(io, getface(), getface(c))
         bytes
     else
-        write(io, c.char)
+        textwriter(io, c.char)
     end
 end
 
-function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar{<:Any, >:Face})
-    if get(io, :color, false) == true
-        out = IOBuffer()
-        show(out, c.char)
-        cstr = AnnotatedString(
-            String(take!(out)[2:end-1]),
-            [(1:ncodeunits(c), a...) for a in c.annotations])
-        print(io, ''', cstr, ''')
-    else
-        show(io, c.char)
-    end
-end
-
-Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) =
+AnnotatedDisplay.awrite(::Styled, io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) =
     show_html(io, s)
 
 # Also see `legacy.jl:126` for `styled_write`.

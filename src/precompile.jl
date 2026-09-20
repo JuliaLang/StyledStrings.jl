@@ -8,6 +8,7 @@ print(colorio, styled"{(foreground=red):with color}")
 show(colorio, MIME("text/plain"), styled"{red:with color}")
 show(colorio, MIME("text/html"), styled"{red:with color}")
 print(colorio, styled"{red:with color}"[1])
+precompile(isempty, (AnnotatedString{String, Face},)) # The REPL tests its highlighted input buffer
 print(colorio, styled"{(underline=(blue,curly)):more styling}")
 
 convert(StyledStrings.SimpleColor, (r = 0x01, g = 0x02, b = 0x03))

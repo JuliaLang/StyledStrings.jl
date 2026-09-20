@@ -2,7 +2,7 @@
 
 module StyledStrings
 
-using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring, eachregion
+using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring, eachregion, AnnotatedDisplay
 using Base.ScopedValues: ScopedValue, with, @with
 
 # While these are imported from Base, we claim them as part of the `StyledStrings` API.
