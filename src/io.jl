@@ -9,7 +9,7 @@ table. The standard colors are 0-7, and high intensity colors 8-15.
 The high intensity colors are prefixed by "bright_". The "bright_black" color is
 given two aliases: "grey" and "gray".
 """
-const ANSI_4BIT_COLORS = IdDict{Face, Int}(
+const ANSI_4BIT_COLORS = IdDict{Face, UInt8}(
     face"black"          => 0,
     face"red"            => 1,
     face"green"          => 2,
@@ -34,17 +34,51 @@ const FGBG_FACES =
      background = FACES.pool[:background])
 
 """
-    ansi_4bit(color::Integer, background::Bool=false)
+    writebytes(io::IO, word::UInt64, nb::Integer)
 
-Provide the color code (30-37, 40-47, 90-97, 100-107) for `color` (0–15).
+Write the low `nb` bytes of `word`, as they lie in memory, to `io` in one call.
+"""
+function writebytes(io::IO, word::UInt64, nb::Integer)
+    bytes = Ref(htol(word))
+    GC.@preserve bytes unsafe_write(io, Ptr{UInt8}(pointer_from_objref(bytes)), nb)
+end
+
+"""
+    packdigits(num::UInt8) -> (digits::UInt64, ndigits)
+
+The decimal digits of `num` packed little-endian, first digit lowest, and their count.
+"""
+function packdigits(num::UInt8)
+    hundreds, rest = divrem(num, UInt8(100))
+    tens, ones = divrem(rest, UInt8(10))
+    ndigits = 0x1 + (num >= UInt8(10)) + (num >= UInt8(100))
+    zero = UInt64(UInt8('0'))
+    ((zero + hundreds) | (zero + tens) << 8 | (zero + ones) << 16) >> (8 * (0x3 - ndigits)), ndigits
+end
+
+"""
+    writedigits(io::IO, num::UInt8, suffix::Char = '\\0')
+
+Efficiently write an 8-bit unsigned number (`num`) to `io` as a decimal, followed by
+`suffix` when one is given.
+"""
+function writedigits(io::IO, num::UInt8, suffix::Char = '\0')
+    digits, ndigits = packdigits(num)
+    writebytes(io, digits | UInt64(suffix) << (8 * ndigits), ndigits + (suffix != '\0'))
+end
+
+"""
+    ansi_4bit(code::UInt8, background::Bool=false)
+
+Provide the color code (30-37, 40-47, 90-97, 100-107) for `code` (0–15).
 
 When `background` is set the background variant will be provided, otherwise
 the provided code is for setting the foreground color.
 """
-function ansi_4bit(code::Integer, background::Bool=false)
-    code >= 8 && (code += 52)
-    background && (code += 10)
-    code + 30
+function ansi_4bit(code::UInt8, background::Bool=false)
+    code >= UInt8(8) && (code += UInt8(52))
+    background && (code += UInt8(10))
+    code + UInt8(30)
 end
 
 """
@@ -81,7 +115,8 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
             from6cube(r6cube, g6cube, b6cube)
         end
     end
-    print(io, "\e[", category, "8;5;", string(colorcode), 'm')
+    write(io, if category == '3' "\e[38;5;" elseif category == '4' "\e[48;5;" else "\e[58;5;" end)
+    writedigits(io, UInt8(colorcode), 'm')
 end
 
 """
@@ -90,10 +125,10 @@ end
 Print to `io` the 24-bit SGR color code to set the `category`8 slot to `color`.
 """
 function termcolor24bit(io::IO, color::RGBTuple, category::Char)
-    print(io, "\e[", category, "8;2;",
-          string(color.r), ';',
-          string(color.g), ';',
-          string(color.b), 'm')
+    write(io, if category == '3' "\e[38;2;" elseif category == '4' "\e[48;2;" else "\e[58;2;" end)
+    writedigits(io, color.r, ';')
+    writedigits(io, color.g, ';')
+    writedigits(io, color.b, 'm')
 end
 
 """
@@ -132,13 +167,13 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
     if cfinal isa Face
         ansi = get(ANSI_4BIT_COLORS, cfinal, nothing)
         isnothing(ansi) && return # Unknown color
-        print(io, "\e[")
-        if category == '3' || category == '4'
-            print(io, ansi_4bit(ansi, category == '4'))
-        elseif category == '5'
-            print(io, "58;5;", ansi)
+        if category == '5'
+            write(io, "\e[58;5;")
+            writedigits(io, ansi, 'm')
+        else # The whole sequence fits one word
+            digits, ndigits = packdigits(ansi_4bit(ansi, category == '4'))
+            writebytes(io, UInt64(0x5b1b) | digits << 16 | UInt64(UInt8('m')) << (16 + 8 * ndigits), ndigits + 3)
         end
-        print(io, 'm')
     elseif cfinal isa RGBTuple
         if Base.get_have_truecolor()
             termcolor24bit(io, cfinal, category)
@@ -313,8 +348,11 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
-    if get(io, :color, false)::Bool
-        buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
+    if get(io, :color, false)::Bool && !isempty(annotations(if s isa SubString s.string else s end))
+        # Make sure to (re)use a buffer to coalesce writes
+        raw = first(Base.unwrapcontext(io))
+        buf = if raw isa IOBuffer raw else IOBuffer() end
+        start = position(buf)
         lastface::Face = STANDARD_FACES.default
         lastlink::Union{String, Nothing} = nothing
         for (str, styles) in eachregion(s)
@@ -333,7 +371,9 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         end
         isnothing(lastlink) || write(buf, "\e]8;;\e\\")
         termstyle(buf, STANDARD_FACES.default, lastface)
-        write(io, seekstart(buf))
+        bytes = position(buf) - start
+        buf === raw || write(io, seekstart(buf))
+        bytes
     elseif s isa AnnotatedString
         string_writer(io, s.string)
     elseif s isa SubString
@@ -384,6 +424,11 @@ const HTML_FGBG = (
 )
 
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
+    function writehex(byte::UInt8)
+        digits = b"0123456789abcdef"
+        write(io, @inbounds digits[byte >> 4 + 1])
+        write(io, @inbounds digits[byte & 0xf + 1])
+    end
     default = getface()
     if color.value ∈ (FGBG_FACES.background, default.background)
         if background
@@ -400,12 +445,7 @@ function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
     end
     (; r, g, b) = rgbcolor(color)
     print(io, '#')
-    r < 0x10 && print(io, '0')
-    print(io, string(r, base=16))
-    g < 0x10 && print(io, '0')
-    print(io, string(g, base=16))
-    b < 0x10 && print(io, '0')
-    print(io, string(b, base=16))
+    writehex(r); writehex(g); writehex(b)
 end
 
 const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
@@ -498,7 +538,8 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     # before we start outputting any styled content.
     load_customisations!()
     htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
-    buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
+    raw = first(Base.unwrapcontext(io))
+    buf = if raw isa IOBuffer raw else IOBuffer() end
     lastface::Face = getface()
     stylestackdepth = 0
     for (str, styles) in eachregion(s)
@@ -527,6 +568,6 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         lastface = face
     end
     print(buf, "</span>" ^ stylestackdepth)
-    write(io, take!(buf))
+    buf === raw || write(io, take!(buf))
     nothing
 end
