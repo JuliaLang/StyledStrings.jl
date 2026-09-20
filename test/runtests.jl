@@ -757,6 +757,30 @@ end
 # Markup fuzzing!
 styfuzz()
 
+struct CallableWriter end
+(::CallableWriter)(io::IO, s) = print(io, s)
+
+@testset "Annotation styles" begin
+    AnnotationStyle, NoStyle = Base.AnnotatedDisplay.AnnotationStyle, Base.AnnotatedDisplay.NoStyle
+    @test sprint(io -> Base.AnnotatedDisplay.awrite(CallableWriter(), StyledStrings.Styled(), io, styled"{red:a}"),
+                 context = :color => true) == "\e[31ma\e[39m"
+    @test AnnotationStyle(Face) === StyledStrings.Styled()
+    @test AnnotationStyle(Union{Face, String}) === AnnotationStyle(Union{String, Int, Face}) === StyledStrings.Styled()
+    @test AnnotationStyle(String) === NoStyle()
+    red(V) = AnnotatedString{String, V}("x", [(1:1, :face, face"red"), (1:1, :n, 1)])
+    @test sprint(print, red(Union{Face, Int}), context = :color => true) == "\e[31mx\e[39m"
+    @test sprint(print, red(Any), context = :color => true) == "\e[31mx\e[39m"
+    @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, :n, 1)]), context = :color => true) == "x"
+    # A styled char shows in HTML as a one-character string would
+    @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
+    # A link whose value is not a string is skipped
+    oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1)])
+    @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
+    @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
+    # Escaping is applied to each run of text as it is styled
+    @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
+end
+
 @testset "AnnotatedIOBuffer" begin
     aio = AnnotatedIOBuffer()
     @test write(aio, styled"{red:hey} {blue:there}") == 9
@@ -818,6 +842,12 @@ end
         @test startswith(first(ansi_change(background=FACES.basecolors[face"background"])), "\e[48;5;")
         @test ansi_change(weight=:light) == ("", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
+        # A char is written as a one-character string, against the same default face
+        setface!(face"default" => Face(foreground = face"red"))
+        c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = "https://x")])
+        @test sprint(print, c, context = :color => true) ==
+            sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, "https://x")]), context = :color => true)
+        resetfaces!(face"default")
         # The underline that stands in for italics is kept
         @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)), getface(Face(underline=true))) == "\e[4m"
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
@@ -1119,6 +1149,15 @@ module SourceCopy
     end
 end
 
+# A whole other copy, with a `Styled` of its own, as with the REPL's private copy
+module FullCopy
+    include(joinpath(@__DIR__, "..", "src", "StyledStrings.jl"))
+end
+
+# A copy that routes its faces through ours, as a package with its own face-like type would.
+Base.AnnotatedDisplay.AnnotationStyle(::Type{OtherCopy.StyledStrings.Face}) = StyledStrings.Styled()
+Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = StyledStrings.Styled()
+
 @testset "Foreign faces" begin
     # The REPL's private copy of StyledStrings attaches faces of its own type (JuliaLang/julia#60034)
     render(f) = sprint(print, AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
@@ -1154,6 +1193,21 @@ end
             strong(String), strong(UInt32), strong(Bool), strong(Bool), strong(Symbol), strong(Symbol),
             color, color, color, strong(Symbol), Memory{Other.Face}()))).f
         @test all(f -> StyledStrings.isstrongnothing(getfield(sgot, f)), setdiff(fieldnames(StyledStrings.FaceDef), (:inherit,)))
+    end
+    @testset "Two whole copies" begin
+        # Each copy has a `Styled` of its own, and strings holding faces of both display as one
+        Full = FullCopy.StyledStrings
+        theirs = Full.Face(weight = :bold, inverse = true)
+        allours = AnnotatedString("ab", [(1:1, :face, face"red"), (2:2, :face, Face(weight = :bold, inverse = true))])
+        mixed = AnnotatedString{String, Union{Face, Full.Face}}("ab", [(1:1, :face, face"red"), (2:2, :face, theirs)])
+        @test sprint(print, mixed; context = :color => true) == sprint(print, allours; context = :color => true)
+        @test sprint(show, MIME("text/html"), mixed) == sprint(show, MIME("text/html"), allours)
+        @test Base.issingletontype(Base.infer_return_type(Base.AnnotatedDisplay.style, (typeof(mixed),)))
+        # With an `Any` value type, whichever copy's face is met first
+        for annots in ([(1:1, :face, face"red"), (2:2, :face, theirs)], [(2:2, :face, theirs), (1:1, :face, face"red")])
+            @test sprint(print, AnnotatedString{String, Any}("ab", annots); context = :color => true) ==
+                sprint(print, allours; context = :color => true)
+        end
     end
     @test_throws MethodError getface([1])
     @testset "REPL mock load" begin

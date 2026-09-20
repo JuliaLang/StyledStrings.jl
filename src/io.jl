@@ -310,7 +310,7 @@ function uriformat(link::String)
     Base.Filesystem.uripath(link)
 end
 
-function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function}
+function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F}
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
@@ -319,9 +319,9 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         lastface::Face = STANDARD_FACES.default
         for (str, styles) in eachregion(s)
             face = getface(styles)
-            link = let idx = findfirst(==(:link) ∘ first, styles)
+            link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
                 if !isnothing(idx)
-                    uriformat(String(styles[idx].value))
+                    uriformat(String(styles[idx].value::AbstractString))
                 end
             end
             !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
@@ -340,36 +340,31 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
 end
 
 # ------------
-# Hook into the AnnotatedDisplay invalidation barrier
+# Hook into the AnnotatedDisplay style dispatch
 
-Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) where {F <: Function} =
-    _ansi_writer(f, io, s)
+"""
+    Styled
 
-function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar{<:Any, >:Face})
-    if get(io, :color, false) == true
-        termstyle(io, getface(c), getface())
-        bytes = write(io, c.char)
-        termstyle(io, getface(), getface(c))
-        bytes
-    else
-        write(io, c.char)
-    end
+The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face`: annotated strings whose
+values include `Face`s are displayed by StyledStrings. Another annotation value type can
+be displayed the same way by declaring `Styled()` as its style, provided
+[`getface`](@ref) can interpret its values.
+"""
+struct Styled <: AnnotatedDisplay.AbstractAnnotationStyle end
+
+AnnotatedDisplay.AnnotationStyle(::Type{Face}) = Styled()
+
+# Another loaded copy of StyledStrings has a `Styled` of its own, and each copy renders the
+# other's faces (see `foreignface`), so either may display them both
+function AnnotatedDisplay.AnnotationStyle(a::Styled, b::AnnotatedDisplay.AbstractAnnotationStyle)
+    B = typeof(b)
+    if nameof(B) === :Styled && nameof(parentmodule(B)) === :StyledStrings a end
 end
 
-function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar{<:Any, >:Face})
-    if get(io, :color, false) == true
-        out = IOBuffer()
-        show(out, c.char)
-        cstr = AnnotatedString(
-            String(take!(out)[2:end-1]),
-            [(1:ncodeunits(c), a...) for a in c.annotations])
-        print(io, ''', cstr, ''')
-    else
-        show(io, c.char)
-    end
-end
+AnnotatedDisplay.awrite(textwriter::F, ::Styled, io::IO, s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) where {F} =
+    _ansi_writer(textwriter, io, s)
 
-Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString{<:Any, >:Face}, <:SubString{<:AnnotatedString{<:Any, >:Face}}}) =
+AnnotatedDisplay.awrite(::Styled, io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) =
     show_html(io, s)
 
 # Also see `legacy.jl:126` for `styled_write`.
@@ -502,9 +497,9 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     stylestackdepth = 0
     for (str, styles) in eachregion(s)
         face = getface(styles)
-        link = let idx=findfirst(==(:link) ∘ first, styles)
+        link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
             if !isnothing(idx)
-                uriformat(String(styles[idx].value))
+                uriformat(String(styles[idx].value::AbstractString))
             end
         end
         !isnothing(link) && print(buf, "<a href=\"", link, "\">")

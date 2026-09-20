@@ -382,8 +382,8 @@ _mergedface(face::Any) = _mergedface(foreignface(face))
 Rebuild `face`, a `Face` from another loaded copy of StyledStrings, as one of ours.
 
 The REPL runs on a private copy of the stdlib, which is not necessarily the one user code
-loads (see `Base.require_stdlib`), and only the last loaded copy's `Base.AnnotatedDisplay`
-hooks are active. So the faces one copy attaches to its output can reach the other's `getface`.
+loads (see `Base.require_stdlib`). Each copy displays its own faces, but a string may hold
+faces of both copies, so faces of one can reach the other's `getface`.
 
 Sentinel and named faces (base colours included) map to ours by identity, so that
 self-referential base faces terminate and theme overrides keyed on the equivalent face still
