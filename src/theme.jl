@@ -464,11 +464,11 @@ function getface(faces)
 end
 
 """
-    getface(annotations::Vector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
+    getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
 
 Combine all of the `:face` annotations with `getfaces`.
 """
-function getface(annotations::Vector{@NamedTuple{label::Symbol, value::V}},
+function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}},
                  cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[]) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
     face = nothing # A lone `Face`, the usual case, resolves without the fold
