@@ -446,11 +446,7 @@ Obtain the final merged face from `faces`, an iterator of
 function getface(faces)
     cdefault = getface()
     isempty(faces) && return cdefault
-    combined = mapfoldl(_mergedface, merge, faces)::Face
-    if !isempty(combined.inherit)
-        combined = merge(Face(), combined)
-    end
-    merge(cdefault, combined)
+    merge(cdefault, mapfoldl(_mergedface, merge, faces)::Face)
 end
 
 """
@@ -460,10 +456,20 @@ Combine all of the `:face` annotations with `getfaces`.
 """
 function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}}) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
-    getface(faces)
+    face = nothing # A single `Face`, the usual case, is resolved without the fold
+    for ann in annotations
+        ann.label === :face || continue
+        isnothing(face) && ann.value isa Face || return getface(faces)
+        face = ann.value::Face
+    end
+    if isnothing(face) getface() else getface(face) end
 end
 
-getface(face::Face) = merge(getface(), merge(Face(), get(FACES.current[], face, face)))
+function getface(face::Face)
+    current = FACES.current[]
+    merge(get(current, STANDARD_FACES.default, STANDARD_FACES.default), get(current, face, face))
+end
+
 getface(face::Symbol) = getface(lookmakeface(face))
 
 """
@@ -822,6 +828,7 @@ Attempt to resolve `face` to a final color, taking up to `stamina` steps.
 Produces an `RGBTuple` or `Face` if successful, `nothing` otherwise.
 """
 function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
+    current = FACES.current[]
     for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
         fg = face.f.foreground
         if isnothingflavour(fg)
@@ -833,18 +840,18 @@ function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
         elseif fg isa RGBTuple
             return fg
         else # fg isa Face
-            face = get(FACES.current[], fg, fg)
+            face = get(current, fg, fg)
             face.f.foreground === fg && return face
         end
     end
 end
 
 function finalcolor(color::SimpleColor)
-    if color.value isa RGBTuple
-        color.value
-    else
-        finalcolor(get(FACES.current[], color.value, color.value))
-    end
+    value = color.value
+    value isa RGBTuple && return value
+    face = get(FACES.current[], value, value)
+    face.f.foreground === value && return face # Final already, the usual case
+    finalcolor(face)
 end
 
 """
