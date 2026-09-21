@@ -456,7 +456,13 @@ Combine all of the `:face` annotations with `getfaces`.
 """
 function getface(annotations::Vector{@NamedTuple{label::Symbol, value::V}}) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
-    getface(faces)
+    face = nothing # A lone `Face`, the usual case, resolves without the fold
+    for ann in annotations
+        ann.label === :face || continue
+        isnothing(face) && ann.value isa Face || return getface(faces)
+        face = ann.value::Face
+    end
+    if isnothing(face) getface() else getface(face) end
 end
 
 function getface(face::Face)

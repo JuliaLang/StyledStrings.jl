@@ -149,15 +149,16 @@ If `color` is a `SimpleColor{RGBTuple}` and `get_have_truecolor()` returns true,
 If `color` is unknown, no output is produced.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
+    value = color.value
     if category == '4' # Background
-        if color.value ∈ (FGBG_FACES.background, FACES.basecolors[FGBG_FACES.background])
-            return print(io, "\e[49m")
-        elseif color.value == FGBG_FACES.foreground
+        if value === FGBG_FACES.background || value isa RGBTuple && value == FACES.basecolors[FGBG_FACES.background]
+            return termcolor(io, nothing, '4')
+        elseif value === FGBG_FACES.foreground
             return print(io, "\e[47m") # Technically not quite[1], but close enough
         end
-    elseif color.value ∈ (FGBG_FACES.foreground, FACES.basecolors[FGBG_FACES.foreground])
-        return print(io, "\e[", category, "9m")
-    elseif category == '3' && color.value == FGBG_FACES.background
+    elseif value === FGBG_FACES.foreground || value isa RGBTuple && value == FACES.basecolors[FGBG_FACES.foreground]
+        return termcolor(io, nothing, category)
+    elseif category == '3' && value === FGBG_FACES.background
         return print(io, "\e[30m") # Technically not quite[1], but close enough
     end
     # [1]: There is no true way to selectively set the fg/bg in the terminal to the
@@ -188,8 +189,8 @@ end
 
 Print to `io` the SGR code to reset the color for `category`.
 """
-termcolor(io::IO, ::Nothing, category::Char) =
-    print(io, "\e[", category, '9', 'm')
+termcolor(io::IO, ::Nothing, category::Char) = # "\e[<category>9m" as one word
+    writebytes(io, UInt64(0x5b1b) | UInt64(UInt8(category)) << 16 | UInt64(0x6d39) << 24, 5)
 
 const ANSI_STYLE_CODES = (
     bold_weight = "\e[1m",
@@ -206,9 +207,9 @@ const ANSI_STYLE_CODES = (
 )
 
 function termstyle(io::IO, face::Face, lastface::Face=getface())
-    face.foreground == lastface.foreground ||
+    face.f.foreground === lastface.f.foreground ||
         termcolor(io, face.foreground, '3')
-    face.background == lastface.background ||
+    face.f.background === lastface.f.background ||
         termcolor(io, face.background, '4')
     face.f.weight == lastface.f.weight || begin
         if lastface.f.weight != NORMAL_WEIGHT && face.f.weight != NORMAL_WEIGHT
@@ -259,12 +260,12 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         else
             print(io, ANSI_STYLE_CODES.start_underline)
         end
-    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
-        print(io, ifelse(face.strikethrough === true,
+    face.f.strikethrough == lastface.f.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
+        print(io, ifelse(face.f.strikethrough == 0x1,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.inverse == lastface.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
-        print(io, ifelse(face.inverse === true,
+    face.f.inverse == lastface.f.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
+        print(io, ifelse(face.f.inverse == 0x1,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
 end
