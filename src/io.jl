@@ -9,38 +9,76 @@ table. The standard colors are 0-7, and high intensity colors 8-15.
 The high intensity colors are prefixed by "bright_". The "bright_black" color is
 given two aliases: "grey" and "gray".
 """
-const ANSI_4BIT_COLORS = Dict{Symbol, Int}(
-    :black => 0,
-    :red => 1,
-    :green => 2,
-    :yellow => 3,
-    :blue => 4,
-    :magenta => 5,
-    :cyan => 6,
-    :white => 7,
-    :bright_black => 8,
-    :grey => 8,
-    :gray => 8,
-    :bright_red => 9,
-    :bright_green => 10,
-    :bright_yellow => 11,
-    :bright_blue => 12,
-    :bright_magenta => 13,
-    :bright_cyan => 14,
-    :bright_white => 15)
+const ANSI_4BIT_COLORS = IdDict{Face, UInt8}(
+    face"black"          => 0,
+    face"red"            => 1,
+    face"green"          => 2,
+    face"yellow"         => 3,
+    face"blue"           => 4,
+    face"magenta"        => 5,
+    face"cyan"           => 6,
+    face"white"          => 7,
+    face"bright_black"   => 8,
+    face"grey"           => 8,
+    face"gray"           => 8,
+    face"bright_red"     => 9,
+    face"bright_green"   => 10,
+    face"bright_yellow"  => 11,
+    face"bright_blue"    => 12,
+    face"bright_magenta" => 13,
+    face"bright_cyan"    => 14,
+    face"bright_white"   => 15)
+
+const FGBG_FACES =
+    (foreground = FACES.pool[:foreground],
+     background = FACES.pool[:background])
 
 """
-    ansi_4bit(color::Integer, background::Bool=false)
+    writebytes(io::IO, word::UInt64, nb::Integer)
 
-Provide the color code (30-37, 40-47, 90-97, 100-107) for `color` (0–15).
+Write the low `nb` bytes of `word`, as they lie in memory, to `io` in one call.
+"""
+function writebytes(io::IO, word::UInt64, nb::Integer)
+    bytes = Ref(htol(word))
+    GC.@preserve bytes unsafe_write(io, Ptr{UInt8}(pointer_from_objref(bytes)), nb)
+end
+
+"""
+    packdigits(num::UInt8) -> (digits::UInt64, ndigits)
+
+The decimal digits of `num` packed little-endian, first digit lowest, and their count.
+"""
+function packdigits(num::UInt8)
+    hundreds, rest = divrem(num, UInt8(100))
+    tens, ones = divrem(rest, UInt8(10))
+    ndigits = 0x1 + (num >= UInt8(10)) + (num >= UInt8(100))
+    zero = UInt64(UInt8('0'))
+    ((zero + hundreds) | (zero + tens) << 8 | (zero + ones) << 16) >> (8 * (0x3 - ndigits)), ndigits
+end
+
+"""
+    writedigits(io::IO, num::UInt8, suffix::Char = '\\0')
+
+Efficiently write an 8-bit unsigned number (`num`) to `io` as a decimal, followed by
+`suffix` when one is given.
+"""
+function writedigits(io::IO, num::UInt8, suffix::Char = '\0')
+    digits, ndigits = packdigits(num)
+    writebytes(io, digits | UInt64(suffix) << (8 * ndigits), ndigits + (suffix != '\0'))
+end
+
+"""
+    ansi_4bit(code::UInt8, background::Bool=false)
+
+Provide the color code (30-37, 40-47, 90-97, 100-107) for `code` (0–15).
 
 When `background` is set the background variant will be provided, otherwise
 the provided code is for setting the foreground color.
 """
-function ansi_4bit(code::Integer, background::Bool=false)
-    code >= 8 && (code += 52)
-    background && (code += 10)
-    code + 30
+function ansi_4bit(code::UInt8, background::Bool=false)
+    code >= UInt8(8) && (code += UInt8(52))
+    background && (code += UInt8(10))
+    code + UInt8(30)
 end
 
 """
@@ -57,7 +95,7 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
         rr = (r + r2) / 2
         (2 + r/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
     end
-    to6cube(value) = (value - 35) ÷ 40
+    to6cube(value) = max(0, value - 35) ÷ 40
     from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
     sixcube = (0, 95:40:255...)
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
@@ -77,7 +115,8 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
             from6cube(r6cube, g6cube, b6cube)
         end
     end
-    print(io, "\e[", category, "8;5;", string(colorcode), 'm')
+    write(io, if category == '3' "\e[38;5;" elseif category == '4' "\e[48;5;" else "\e[58;5;" end)
+    writedigits(io, UInt8(colorcode), 'm')
 end
 
 """
@@ -86,10 +125,10 @@ end
 Print to `io` the 24-bit SGR color code to set the `category`8 slot to `color`.
 """
 function termcolor24bit(io::IO, color::RGBTuple, category::Char)
-    print(io, "\e[", category, "8;2;",
-          string(color.r), ';',
-          string(color.g), ';',
-          string(color.b), 'm')
+    write(io, if category == '3' "\e[38;2;" elseif category == '4' "\e[48;2;" else "\e[58;2;" end)
+    writedigits(io, color.r, ';')
+    writedigits(io, color.g, ';')
+    writedigits(io, color.b, 'm')
 end
 
 """
@@ -110,41 +149,39 @@ If `color` is a `SimpleColor{RGBTuple}` and `get_have_truecolor()` returns true,
 If `color` is unknown, no output is produced.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
-    if category == '4'
-        if color.value ∈ (:background, FACES.basecolors[:background])
-            return print(io, "\e[", category, "9m")
-        elseif color.value == :foreground
-            return print(io, "\e[47m") # Technically not quite, but close enough
+    value = color.value
+    if category == '4' # Background
+        if value === FGBG_FACES.background || value isa RGBTuple && value == FACES.basecolors[FGBG_FACES.background]
+            return termcolor(io, nothing, '4')
+        elseif value === FGBG_FACES.foreground
+            return print(io, "\e[47m") # Technically not quite[1], but close enough
         end
-    elseif color.value ∈ (:foreground, FACES.basecolors[:foreground])
-        return print(io, "\e[", category, "9m")
-    elseif category == '3' && color.value == :background
-        return print(io, "\e[30m") # Technically not quite, but close enough
+    elseif value === FGBG_FACES.foreground || value isa RGBTuple && value == FACES.basecolors[FGBG_FACES.foreground]
+        return termcolor(io, nothing, category)
+    elseif category == '3' && value === FGBG_FACES.background
+        return print(io, "\e[30m") # Technically not quite[1], but close enough
     end
-    for _ in 1:MAX_COLOR_FORWARDS
-        color.value isa RGBTuple && break
-        fg = get(FACES.current[], color.value, Face()).foreground
-        isnothing(fg) && return
-        color == fg && break
-        color = fg
-    end
-    if color.value isa RGBTuple
+    # [1]: There is no true way to selectively set the fg/bg in the terminal to the
+    # bg/fg colour, but with the way most terminals/terminal themes treat white/black
+    # we can often get a close result with them.
+    cfinal = finalcolor(color)
+    if cfinal isa Face
+        ansi = get(ANSI_4BIT_COLORS, cfinal, nothing)
+        isnothing(ansi) && return # Unknown color
+        if category == '5'
+            write(io, "\e[58;5;")
+            writedigits(io, ansi, 'm')
+        else # The whole sequence fits one word
+            digits, ndigits = packdigits(ansi_4bit(ansi, category == '4'))
+            writebytes(io, UInt64(0x5b1b) | digits << 16 | UInt64(UInt8('m')) << (16 + 8 * ndigits), ndigits + 3)
+        end
+    elseif cfinal isa RGBTuple
         if Base.get_have_truecolor()
-            termcolor24bit(io, color.value, category)
+            termcolor24bit(io, cfinal, category)
         else
-            termcolor8bit(io, color.value, category)
+            termcolor8bit(io, cfinal, category)
         end
-        return
     end
-    ansi = get(ANSI_4BIT_COLORS, color.value, nothing)
-    isnothing(ansi) && return
-    print(io, "\e[")
-    if category == '3' || category == '4'
-        print(io, ansi_4bit(ansi, category == '4'))
-    elseif category == '5'
-        print(io, "58;5;", ansi)
-    end
-    print(io, 'm')
 end
 
 """
@@ -152,8 +189,8 @@ end
 
 Print to `io` the SGR code to reset the color for `category`.
 """
-termcolor(io::IO, ::Nothing, category::Char) =
-    print(io, "\e[", category, '9', 'm')
+termcolor(io::IO, ::Nothing, category::Char) = # "\e[<category>9m" as one word
+    writebytes(io, UInt64(0x5b1b) | UInt64(UInt8(category)) << 16 | UInt64(0x6d39) << 24, 5)
 
 const ANSI_STYLE_CODES = (
     bold_weight = "\e[1m",
@@ -170,71 +207,65 @@ const ANSI_STYLE_CODES = (
 )
 
 function termstyle(io::IO, face::Face, lastface::Face=getface())
-    face.foreground == lastface.foreground ||
+    face.f.foreground === lastface.f.foreground ||
         termcolor(io, face.foreground, '3')
-    face.background == lastface.background ||
+    face.f.background === lastface.f.background ||
         termcolor(io, face.background, '4')
-    face.weight == lastface.weight || begin
-        if lastface.weight != :normal && face.weight != :normal
+    face.f.weight == lastface.f.weight || begin
+        if lastface.f.weight != NORMAL_WEIGHT && face.f.weight != NORMAL_WEIGHT
             print(io, ANSI_STYLE_CODES.normal_weight) # Reset before changing
         end
-        print(io, if face.weight ∈ (:medium, :semibold, :bold, :extrabold, :black)
-                  ANSI_STYLE_CODES.bold_weight
-              elseif face.weight ∈ (:semilight, :light, :extralight, :thin)
+        weight = face.f.weight
+        print(io, if weight < NORMAL_WEIGHT
                   get(Base.current_terminfo(), :dim, "")
-              else # :normal
+              elseif weight == NORMAL_WEIGHT || isnothingflavour(weight)
                   ANSI_STYLE_CODES.normal_weight
+              else
+                  ANSI_STYLE_CODES.bold_weight
               end)
     end
-    face.slant == lastface.slant ||
-        if haskey(Base.current_terminfo(), :enter_italics_mode)
-            print(io, ifelse(face.slant ∈ (:italic, :oblique),
-                             ANSI_STYLE_CODES.start_italics,
-                             ANSI_STYLE_CODES.end_italics))
-        elseif face.slant ∈ (:italic, :oblique) && face.underline ∈ (nothing, false)
-            print(io, ANSI_STYLE_CODES.start_underline)
-        elseif face.slant ∉ (:italic, :oblique) && lastface.underline ∈ (nothing, false)
-            print(io, ANSI_STYLE_CODES.end_underline)
+    face.f.slant == lastface.f.slant ||
+        let slanted = face.f.slant < NORMAL_SLANT # italic or oblique
+            if haskey(Base.current_terminfo(), :enter_italics_mode)
+                print(io, ifelse(slanted, ANSI_STYLE_CODES.start_italics, ANSI_STYLE_CODES.end_italics))
+            elseif slanted && isnothing(face.underline)
+                print(io, ANSI_STYLE_CODES.start_underline)
+            elseif !slanted && isnothing(lastface.underline)
+                print(io, ANSI_STYLE_CODES.end_underline)
+            end
         end
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
-    face.underline == lastface.underline ||
-        if haskey(Base.current_terminfo(), :set_underline_style) ||
-           get(Base.current_terminfo(), :can_style_underline, false)
-            if face.underline isa Tuple # Color and style
-                color, style = face.underline
-                print(io, "\e[4:",
-                        if style == :straight;   '1'
-                        elseif style == :double; '2'
-                        elseif style == :curly;  '3'
-                        elseif style == :dotted; '4'
-                        elseif style == :dashed; '5'
-                        else '0' end, 'm')
-                !isnothing(color) && termcolor(io, color, '5')
-            elseif face.underline isa SimpleColor
-                if !(lastface.underline isa SimpleColor || lastface.underline == true)
+    (face.f.underline === lastface.f.underline && face.f.underline_style == lastface.f.underline_style) ||
+        if haskey(Base.current_terminfo(), :set_underline_style) || get(Base.current_terminfo(), :can_style_underline, false)
+            ul, ulstyle = face.f.underline, face.f.underline_style
+            lastul, lastulstyle = lastface.f.underline, lastface.f.underline_style
+            if ulstyle != lastulstyle && !isnothingflavour(ulstyle)
+                if isnothingflavour(lastulstyle) && ulstyle == STRAIGHT_UNDERLINE
                     print(io, ANSI_STYLE_CODES.start_underline)
+                else # Kitty numbers the styles from 1 in `UNDERLINE_STYLE_NAMES` order
+                    print(io, "\e[4:", Char(UInt8('1') + ulstyle), 'm')
                 end
-                termcolor(io, face.underline, '5')
-            else
-                if lastface.underline isa SimpleColor || lastface.underline isa Tuple && first(lastface.underline) isa SimpleColor
-                    termcolor(io, SimpleColor(:foreground), '5')
-                end
-                print(io, ifelse(face.underline == true,
-                                ANSI_STYLE_CODES.start_underline,
-                                ANSI_STYLE_CODES.end_underline))
             end
+            if !isnothingflavour(ul)
+                termcolor(io, SimpleColor(ul), '5')
+            elseif !isnothingflavour(lastul)
+                termcolor(io, SimpleColor(FGBG_FACES.foreground), '5')
+            end
+            if isnothingflavour(ulstyle) && !isnothingflavour(lastulstyle)
+                print(io, ANSI_STYLE_CODES.end_underline)
+            end
+        elseif isnothing(face.underline)
+            print(io, ANSI_STYLE_CODES.end_underline)
         else
-            print(io, ifelse(face.underline !== false,
-                             ANSI_STYLE_CODES.start_underline,
-                             ANSI_STYLE_CODES.end_underline))
+            print(io, ANSI_STYLE_CODES.start_underline)
         end
-    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
-        print(io, ifelse(face.strikethrough === true,
+    face.f.strikethrough == lastface.f.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
+        print(io, ifelse(face.f.strikethrough == 0x1,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.inverse == lastface.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
-        print(io, ifelse(face.inverse === true,
+    face.f.inverse == lastface.f.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
+        print(io, ifelse(face.f.inverse == 0x1,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
 end
@@ -250,28 +281,96 @@ else
     end
 end
 
+"""
+    safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
+
+Percent-encode `uri` as necessary to ensure it is a valid URI.
+"""
+function safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
+    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+    nib2hex(n::UInt8) = UInt8('0') + n + (((n + 0x6) >> 4) * 0x7)
+    escbytes = 0
+    for b in uribytes
+        if !isalphnum(b) && b ∉ allowedspecials
+            escbytes += 1
+        end
+    end
+    if iszero(escbytes)
+        uri
+    else
+        off, buf = 0, Base.StringMemory(length(uribytes) + 2 * escbytes)
+        for (i, b) in enumerate(uribytes)
+            b = uribytes[i]
+            if isalphnum(b) || b ∈ allowedspecials
+                buf[i+off] = b
+            else
+                buf[i+off] = UInt8('%')
+                buf[i+off+1] = nib2hex(b >> 4)
+                buf[i+off+2] = nib2hex(b & 0xf)
+                off += 2
+            end
+        end
+        Base.unsafe_takestring(buf)
+    end
+end
+
+"""
+    uriformat(link::String)
+
+Ensure that `link` is a properly formatted URI.
+
+If link does not start with an [RFC 2396](https://www.ietf.org/rfc/rfc2396.txt) compliant `protocol://`
+prefix, it is treated as a file path and converted to a `file://` URI.
+
+Otherwise, the link is percent-encoded as necessary to ensure it is a valid URI.
+"""
+function uriformat(link::String)
+    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+    i, bytes = 1, codeunits(link)
+    while i <= length(bytes)
+        b = bytes[i]
+        if isalphnum(b) || b ∈ map(UInt8, ('+', '-', '.'))
+            i += 1
+        elseif b == UInt8(':') && (i > 2 || get(bytes, i+1, 0x00) ∉ (UInt8('\\'), UInt8('/'))) # Skip Windows drive letters
+            return safeuri(link, bytes, ((UInt8(c) for c in "-_.!~*'():@&=+\$,%/?#[]@")...,))
+        else
+            break
+        end
+    end
+    Base.Filesystem.uripath(link)
+end
+
 function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function}
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
-    default = FACES.themes.base[:default]
-    if get(io, :color, false)::Bool
-        buf = IOBuffer() # Avoid the overhead in repeatedly printing to `stdout`
-        lastface::Face = default
+    if get(io, :color, false)::Bool && !isempty(annotations(if s isa SubString s.string else s end))
+        # Make sure to (re)use a buffer to coalesce writes
+        raw = first(Base.unwrapcontext(io))
+        buf = if raw isa IOBuffer raw else IOBuffer() end
+        start = position(buf)
+        lastface::Face = STANDARD_FACES.default
+        lastlink::Union{String, Nothing} = nothing
+        cache = FACES.cache[]
         for (str, styles) in eachregion(s)
-            face = getface(styles)
-            link = let idx=findfirst(==(:link) ∘ first, styles)
-                if !isnothing(idx)
-                    string(last(styles[idx]))::String
-                end end
-            !isnothing(link) && write(buf, "\e]8;;", link, "\e\\")
+            face = getface(styles, cache)
+            link = let idx = findfirst(==(:link) ∘ first, styles)
+                if !isnothing(idx) String(styles[idx].value) end
+            end
+            if link != lastlink # A link spans its regions as one hyperlink
+                isnothing(lastlink) || write(buf, "\e]8;;\e\\")
+                isnothing(link) || write(buf, "\e]8;;", uriformat(link), "\e\\")
+                lastlink = link
+            end
             termstyle(buf, face, lastface)
             string_writer(buf, str)
-            !isnothing(link) && write(buf, "\e]8;;\e\\")
             lastface = face
         end
-        termstyle(buf, default, lastface)
-        write(io, seekstart(buf))
+        isnothing(lastlink) || write(buf, "\e]8;;\e\\")
+        termstyle(buf, STANDARD_FACES.default, lastface)
+        bytes = position(buf) - start
+        buf === raw || write(io, seekstart(buf))
+        bytes
     elseif s isa AnnotatedString
         string_writer(io, s.string)
     elseif s isa SubString
@@ -280,36 +379,35 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
 end
 
 # ------------
-# Hook into the AnnotatedDisplay invalidation barrier
+# Hook into the AnnotatedDisplay style dispatch
 
-Base.AnnotatedDisplay.ansi_write(f::F, io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) where {F <: Function} =
-    _ansi_writer(f, io, s)
+"""
+    Styled
 
-function Base.AnnotatedDisplay.ansi_write(::typeof(write), io::IO, c::AnnotatedChar)
+The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face`: annotated strings whose
+values include `Face`s are displayed by StyledStrings. Another annotation value type can
+be displayed the same way by declaring `Styled()` as its style, provided
+[`getface`](@ref) can interpret its values.
+"""
+struct Styled <: AnnotatedDisplay.AbstractAnnotationStyle end
+
+AnnotatedDisplay.AnnotationStyle(::Type{Face}) = Styled()
+
+AnnotatedDisplay.awrite(textwriter::F, ::Styled, io::IO, s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) where {F} =
+    _ansi_writer(textwriter, io, s)
+
+function AnnotatedDisplay.awrite(textwriter::F, ::Styled, io::IO, c::AnnotatedChar) where {F}
     if get(io, :color, false) == true
         termstyle(io, getface(c), getface())
-        bytes = write(io, c.char)
+        bytes = textwriter(io, c.char)
         termstyle(io, getface(), getface(c))
         bytes
     else
-        write(io, c.char)
+        textwriter(io, c.char)
     end
 end
 
-function Base.AnnotatedDisplay.show_annot(io::IO, c::AnnotatedChar)
-    if get(io, :color, false) == true
-        out = IOBuffer()
-        show(out, c.char)
-        cstr = AnnotatedString(
-            String(take!(out)[2:end-1]),
-            [(1:ncodeunits(c), a...) for a in c.annotations])
-        print(io, ''', cstr, ''')
-    else
-        show(io, c.char)
-    end
-end
-
-Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, SubString{<:AnnotatedString}}) =
+AnnotatedDisplay.awrite(::Styled, io::IO, ::MIME"text/html", s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}) =
     show_html(io, s)
 
 # Also see `legacy.jl:126` for `styled_write`.
@@ -317,37 +415,41 @@ Base.AnnotatedDisplay.show_annot(io::IO, ::MIME"text/html", s::Union{<:Annotated
 # End AnnotatedDisplay hooks
 # ------------
 
+const HTML_FGBG = (
+    foreground = "#000000",
+    background = "#ffffff"
+)
+
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
+    function writehex(byte::UInt8)
+        digits = b"0123456789abcdef"
+        write(io, @inbounds digits[byte >> 4 + 1])
+        write(io, @inbounds digits[byte & 0xf + 1])
+    end
     default = getface()
-    if background && color.value ∈ (:background, default.background)
-        return print(io, "initial")
-    elseif !background && color.value ∈ (:foreground, default.foreground)
-        return print(io, "initial")
+    if color.value ∈ (FGBG_FACES.background, default.background)
+        if background
+            return print(io, "initial")
+        elseif default.background.value == FGBG_FACES.background
+            return print(io, HTML_FGBG.background)
+        end
+    elseif color.value ∈ (FGBG_FACES.foreground, default.foreground)
+        if !background
+            return print(io, "initial")
+        elseif default.foreground.value == FGBG_FACES.foreground
+            return print(io, HTML_FGBG.foreground)
+        end
     end
     (; r, g, b) = rgbcolor(color)
-    default = getface()
     print(io, '#')
-    r < 0x10 && print(io, '0')
-    print(io, string(r, base=16))
-    g < 0x10 && print(io, '0')
-    print(io, string(g, base=16))
-    b < 0x10 && print(io, '0')
-    print(io, string(b, base=16))
+    writehex(r); writehex(g); writehex(b)
 end
 
-const HTML_WEIGHT_MAP = Dict{Symbol, Int}(
-    :thin => 100,
-    :extralight => 200,
-    :light => 300,
-    :semilight => 300,
-    :normal => 400,
-    :medium => 500,
-    :semibold => 600,
-    :bold => 700,
-    :extrabold => 800,
-    :black => 900)
+# Indexed as `WEIGHT_NAMES` and `UNDERLINE_STYLE_NAMES`
+const HTML_WEIGHTS = (100, 200, 300, 300, 400, 500, 600, 700, 800, 900)
+const HTML_UNDERLINE_STYLES = ("solid", "double", "wavy", "dotted", "dashed")
 
-function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bool=true)
+function cssattrs(io::IO, face::Face, lastface::Face=getface())
     priorattr = Ref(false)
     function printattr(io, attr, valparts...)
         if priorattr[]
@@ -357,16 +459,18 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
         end
         print(io, attr, ": ", valparts...)
     end
-    face.font == lastface.font ||
-        printattr(io, "font-family", ifelse(escapequotes, "&quot;", "\""),
-                  replace(face.font, '"' => "\\&quot;", ''' => "&#39;"),
-                  ifelse(escapequotes, "&quot;", "\""))
+    if face.font != lastface.font
+        printattr(io, "font-family")
+        print(io, "\"")
+        replace(io, face.font, '"' => "&quot;", '&' => "&amp;", '<' => "&lt;", '\\' => "\\\\")
+        print(io, "\"")
+    end
     face.height == lastface.height ||
         printattr(io, "font-size", string(face.height ÷ 10), "pt")
-    face.weight == lastface.weight ||
-        printattr(io, "font-weight", get(HTML_WEIGHT_MAP, face.weight, 400))
-    face.slant == lastface.slant ||
-        printattr(io, "font-style", String(face.slant))
+    face.f.weight == lastface.f.weight ||
+        printattr(io, "font-weight", get(HTML_WEIGHTS, face.f.weight + 1, 400))
+    face.f.slant == lastface.f.slant ||
+        printattr(io, "font-style", String(get(SLANT_NAMES, face.f.slant + 1, :normal)))
     foreground, background =
         ifelse(face.inverse === true,
                (face.background, face.foreground),
@@ -383,39 +487,25 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface(), escapequotes::Bo
         printattr(io, "background-color")
         htmlcolor(io, background, true)
     end
-    face.underline == lastface.underline ||
-        if face.underline isa Tuple # Color and style
-            color, style = face.underline
-            printattr(io, "text-decoration")
-            if !isnothing(color)
-                htmlcolor(io, color)
-                print(io, ' ')
-            end
-            print(io, if style == :straight "solid "
-                  elseif style == :double   "double "
-                  elseif style == :curly    "wavy "
-                  elseif style == :dotted   "dotted "
-                  elseif style == :dashed   "dashed "
-                  else "" end, "underline")
-        elseif face.underline isa SimpleColor
-            printattr(io, "text-decoration")
-            htmlcolor(io, face.underline)
-            if lastface.underline isa Tuple && last(lastface.underline) != :straight
-                print(io, " solid")
-            end
-            print(io, " underline")
-        else # must be a Bool
-            printattr(io, "text-decoration")
-            if lastface.underline isa SimpleColor
-                print(io, "currentcolor ")
-            elseif lastface.underline isa Tuple
-                first(lastface.underline) isa SimpleColor &&
-                    print(io, "currentcolor ")
-                last(lastface.underline) != :straight &&
-                    print(io, "straight ")
-            end
-            print(io, ifelse(face.underline, "underline", "none"))
+    if (face.f.underline !== lastface.f.underline || face.f.underline_style != lastface.f.underline_style) &&
+        !(isnothingflavour(face.f.underline_style) && isnothingflavour(lastface.f.underline_style))
+        color, style = face.f.underline, face.f.underline_style
+        printattr(io, "text-decoration")
+        if isnothingflavour(style)
+            print(io, "none")
+        elseif !isnothingflavour(color)
+            htmlcolor(io, SimpleColor(color))
+            print(io, ' ')
+        elseif !isnothingflavour(lastface.f.underline)
+            print(io, "currentcolor ")
         end
+        if isnothingflavour(style)
+        elseif style == STRAIGHT_UNDERLINE && (isnothingflavour(lastface.f.underline_style) || lastface.f.underline_style == STRAIGHT_UNDERLINE)
+            print(io, "underline")
+        else
+            print(io, HTML_UNDERLINE_STYLES[style + 1], " underline")
+        end
+    end
     face.strikethrough == lastface.strikethrough ||
         !face.strikethrough && face.underline !== false ||
         printattr(io, "text-decoration", ifelse(face.strikethrough, "line-through", "none"))
@@ -423,7 +513,7 @@ end
 
 function htmlstyle(io::IO, face::Face, lastface::Face=getface())
     print(io, "<span style=\"")
-    cssattrs(io, face, lastface, true)
+    cssattrs(io, face, lastface)
     print(io, "\">")
 end
 
@@ -432,15 +522,18 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     # before we start outputting any styled content.
     load_customisations!()
     htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
-    buf = IOBuffer() # Avoid potential overhead in repeatadly printing a more complex IO
+    raw = first(Base.unwrapcontext(io))
+    buf = if raw isa IOBuffer raw else IOBuffer() end
     lastface::Face = getface()
     stylestackdepth = 0
+    cache = FACES.cache[]
     for (str, styles) in eachregion(s)
-        face = getface(styles)
+        face = getface(styles, cache)
         link = let idx=findfirst(==(:link) ∘ first, styles)
             if !isnothing(idx)
-                string(last(styles[idx]))::String
-            end end
+                uriformat(String(styles[idx].value))
+            end
+        end
         !isnothing(link) && print(buf, "<a href=\"", link, "\">")
         if face == getface()
             print(buf, "</span>" ^ stylestackdepth)
@@ -460,6 +553,6 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         lastface = face
     end
     print(buf, "</span>" ^ stylestackdepth)
-    write(io, take!(buf))
+    buf === raw || write(io, take!(buf))
     nothing
 end
