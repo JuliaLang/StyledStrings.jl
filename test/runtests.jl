@@ -325,6 +325,13 @@ end
     # Only annotation values are substituted, not the attributes of a face
     @test StyledStrings.remapfaces(styled"{(foreground=red):a}", face"red" => face"blue") ==
         AnnotatedString("a", [(1:1, :face, Face(foreground = face"red"))])
+    # The face cache serves an explicit instance, and evicts correctly under churn
+    cache = StyledStrings.emptycache()
+    @test getface(face"red", cache) == getface(face"red")
+    adhoc = [Face(foreground = face"blue", height = i) for i in 1:2000]
+    @test all(f -> getface(f, cache) == merge(getface(), f), adhoc)
+    @test all(f -> getface(f) == merge(getface(), f), adhoc)
+    @test getface(Face()) == getface()
     # Unknown face names
     @test getface([face"red", :nonexistent]) == getface(face"red")
     @test withfaces(face"red" => :nonexistent) do
@@ -1111,6 +1118,14 @@ end
         @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_displaced)
         @test getface(registered).font == "lightmod"
         resetfaces!(registered)
+        # Resolved faces are cached, and a change to the current definitions is seen at once
+        @test getface(face"red").font == "monospace"
+        setface!(face"red" => Face(font = "changed"))
+        @test getface(face"red").font == "changed"
+        @test withfaces(() -> getface(face"red").font, face"red" => Face(font = "scoped")) == "scoped"
+        @test getface(face"red").font == "changed"
+        resetfaces!(face"red")
+        @test getface(face"red").font == "monospace"
         # A variant registered before its base face follows it on displacement, at once
         setcolors!(darkfbg)
         StyledStrings.addface!(:zzz_early => Face(foreground=0x000004), :dark)

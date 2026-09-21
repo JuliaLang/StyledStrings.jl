@@ -351,8 +351,9 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         start = position(buf)
         lastface::Face = STANDARD_FACES.default
         lastlink::Union{String, Nothing} = nothing
+        cache = FACES.cache[]
         for (str, styles) in eachregion(s)
-            face = getface(styles)
+            face = getface(styles, cache)
             link = let idx = findfirst(==(:link) ∘ first, styles)
                 if !isnothing(idx) String(styles[idx].value) end
             end
@@ -525,8 +526,9 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     buf = if raw isa IOBuffer raw else IOBuffer() end
     lastface::Face = getface()
     stylestackdepth = 0
+    cache = FACES.cache[]
     for (str, styles) in eachregion(s)
-        face = getface(styles)
+        face = getface(styles, cache)
         link = let idx=findfirst(==(:link) ∘ first, styles)
             if !isnothing(idx)
                 uriformat(String(styles[idx].value))
