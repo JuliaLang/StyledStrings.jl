@@ -61,6 +61,17 @@ const STANDARD_FACES = let
      REPL_prompt_shell, REPL_prompt_pkg, REPL_prompt_beep)
 end
 
+const UNCACHED = copy(EMPTY_FACE) # Marks an empty cache slot; nothing else can reference this face
+
+function emptycache!(cache::AtomicMemory{Pair{Face, Face}})
+    for i in eachindex(cache)
+        @atomic cache[i] = UNCACHED => UNCACHED
+    end
+    cache
+end
+
+emptycache() = emptycache!(AtomicMemory{Pair{Face, Face}}(undef, 256))
+
 """
 The face registry: faces by name, the layers of changes to them for each theme,
 and the active definitions (`current`) with their resolution cache.
@@ -110,6 +121,7 @@ const FACES = let
          dark = IdDict{Face, Face}()),
      displacements = IdDict{Face, Face}(),
      current = ScopedValue(IdDict{Face, Face}()),
+     cache = ScopedValue(emptycache()),
      basecolors = basecolors,
      lock = ReentrantLock())
 end
@@ -210,6 +222,7 @@ function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
         empty!(current)
+        emptycache!(FACES.cache[])
         if current === FACES.current.default # Only when top-level
             map(empty!, values(FACES.modifications))
         end
@@ -250,6 +263,7 @@ If the face is not registered, nothing is done.
 function resetfaces!(face::Face, theme::Symbol = :all)
     @lock FACES.lock begin
         delete!(FACES.current[], face)
+        emptycache!(FACES.cache[])
         if FACES.current.default === FACES.current[] # Only when top-level
             if theme === :all
                 for mode in values(FACES.modifications)
@@ -336,7 +350,7 @@ function withfaces(f, keyvals_itr)
             delete!(newfaces, face)
         end
     end
-    @with(FACES.current => newfaces, f())
+    @with(FACES.current => newfaces, FACES.cache => emptycache(), f())
 end
 
 function withfaces(f, keyvals::Pair{Symbol, <:Union{Symbol, Vector{Symbol}, Nothing}}...)
@@ -439,11 +453,12 @@ function getface(faces)
 end
 
 """
-    getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value}})
+    getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
 
 Combine all of the `:face` annotations with `getfaces`.
 """
-function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}}) where {V}
+function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}},
+                 cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[]) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
     face = nothing # A single `Face`, the usual case, is resolved without the fold
     for ann in annotations
@@ -451,12 +466,26 @@ function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V
         isnothing(face) && ann.value isa Face || return getface(faces)
         face = ann.value::Face
     end
-    if isnothing(face) getface() else getface(face) end
+    if isnothing(face) getface() else getface(face, cache) end
 end
 
-function getface(face::Face)
+"""
+    getface(face::Face, cache = FACES.cache[]) -> Face
+
+Obtain `face` resolved against the current definitions and the default face, via `cache`.
+"""
+function getface(face::Face, cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[])
+    mixed = UInt(pointer_from_objref(face)) * 0x9e3779b97f4a7c15 # 64-bit golden ratio factor
+    i, j = Int(mixed >> 56) + 1, Int(mixed >> 48 & 0xff) + 1
+    slot1 = @atomic cache[i]
+    slot1.first === face && return slot1.second
+    slot2 = @atomic cache[j]
+    slot2.first === face && return slot2.second
     current = FACES.current[]
-    merge(get(current, STANDARD_FACES.default, STANDARD_FACES.default), get(current, face, face))
+    resolved = merge(get(current, STANDARD_FACES.default, STANDARD_FACES.default), get(current, face, face))
+    at = if slot1.first === UNCACHED || slot2.first !== UNCACHED && isodd(mixed >> 40) i else j end
+    @atomic cache[at] = face => resolved
+    resolved
 end
 
 getface(face::Symbol) = getface(lookmakeface(face))
@@ -538,6 +567,8 @@ function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
         if theme ∈ (:base, FACES.current_theme[])
             update = override(get(current, original, original), update)
             current[original] = update
+            emptycache!(FACES.cache[])
+            update
         end
     end
 end
@@ -725,6 +756,7 @@ function relayer!(face::Face)
     theme === :base || layer!(FACES.themes[theme])
     layer!(FACES.modifications.base)
     theme === :base || layer!(FACES.modifications[theme])
+    emptycache!(FACES.cache.default)
 end
 
 """
@@ -777,6 +809,7 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
                 current[name] = override(get(current, name, name), face)
             end
         end
+        emptycache!(FACES.cache[])
     finally
         unlock(FACES.lock)
         unlock(recolor_lock)
