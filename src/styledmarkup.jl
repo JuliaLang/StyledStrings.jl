@@ -1003,10 +1003,10 @@ populated (along with `state.errors`).
 function run_state_machine!(state::State)
     # Run the state machine
     for (i, char) in state.s
-        if char == '\\'
-            state.escape = true
-        elseif state.escape
+        if state.escape
             escaped!(state, i, char)
+        elseif char == '\\'
+            state.escape = true
         elseif ismacro(state) && char == '$'
             interpolated!(state, i, char)
         elseif char == '{'
@@ -1268,7 +1268,7 @@ macro styled_str(raw_content::String)
     # reversible and not as `@styled_str "."` or `styled"""."""`), since the
     # `unescape_string` transforms will be a superset of those transforms
     content = unescape_string(Base.escape_raw_string(raw_content),
-                              ('{', '}', '$', '\n', '\r'))
+                              ('\\', '{', '}', '$', '\n', '\r'))
     state = State(content, __module__)
     run_state_machine!(state)
     isempty(state.errors) || throw(MalformedStylingMacro(state.content, state.errors))

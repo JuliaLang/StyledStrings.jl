@@ -670,6 +670,11 @@ end
     @test String(styled".\\") == ".\\"
     @test String(styled".\\\\") == ".\\\\"
     @test String(styled".\\\\\\") == ".\\\\\\"
+    # An escaped backslash is one literal backslash, not an escape for what follows
+    bsval = "x"
+    @test String(styled"\\$bsval") == "\\x"
+    @test styled"\\{bold:x}" == AnnotatedString("\\x", [(2:2, :face, face"bold")])
+    @test String(styled("a\\\\b")) == "a\\b"
 
     # newlines
     strlines = "abc\
