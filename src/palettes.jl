@@ -416,7 +416,7 @@ Register the palette defined in the current module in the global registry.
 This should be placed within the `__init__()` function of a module defining a palette.
 
 Use of `@registerpalette!` is essential to make the [`@defpalette!`](@ref)-defined
-faces available for theming, remapping, and customisation.
+faces available for theming and customisation.
 
 # Examples
 
@@ -466,6 +466,9 @@ end
 
 Displace an unregistered face with a registered one in the global face registry.
 
+An in-use placeholder is recorded in `FACES.displacements`, so that interpolating
+it into styled markup yields `reg`.
+
 !!! warning
     Assumes that the caller holds `FACES.lock`.
 """
@@ -480,7 +483,6 @@ function register_displace!(unreg::Face, reg::Face, fullname::Symbol)
     end
     relayer!(reg)
     if unreg.f.height == UNDEF_INUSE_HEIGHT_FLAG
-        FACES.remapping.default[unreg] = reg
-        FACES.remapping[][unreg] = reg
+        FACES.displacements[unreg] = reg
     end
 end
