@@ -482,19 +482,17 @@ On initialization, the `config/faces.toml` file under the first Julia depot (usu
 
 ### Face remapping
 
-One package may construct a styled string without any knowledge of how it is intended to be used. Should you find yourself wanting to substitute particular faces applied by a method, you can wrap the method in [`remapfaces`](@ref) to substitute the faces applied during construction.
+One package may construct a styled string without any knowledge of how it is intended to be used. Should you find yourself wanting to substitute particular faces applied by a method, you can pass its result through [`remapfaces`](@ref) to substitute the faces it applied.
 
 ```@repl demo
-StyledStrings.remapfaces(face"warning" => face"error") do
-    styled"you should be {warning:very concerned}"
-end
+StyledStrings.remapfaces(styled"you should be {warning:very concerned}", face"warning" => face"error")
 ```
 
-This changes the annotations in the styled strings produced within the `remapfaces` call.
+This changes the annotations of the styled string itself.
 
 ### Display-time face rebinding
 
-While `remapfaces` is applied during styled string construction, it is also possible to change the meaning of each face while they are printed. This is done via [`withfaces`](@ref).
+While `remapfaces` rewrites a styled string, it is also possible to change the meaning of each face while they are printed. This is done via [`withfaces`](@ref).
 
 ```@repl demo
 withfaces(face"yellow" => face"red", face"green" => face"blue") do

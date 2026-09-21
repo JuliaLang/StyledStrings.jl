@@ -48,7 +48,8 @@ module StyledMarkup
 using Base: AnnotatedString, annotations, annotatedstring
 using ..StyledStrings: FACES, STANDARD_FACES, Face, SimpleColor,
     WEIGHT_NAMES, SLANT_NAMES, UNDERLINE_STYLE_NAMES,
-    findface, lookupface, lookmakeface, MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
+    findface, lookupface, lookmakeface, UNDEF_INUSE_HEIGHT_FLAG,
+    MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
 
@@ -117,7 +118,7 @@ mutable struct MacroOutput
     const mod::Module
     const lets::Vector{Union{Expr, LineNumberNode}}
     const strs::Vector{Union{String, Symbol, Expr}}
-    const rfaces::Dict{Symbol, Symbol}
+    const rfaces::Dict{Symbol, Union{Face, Symbol}}
     const annots::Vector{@NamedTuple{
         region::UnitRange{Int},
         loff::Union{Symbol, Nothing},
@@ -139,7 +140,6 @@ struct FnOutput
         region::UnitRange{Int},
         label::Symbol,
         value::Any}}
-    remapping::IdDict{Face, Face}
     rfaces::Dict{String, Face}
 end
 
@@ -151,7 +151,7 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
         false
     end
     output = if isnothing(mod)
-        FnOutput([], [], FACES.remapping[], Dict())
+        FnOutput([], [], Dict())
     else
         MacroOutput(mod, [], [], Dict(), [], [], nothing, nothing)
     end
@@ -819,7 +819,8 @@ function addannot!(state::State, i::Int, label, value)
          label = Symbol(label),
          value = value)
     end
-    if !isempty(state.out.annots) && last(state.out.annots) == styannot
+    prev = if isempty(state.out.annots) nothing else last(state.out.annots) end
+    if prev == styannot && (!(prev.value isa Face) || prev.value === styannot.value)
         push!(state.activestyles[end].inds, lastindex(state.out.annots))
         return
     end
@@ -914,41 +915,28 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         addannot!(state, i, key, value)
     elseif key !== ""
         face = if !ismacro(state)
-            rface = get(state.out.rfaces, key, nothing)
-            if !isnothing(rface)
-                rface
-            else
-                fref = get(FACES.pool, Symbol(replace(key, '.' => '_')), Face())
-                state.out.rfaces[key] = if fref !== Face()
-                    get(state.out.remapping, fref, fref)
-                else
-                    fref
-                end
+            get!(state.out.rfaces, key) do
+                get(FACES.pool, Symbol(replace(key, '.' => '_')), Face())
             end
         elseif haskey(state.out.rfaces, Symbol(key))
             state.out.rfaces[Symbol(key)]
         else
             fval = if key isa Symbol || key isa Expr
-                fivar = Symbol("iface_$(length(state.out.lets) + 1)")
-                push!(state.out.lets, :($fivar = $interpface($key, $(state.out.mod), $(state.strict))))
-                fivar
+                :($interpface($key, $(state.out.mod), $(state.strict)))
             else
                 resolveface(state, key)
             end
-            if fval isa Expr # Evaluate a runtime lookup once
-                lvar = Symbol("lookup_$(length(state.out.lets) + 1)")
-                push!(state.out.lets, :($lvar = $fval))
-                fval = lvar
-            end
-            fvar = if key isa String
-                Symbol("face_$key")
+            state.out.rfaces[Symbol(key)] = if fval isa Expr # Evaluate a runtime lookup once
+                fvar = if key isa String
+                    Symbol("face_$key")
+                else
+                    Symbol("face_$(length(state.out.lets) + 1)")
+                end
+                push!(state.out.lets, :($fvar = $fval))
+                fvar
             else
-                Symbol("face_$(length(state.out.lets) + 1)")
+                fval
             end
-            isempty(state.out.rfaces) && push!(state.out.lets, :(faceremap = FACES.remapping[]))
-            push!(state.out.lets, :($fvar = get(faceremap, $fval, $fval)))
-            state.out.rfaces[Symbol(key)] = fvar
-            fvar
         end
         addannot!(state, i,
                   if ismacro(state) QuoteNode(:face) else :face end,
@@ -980,7 +968,10 @@ Resolve an interpolated `face` from styled markup.
 """
 function interpface end
 
-interpface(face::Face, ::Module, ::Bool) = face
+function interpface(face::Face, ::Module, ::Bool)
+    face.f.height == UNDEF_INUSE_HEIGHT_FLAG || return face
+    get(FACES.displacements, face, face)
+end
 
 function interpface(face::Symbol, mod::Module, strict::Bool)
     # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))

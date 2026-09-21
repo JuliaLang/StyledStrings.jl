@@ -119,7 +119,7 @@ const FACES = let
          base = IdDict{Face, Face}(),
          light = IdDict{Face, Face}(),
          dark = IdDict{Face, Face}()),
-     remapping = ScopedValue(IdDict{Face, Face}()),
+     displacements = IdDict{Face, Face}(),
      current = ScopedValue(IdDict{Face, Face}()),
      basecolors = basecolors,
      lock = ReentrantLock())
@@ -275,32 +275,28 @@ function resetfaces!(face::Face, theme::Symbol = :all)
 end
 
 """
-    remapfaces(f, kv::Pair{Face, Face}...)
-    remapfaces(f, kvpair_itr)
+    remapfaces(s::AnnotatedString, kv::Pair{Face, Face}...) -> AnnotatedString
 
-Remap all faces constructed during the execution of `f`.
+Substitute the faces annotating `s` according to `kv`, leaving other annotations as they are.
 
 # Examples
 
 ```jldoctest; setup = :(import StyledStrings: Face, remapfaces)
-julia> remapfaces(face"red" => face"blue") do
-           styled"some {red:important} text"
-       end |> annotations
+julia> remapfaces(styled"some {red:important} text", face"red" => face"blue") |> annotations
 1-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Face}}:
  (region = 6:14, label = :face, value = face"blue")
 ```
 """
-function remapfaces(f, keyvals_itr)
-    newremap = copy(FACES.remapping[])
-    eltype(keyvals_itr) == Pair{Face, Face} ||
-        throw(MethodError(remapfaces, (f, keyvals_itr)))
-    for (prev, new) in keyvals_itr
-        newremap[prev] = new
-    end
-    @with(FACES.remapping => newremap, f())
+function remapfaces(s::AnnotatedString, kv::Pair{Face, Face}...)
+    remap = IdDict{Face, Face}(kv)
+    AnnotatedString(s.string, map(annotations(s)) do (; region, label, value)
+        if label === :face
+            (; region, label, value = get(remap, value, value))
+        else
+            (; region, label, value)
+        end
+    end)
 end
-
-remapfaces(f, kv::Pair{Face, Face}...) = remapfaces(f, kv)
 
 """
     withfaces(f, kv::Pair...)

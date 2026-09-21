@@ -319,6 +319,12 @@ end
         get(FACES.current[], face"green", nothing)
     end == Face(foreground=face"blue")
     @test withfaces(() -> 1) == 1
+    # `remapfaces`
+    @test StyledStrings.remapfaces(styled"{red:a}{note=x:b}", face"red" => face"blue") ==
+        AnnotatedString("ab", [(1:1, :face, face"blue"), (2:2, :note, "x")])
+    # Only annotation values are substituted, not the attributes of a face
+    @test StyledStrings.remapfaces(styled"{(foreground=red):a}", face"red" => face"blue") ==
+        AnnotatedString("a", [(1:1, :face, Face(foreground = face"red"))])
     # Unknown face names
     @test getface([face"red", :nonexistent]) == getface(face"red")
     @test withfaces(face"red" => :nonexistent) do
@@ -531,13 +537,14 @@ end
     @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
     @test StyledStrings.facename(TestPaletteUser, heading) == :heading
     # A placeholder customised before use hands its customisation on to the registered face,
-    # and once in use is remapped to it
+    # and once in use is displaced by it when interpolated
     setface!(StyledStrings.lookmakeface(:zzz_placeholder, false) => Face(font = "custom"))
     placeholder = StyledStrings.lookmakeface(:zzz_placeholder)
     registered = copy(Face())
     @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_placeholder)
     @test getface(registered).font == "custom"
-    @test FACES.remapping[][placeholder] === registered
+    @test FACES.displacements[placeholder] === registered
+    @test only(annotations(styled"{$placeholder:x}")).value === registered
     @test !haskey(FACES.unregistered, :zzz_placeholder)
     resetfaces!(registered)
     @testset "Declaration errors" begin
@@ -652,7 +659,6 @@ end
     @test styled"{underline:{(underline=false):{underline:x}}}" ==
         AnnotatedString("x", [(1:1, :face, face"underline"), (1:1, :face, Face(underline=false)), (1:1, :face, face"underline")])
     @test styled"{red:{red:x}}" == AnnotatedString("x", [(1:1, :face, face"red")])
-    # No face remapping is set up when there are no faces
     @test astmatch(:(let ; AnnotatedString("val", _[]) end), @macroexpand styled"val")
     # Interpolation
     @test astmatch(
@@ -685,39 +691,30 @@ end
         @macroexpand styled"a$(val)b")
     @test astmatch(
         :(let ;
-              _r = FACES.remapping[]
-              _!face_red = get(_r, $(face"red"), $(face"red"))
               _!val_str = String(string(val))
               _!offset_val = ncodeunits(_!val_str)
-              _!annots = _[(; region = 1:0 + _!offset_val, label = :face, value = _!face_red)]
+              _!annots = _[(; region = 1:0 + _!offset_val, label = :face, value = $(face"red"))]
               _...
               AnnotatedString(_!val_str, _!interp_annots)
           end),
         @macroexpand styled"{red:$val}")
     @test astmatch(
         :(let ;
-              _l = lookmakeface(_, :nonexistent_face)
-              _r = FACES.remapping[]
-              _f = get(_r, _l, _l)
+              _f = lookmakeface(_, :nonexistent_face)
               AnnotatedString("x", _[(; region = 1:1, label = :face, value = _f)])
           end),
         @macroexpand styled"{nonexistent_face:x}")
     @test astmatch(
         :(let ;
-              _i = interpface(face, _, false)
-              _r = FACES.remapping[]
-              _f = get(_r, _i, _i)
+              _f = interpface(face, _, false)
               AnnotatedString("val", _[(; region = 1:3, label = :face, value = _f)])
           end),
         @macroexpand styled"{$face:val}")
     @test astmatch(
         :(let ;
-              _i1 = interpface(f1, _, false)
-              _r = FACES.remapping[]
-              _f1 = get(_r, _i1, _i1)
-              _i2 = interpface(f2, _, false)
-              _f2 = get(_r, _i2, _i2)
-              AnnotatedString("v1v2", _[(; region = 1:2, label = :face, value = _f), (; region = 3:4, label = :face, value = _f2)])
+              _f1 = interpface(f1, _, false)
+              _f2 = interpface(f2, _, false)
+              AnnotatedString("v1v2", _[(; region = 1:2, label = :face, value = _f1), (; region = 3:4, label = :face, value = _f2)])
           end),
         @macroexpand styled"{$f1:v1}{$f2:v2}")
     @test astmatch(
