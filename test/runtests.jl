@@ -227,6 +227,12 @@ end
     @test Face(font="font").font == "font"
     @test Face(height=1).height == 1
     @test Face(height=0.5).height == 0.5
+    @test Face(height=typemax(Int32)).height == typemax(Int32)
+    @test_throws ArgumentError Face(height=2^31)
+    @test_throws ArgumentError Face(height=-1)
+    @test_throws ArgumentError Face(height=Inf)
+    @test_throws ArgumentError Face(height=1e300) # Beyond `Float32`
+    @test_throws ArgumentError Face(height=1e-46) # Rounds to zero in `Float32`
     @test Face(weight=:bold).weight == :bold
     @test Face(slant=:italic).slant == :italic
     for (attr, names) in ((:weight, StyledStrings.ATTRIBUTES.weights), (:slant, StyledStrings.ATTRIBUTES.slants))
@@ -258,6 +264,12 @@ end
     @test Face(height=1) == Face(height=1)
     @test Face(height=1) != Face(height=2)
     @test Face(inherit=face"red") != Face(inherit=face"blue")
+    # A vector with spare capacity is copied, not aliased
+    let grown = Face[]
+        push!(grown, face"italic")
+        @test Face(inherit=grown).inherit == [face"italic"]
+        @test getface(Face(inherit=grown)).slant == :italic
+    end
     # Standard faces
     @test all(f -> f.weight == :bold, (face"log_error", face"log_warn", face"log_info", face"log_debug"))
     # Adding a face then resetting
@@ -286,6 +298,8 @@ end
     # Loading from TOML (a Dict)
     @test convert(Face, Dict{String, Any}("weight" => "wobbly", "underline" => ["red", "wavy"])) ==
         Face(underline = face"red")   # Unknown names are left unset
+    @test convert(Face, Dict{String, Any}("height" => 1.5)).height == 1.5
+    @test convert(Face, Dict{String, Any}("height" => -3)).height === nothing
     anotherface = hacky_addface!(:anotherface, copy(Face()))
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",

@@ -676,10 +676,8 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
             weaknothing(UInt32)
         elseif h isa String && h == "inherit"
             strongnothing(UInt32)
-        elseif h isa Int
-            UInt32(h)
-        elseif h isa Float64
-            reinterpret(UInt32, Float32(h)) & ~(typemax(UInt32) >> 1)
+        elseif h isa Union{Int, Float64}
+            something(heightbits(h), weaknothing(UInt32))
         else
             weaknothing(UInt32)
         end
