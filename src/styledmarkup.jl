@@ -138,7 +138,7 @@ struct FnOutput
     annots::Vector{@NamedTuple{
         region::UnitRange{Int},
         label::Symbol,
-        value::Any}}
+        value::Union{Face, String}}}
     rfaces::Dict{String, Face}
 end
 
@@ -498,6 +498,8 @@ function read_annotation!(state::State, i::Int, char::Char)
     end
 end
 
+islazylookup(x) = x isa Expr && (x.head === :call && x.args[1] === lookmakeface || any(islazylookup, x.args))
+
 """
     read_inlineface!(state::State, i::Int, char::Char)
 
@@ -757,7 +759,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         Face() # Already reported; constructing it could throw first
     elseif ismacro(state)
         faceex = Expr(:call, Face, kwargs...)
-        if needseval
+        if needseval || any(islazylookup, kwargs) # Names unknown now are looked up when the string is built
             faceex
         else
             hygienic_eval(state, faceex)
@@ -915,7 +917,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
     elseif key !== ""
         face = if !ismacro(state)
             get!(state.out.rfaces, key) do
-                get(FACES.pool, Symbol(replace(key, '.' => '_')), Face())
+                lookmakeface(Symbol(replace(key, '.' => '_')))
             end
         elseif haskey(state.out.rfaces, Symbol(key))
             state.out.rfaces[Symbol(key)]

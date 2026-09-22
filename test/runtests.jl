@@ -742,6 +742,14 @@ end
     @test styled("{red:hey} {blue:there}") == styled"{red:hey} {blue:there}"
     @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
     @test styled("\$hey") == styled"\$hey"
+    @test styled("{red:x}{note=n:y}") isa AnnotatedString{String, Union{Face, String}}
+    # An unknown name is a placeholder that a later registration displaces, as in the macro
+    @test annotations(styled("{zzz_fnface:x}"))[1].value === StyledStrings.lookmakeface(:zzz_fnface)
+    # A name unknown at expansion time is looked up when the string is built
+    lazyinline() = styled"{(fg=zzz_lazyinline):x}"
+    @test annotations(lazyinline())[1].value.foreground.value === StyledStrings.lookmakeface(:zzz_lazyinline)
+    lazyface = hacky_addface!(:zzz_lazyinline, Face(foreground=face"red"))
+    @test annotations(lazyinline())[1].value.foreground.value === lazyface
 
     # Various kinds of syntax errors that should be reported
     @test_throws MalformedStylingMacro styled("{incomplete")
