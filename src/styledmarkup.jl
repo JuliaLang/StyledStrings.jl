@@ -62,33 +62,23 @@ A struct representing of the parser state (if you squint, a state monad even).
 To create the initial state, use the constructor:
     State(content::AbstractString, mod::Union{Module, Nothing}=nothing) -> State
 
-Its fields are as follows:
+The module `mod` should be provided iff the styled markup comes from a macro
+invocation. Its fields are as follows:
 - `content::String`, the (unescaped) input string
 - `bytes::Vector{UInt8}`, the codeunits of `content`. This is a `Vector{UInt8}` instead of a
   `CodeUnits{UInt8}` because we need to be able to modify the array, for instance when erasing
   escape characters.
 - `s::Iterators.Stateful`, an `(index, char)` iterator of `content`
-- `mod::Union{Module, Nothing}`, the (optional) context with which to evaluate inline
-  expressions in. This should be provided iff the styled markup comes from a macro invocation.
-- `strict::Bool`, whether faces must be known ahead of time
-- `parts::Vector{Any}`, the result of the parsing, a list of elements that when passed to
-  `annotatedstring` produce the styled markup string. The types of its values are highly diverse,
-  hence the `Any` element type.
-- `active_styles::Vector{Vector{Tuple{Int, Int, Any, Any}}}}`,
-  A list of batches of styles that have yet to be applied to any content. Entries of a batch
-  consist of `(source_position, start_position, style)` tuples, where `style` may be just
-  a symbol (referring to a face), a `Tuple{Symbol, Any}` annotation, or an `Expr` that evaluates
-  to a valid annotation (when `mod` is set).
-- `pending_styles::Vector{Tuple{UnitRange{Int}, Union{Symbol, Expr, Tuple{Symbol, Any}}}}`,
-  A list of styles that have been terminated, and so are known to occur over a certain range,
-  but have yet to be applied.
+- `strict::Bool`, whether faces must be known ahead of time, as in a module with a palette
 - `offset::Int`, a record of the between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
 - `point::Int`, the current index in `content`.
 - `escape::Bool`, whether the last character seen was an escape character.
-- `interpolations::Int`, how many interpolated values have been seen. Knowing whether or not
-  anything needs to be evaluated allows the resulting string to be computed at macroexpansion time,
-  when possible, and knowing how many allows for some micro-optimisations.
+- `activestyles::Vector{@NamedTuple{source::Int, inds::Vector{Int}}}`, the styled regions
+  that are still open: the position of each region's markup, and the indices in `out` of
+  its annotations.
+- `out::O`, the result of the parsing. A macro invocation produces a `MacroOutput`, the
+  code that builds the string. Otherwise it is an `FnOutput`, the strings and annotations.
 - `errors::Vector`, any errors raised during parsing. We collect them instead of immediately throwing
   so that we can list as many issues as possible at once, instead of forcing the author of the invalid
   styled markup to resolve each issue one at a time. This is expected to be populated by invocations of
@@ -1215,7 +1205,8 @@ annotation = face | inlineface | keyvalue ;
 ws = { ' ' | '\\t' | '\\n' } ; (* whitespace *)
 
 face = facename | interpolated ;
-facename = [A-Za-z0-9_]+ ;
+facename = name, { '.', name } ;
+name = [A-Za-z0-9_]+ ;
 
 inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
 faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
@@ -1234,7 +1225,7 @@ The above grammar for `inlineface` is simplified, as the actual implementation
 is a bit more sophisticated. The full behaviour is given below.
 
 ```ebnf
-faceprop = ( 'face', ws, '=', ws, ( ? string ? | interpolated ) ) |
+faceprop = ( 'font', ws, '=', ws, ( ? string ? | interpolated ) ) |
            ( 'height', ws, '=', ws, ( ? number ? | interpolated ) ) |
            ( 'weight', ws, '=', ws, ( symbol | interpolated ) ) |
            ( 'slant', ws, '=', ws, ( symbol | interpolated ) ) |
@@ -1309,6 +1300,10 @@ by `{...}` should it contain any of the characters `,=:{}`.
 
 This is a functional equivalent of the [`@styled_str`](@ref) macro, just without
 interpolation capabilities.
+
+Face names are looked up in the global registry, as there is no module to find
+palettes in. A dotted name is an absolute module path: `Mod.face` is the face
+`face` of the palette of the top-level module `Mod`.
 """
 function styled(content::AbstractString)
     state = State(content)

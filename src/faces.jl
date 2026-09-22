@@ -90,7 +90,7 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `strikethrough` (a `Bool`): Whether the text should be struck through.
 - `inverse` (a `Bool`): Whether the foreground and background colors should
   be swapped.
-- `inherit` (a `Vector{Face}`): Faces to inherit from, with earlier faces
+- `inherit` (a `Vector{Face}`, read back as a `Memory{Face}`): Faces to inherit from, with earlier faces
   taking priority. All faces inherit from the `default` face.
 
 # Examples
@@ -433,9 +433,8 @@ Merge the properties of the `initial` face and `others`, with later faces taking
 
 This is used to combine the styles of multiple faces, and to resolve inheritance.
 
-A weak nothing in a later face keeps the earlier value; a strong nothing (as from
-`underline = false`) replaces it and persists. Integer heights replace, float
-heights scale. `merge` is thus idempotent and associative, with `Face()` as identity.
+An attribute that a later face leaves unset keeps its earlier value. Integer heights
+replace, and float heights scale. Other attributes merge associatively.
 """
 Base.merge(a::Face, b::Face) = Face(merge(a.f, b.f))
 
@@ -454,7 +453,7 @@ function Base.merge(a::FaceDef, b::FaceDef)
             aint = reinterpret(UInt32, a.height)
             bfloat = reinterpret(Float32, b.height & (typemax(UInt32) >> 1))
             round(UInt32, min(aint * Float64(bfloat), typemax(Int32))) # Larger would set the float tag bit
-        else # a.height::Float64, b.height::Float64
+        else # a.height::Float32, b.height::Float32
             afloat = reinterpret(Float32, a.height & (typemax(UInt32) >> 1))
             bfloat = reinterpret(Float32, b.height)
             reinterpret(UInt32, max(afloat * bfloat, -floatmax(Float32))) # Negative from `b`'s tag bit; -Inf is unset

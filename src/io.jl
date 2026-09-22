@@ -123,7 +123,7 @@ end
 """
     termcolor24bit(io::IO, color::RGBTuple, category::Char)
 
-Print to `io` the 24-bit SGR color code to set the `category`8 slot to `color`.
+Print to `io` the 24-bit SGR color code that sets the `category` color to `color`.
 """
 function termcolor24bit(io::IO, color::RGBTuple, category::Char)
     write(io, if category == '3' "\e[38;2;" elseif category == '4' "\e[48;2;" else "\e[58;2;" end)
@@ -141,13 +141,13 @@ where `category` is set as follows:
 - `'4'` sets the background color
 - `'5'` sets the underline color
 
-If `color` is a `SimpleColor{Symbol}`, the value should be a a member of
-`ANSI_4BIT_COLORS`. Any other value will cause the color to be reset.
+The color is followed to its final value with `finalcolor`. A base color is
+written as its code in `ANSI_4BIT_COLORS`, and any other face resets the color.
 
-If `color` is a `SimpleColor{RGBTuple}` and `get_have_truecolor()` returns true,
-24-bit color is used. Otherwise, an 8-bit approximation of `color` is used.
+An `RGBTuple` is written as 24-bit color when `get_have_truecolor()` returns true.
+Otherwise, an 8-bit approximation of it is used.
 
-If `color` is unknown, no output is produced.
+If `color` cannot be resolved, the color is reset.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
     value = color.value

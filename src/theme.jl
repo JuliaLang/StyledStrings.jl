@@ -205,7 +205,7 @@ Should the face `name` already exist, `nothing` is returned.
 
 ```jldoctest; setup = :(import StyledStrings: Face, addface!)
 julia> addface!(:mypkg_myface => Face(slant=:italic, underline=true))
-Face (sample)
+Face mypkg_myface (sample)
          slant: italic
      underline: true
 ```
@@ -254,9 +254,10 @@ function resetfaces!()
 end
 
 """
-    resetfaces!(name::Symbol)
+    resetfaces!(name::Symbol, theme::Symbol = :base)
 
-Reset the face `name` to its default value, which is returned.
+Reset the face `name` to its default value, which is returned. The `theme` is
+`:base`, `:light`, or `:dark`, as for `resetfaces!(::Face, theme)`.
 
 If the face `name` does not exist, nothing is done and `nothing` returned.
 In the unlikely event that the face `name` does not have a default value,
@@ -264,7 +265,7 @@ it is deleted, a warning message is printed, and `nothing` returned.
 
 !!! warning "Deprecated"
     `resetfaces!` is deprecated and will be removed in a future release.
-    Please specify the face to be reset directly using `resetfaces(::Face)`.
+    Please specify the face to be reset directly using `resetfaces!(::Face)`.
 """
 function resetfaces!(name::Symbol, theme::Symbol = :base)
     # Base.depwarn("`resetfaces!` is deprecated as of v1.14 and will be removed in a future release. \
@@ -277,9 +278,10 @@ function resetfaces!(name::Symbol, theme::Symbol = :base)
 end
 
 """
-    resetfaces!(face::Face)
+    resetfaces!(face::Face, theme::Symbol = :all)
 
-Reset the face `face` to its default value.
+Reset the face `face` to its default value, undoing the changes made for `theme` (`:base`,
+`:light`, or `:dark`), or for every theme with `:all`.
 
 If the face is not registered, nothing is done.
 """
@@ -565,9 +567,11 @@ face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRa
 ## Reading face definitions from a dictionary ##
 
 """
-    setface!(original::Face => update::Face, [theme::Symbol = :base])
+    setface!(original::Face => update::Face, [theme::Symbol = :base]) -> Union{Face, Nothing}
 
-Merge the current value of `original` with `update`.
+Change `original` by layering `update` over its current definition, as `override` does, for
+`theme` (`:base`, `:light`, or `:dark`). The new definition is returned, or `nothing` when
+`theme` is not the active theme.
 
 # Examples
 
@@ -942,14 +946,16 @@ function rgbcolor(color::Symbol)
 end
 
 """
-    blend(a::Union{Symbol, SimpleColor}, [b::Union{Symbol, SimpleColor} => α::Real]...)
+    blend(a, b, α::Real) -> SimpleColor
+    blend(base, [b => α::Real]...) -> SimpleColor
+    blend(a => wa::Real, [b => wb::Real]...) -> SimpleColor
 
-Blend colors `a` and `b` in Oklab space, with mix ratio `α` (0–1).
+Blend colors in Oklab space. Each color is a `SimpleColor`, or a `Face` whose
+foreground color is used.
 
-The colors `a` and `b` can either be `SimpleColor`s, or `Symbol`s naming a face
-or base color. The mix ratio `α` combines `(1 - α)` of `a` with `α` of `b`.
-
-Multiple colors can be blended at once by providing multiple `b => α` pairs.
+The mix ratio `α` (0–1) combines `(1 - α)` of `a` with `α` of `b`. Several colors
+can be mixed into `base` with `b => α` pairs, and `base` takes the remaining
+weight. When every color has a weight, the weights are used as given.
 
 # Examples
 
@@ -957,10 +963,10 @@ Multiple colors can be blended at once by providing multiple `b => α` pairs.
 julia> blend(SimpleColor(0xff0000), SimpleColor(0x0000ff), 0.5)
 SimpleColor(■ #8b54a1)
 
-julia> blend(:red, :yellow, 0.7)
+julia> blend(face"red", face"yellow", 0.7)
 SimpleColor(■ #d47f24)
 
-julia> blend(:green, SimpleColor(0xffffff), 0.3)
+julia> blend(face"green", SimpleColor(0xffffff), 0.3)
 SimpleColor(■ #74be93)
 ```
 """

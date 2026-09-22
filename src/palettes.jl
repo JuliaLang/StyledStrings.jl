@@ -231,13 +231,21 @@ end
 """
     @defpalette! begin ... end
 
-Define a palette for the current module. This faces named by this palette can then be used with [`face""`](@ref @face_str),
+Define a palette for the current module. The faces named by this palette can then be used with [`face""`](@ref @face_str),
 and are preferentially used over any defined by [`@usepalettes!`](@ref).
 
 Within a `@defpalette!` block, faces (referenced as foreground, background,
 underline, or inherit attributes) should be referred to as variables, without
 any decoration. For instance, `blue` should be used over `face"blue"`. Colours
 may also be given as literals, and any value as a `\$(...)` expression.
+
+A face can also have light and dark variants, written as `name.light` and
+`name.dark`. A variant is layered over the base face when the terminal has a
+light or dark background. It may refer to other faces, but not to its own base.
+
+Every face referred to must be known when the palette is defined: defined in the
+palette, pulled in with `@usepalettes!`, or a standard face. Faces of other
+palettes can also be referred to by their module path, as `Module.name`.
 
 Cyclic dependencies between faces (e.g. two faces inheriting from each other)
 are not possible, but the order of declaration is automatically determined.
@@ -249,6 +257,7 @@ are not possible, but the order of declaration is automatically determined.
     important = Face(weight = :bold, inherit = warning)
     topic = Face(foreground = blue)
     heading = Face(foreground = important, background = 0xf0f0f0)
+    heading.dark = Face(background = 0x303030)
 end
 ```
 """

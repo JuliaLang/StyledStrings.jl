@@ -7,6 +7,7 @@ opening a pull request or issue to discuss making them part of the public API.
 
 ```@docs
 StyledStrings.ANSI_4BIT_COLORS
+StyledStrings.BASE_FACES
 StyledStrings.FACES
 StyledStrings.MAX_COLOR_FORWARDS
 StyledStrings.UNRESOLVED_COLOR_FALLBACK
@@ -20,6 +21,7 @@ StyledStrings.setcolors!
 StyledStrings.face!
 StyledStrings.foreignface
 StyledStrings.override
+StyledStrings.relayer!
 StyledStrings.getface
 StyledStrings.load_customisations!
 StyledStrings.loadface!
@@ -30,6 +32,9 @@ StyledStrings.rgbcolor
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
+StyledStrings.safeuri
+StyledStrings.uriformat
+StyledStrings.Styled
 ```
 
 ## Styled Markup parsing
@@ -52,7 +57,6 @@ StyledStrings.StyledMarkup.offadd!
 StyledStrings.StyledMarkup.annotpromote!
 StyledStrings.StyledMarkup.styerr!
 StyledStrings.StyledMarkup.hygienic_eval
-StyledStrings.StyledMarkup.addpart!
 StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!
@@ -65,6 +69,8 @@ StyledStrings.StyledMarkup.read_inlineface!
 StyledStrings.StyledMarkup.addannot!
 StyledStrings.StyledMarkup.read_face_or_keyval!
 StyledStrings.StyledMarkup.promote_type_3u
+StyledStrings.StyledMarkup.resolveface
 StyledStrings.StyledMarkup.interpface
+StyledStrings.StyledMarkup.spliceinterps!
 StyledStrings.StyledMarkup.run_state_machine!
 ```
