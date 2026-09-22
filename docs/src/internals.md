@@ -67,5 +67,4 @@ StyledStrings.StyledMarkup.read_face_or_keyval!
 StyledStrings.StyledMarkup.promote_type_3u
 StyledStrings.StyledMarkup.interpface
 StyledStrings.StyledMarkup.run_state_machine!
-StyledStrings.StyledMarkup.annotatedstring_optimize!
 ```

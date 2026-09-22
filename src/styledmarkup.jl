@@ -45,7 +45,7 @@ Of course, as usual, the devil is in the details.
 """
 module StyledMarkup
 
-using Base: AnnotatedString, annotations, annotatedstring
+using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
     ATTRIBUTES,
     findface, lookupface, lookmakeface, UNDEF_INUSE_HEIGHT_FLAG,
@@ -103,12 +103,10 @@ mutable struct State{O}
     offset::Int
     point::Int
     escape::Bool
-    interpcount::Int
     # Output
     const activestyles::Vector{@NamedTuple{
         source::Int,
         inds::Vector{Int}}}
-    const lastseen::Dict{Tuple{Symbol, Any}, Int}
     const out::O
     const errors::Vector
 end
@@ -158,11 +156,10 @@ function State(content::String, mod::Union{Module, Nothing}=nothing)
     State(content, Vector{UInt8}(content), # content, bytes
           Iterators.Stateful(pairs(content)), strict, # s, strict
           # Any[], # parts
-          0, 1, false, 0, # offset, point, escape, interpcount
+          0, 1, false, # offset, point, escape
           # Vector{Tuple{Int, Int, Any, Any}}[], # active_styles
           # Tuple{UnitRange{Int}, Any, Any}[], # pending_styles
           @NamedTuple{source::Int, inds::Vector{Int}}[], # activestyles
-          Dict{Tuple{Symbol, Any}, Int}(), # lastseen
           output, # out
           NamedTuple{(:message, :position, :hint), # errors
                      Tuple{AnnotatedString{String, Face}, <:Union{Int, Nothing}, String}}[])
@@ -206,14 +203,7 @@ ismacro(::State{O}) where {O} = O == MacroOutput
 Adjust the dynamic offset in `state.out.dynoff` by `delta`.
 """
 function offadd!(state::State{MacroOutput}, delta::Union{Int, Symbol, Expr})
-    tag = if Meta.isexpr(delta, :call) && delta.args[1] == :ncodeunits && delta.args[2] isa Symbol
-        var = chopsuffix(String(delta.args[2]), "_str")
-        nth = count(interp -> interp.var === Symbol(var), state.out.interpolations)
-        if nth > 1 "$(var)_$nth" else var end
-    else
-        string(1 + parse(Int, chopprefix(String(something(state.out.dynoff, :offset_0)), "offset_")))
-    end
-    newoff = Symbol("offset_" * tag)
+    newoff = gensym(:offset)
     push!(state.out.lets, if isnothing(state.out.dynoff)
               :($newoff = $delta)
           else
@@ -228,7 +218,7 @@ end
 Promote the annotation value type in `state.out` to include `newvaltype`.
 """
 function annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr})
-    newavtype = Symbol("avtype_" * string(1 + parse(Int, chopprefix(String(something(state.out.avtype, :avtype_0)), "avtype_"))))
+    newavtype = gensym(:avtype)
     push!(state.out.lets, :($newavtype = promote_type_3u($(something(state.out.avtype, :Face)), $newvaltype)))
     state.out.avtype = newavtype
 end
@@ -331,7 +321,6 @@ function interpolated!(state::State{MacroOutput}, i::Int, _)
              annotidx = lastindex(state.out.annots) + 1,
              var = ivar))
     offadd!(state, :(ncodeunits($istr)))
-    state.interpcount += 1
 end
 
 """
@@ -537,7 +526,6 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             elseif isnextchar(state, '$') && ismacro(state)
                 expr, _ = readexpr!(state)
                 lastchar = last(popfirst!(state.s))
-                state.interpcount += 1
                 needseval = true
                 esc(expr)
             else
@@ -551,7 +539,6 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 if isnextchar(state, '$') && ismacro(state)
                     expr, _ = readexpr!(state)
                     lastchar = last(popfirst!(state.s))
-                    state.interpcount += 1
                     needseval = true
                     ustyle = esc(expr)
                 else
@@ -670,7 +657,6 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
-            state.interpcount += 1
             needseval = true
             esc(expr)
         elseif key == :font
@@ -862,12 +848,11 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
-        state.interpcount += 1
         needseval = true
         if expr isa Symbol
             esc(expr)
         else
-            kvar = Symbol("key_$(length(state.out.lets) + 1)")
+            kvar = gensym(:key)
             push!(state.out.lets, :($kvar = $(esc(expr))))
             kvar
         end
@@ -889,12 +874,11 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             "" # An error will be raised later for an incomplete declaration
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
-            state.interpcount += 1
             needseval = true
             vvar = if expr isa Symbol
                 esc(expr)
             else
-                vsym = Symbol("value_$(state.interpcount)")
+                vsym = gensym(:value)
                 push!(state.out.lets, :($vsym = $(esc(expr))))
                 vsym
             end
@@ -928,11 +912,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
                 resolveface(state, key)
             end
             state.out.rfaces[Symbol(key)] = if fval isa Expr # Evaluate a runtime lookup once
-                fvar = if key isa String
-                    Symbol("face_$key")
-                else
-                    Symbol("face_$(length(state.out.lets) + 1)")
-                end
+                fvar = gensym(:face)
                 push!(state.out.lets, :($fvar = $fval))
                 fvar
             else
@@ -1022,35 +1002,6 @@ function run_state_machine!(state::State)
 end
 
 """
-    annotatedstring_optimize!(str::AnnotatedString)
-
-Merge contiguous identical annotations in `str`.
-"""
-function annotatedstring_optimize!(s::AnnotatedString)
-    length(s.annotations) <= 1 && return s
-    last_seen = Dict{Tuple{Symbol, Any}, Int}()
-    i = 1
-    while i <= length(s.annotations)
-        ann = s.annotations[i]
-        prev = get(last_seen, (ann.label, ann.value), 0)
-        if prev > 0
-            lregion = s.annotations[prev].region
-            if last(lregion) + 1 == first(ann.region)
-                s.annotations[prev] =
-                    merge(s.annotations[prev], (; region=first(lregion):last(ann.region)))
-                deleteat!(s.annotations, i)
-            else
-                delete!(last_seen, (ann.label, ann.value))
-            end
-        else
-            last_seen[(ann.label, ann.value)] = i
-            i += 1
-        end
-    end
-    s
-end
-
-"""
     spliceinterps!(state::State, avar::Symbol) -> Symbol
 
 Splice the interpolated annotations in `state.out.interpolations` into
@@ -1081,8 +1032,8 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
         append!(state.out.lets,
                 (quote
                     local $iavar, $newavtype
-                    if hasmethod(annotations, (typeof($(esc(var))),))
-                        $iavar = annotations($(esc(var)))
+                    if $(esc(var)) isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
+                        $iavar = annotations(if $(esc(var)) isa AnnotatedChar annotatedstring($(esc(var))) else $(esc(var)) end)
                         interp_annot_count = interp_annot_count + $annlen
                         $newavtype = promote_type_3u($(something(state.out.avtype, :Face)), typeofval(eltype($iavar)))
                     else

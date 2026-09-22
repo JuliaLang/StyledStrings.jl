@@ -749,6 +749,15 @@ end
         AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
     @test stylazy"{aface:{bface:$(1)}} string" ==
         AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
+    # Interpolated variables with similar names
+    let x = "xx", x_2 = "yyy"
+        @test annotations(styled"$x$x_2{red:a}$x{blue:b}") ==
+            [(region = 6:6, label = :face, value = face"red"), (region = 9:9, label = :face, value = face"blue")]
+    end
+    # An interpolated annotated char keeps its annotations
+    let c = Base.AnnotatedChar('x', [(label = :face, value = face"red")])
+        @test styled"a$c" == AnnotatedString("ax", [(2:2, :face, face"red")])
+    end
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
         AnnotatedString("some string", [(1:4, :face, Face(slant=:italic))])
@@ -800,7 +809,7 @@ end
     @test astmatch(
         :(let ;
               _!val_str = String(string(val))
-              _!offset_val = ncodeunits(_!val_str)
+              _!offset = ncodeunits(_!val_str)
               _!annots = _[]
               _!interp_annot_count = 0
               _...
@@ -828,8 +837,8 @@ end
     @test astmatch(
         :(let ;
               _!val_str = String(string(val))
-              _!offset_val = ncodeunits(_!val_str)
-              _!annots = _[(; region = 1:0 + _!offset_val, label = :face, value = $(face"red"))]
+              _!offset = ncodeunits(_!val_str)
+              _!annots = _[(; region = 1:0 + _!offset, label = :face, value = $(face"red"))]
               _...
               AnnotatedString(_!val_str, _!interp_annots)
           end),
@@ -913,6 +922,17 @@ end
     @test styled(SubString("x{bold:y}", 2)) == styled("{bold:y}")
     @test styled(strip("  {bold:y}  ")) == styled("{bold:y}")
     @test styled"{red:αβ}" == AnnotatedString("αβ", [(1:4, :face, face"red")])
+    # Value types
+    @test styled"{red:x}" isa AnnotatedString{String, Face}
+    @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{String, Face}}
+    @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, Face}}
+    # Faces by dotted path and by interpolated name
+    @test annotations(styled"{TestPaletteA.shared:x}")[1].value === TestPaletteA.shared
+    @test annotations(styled"{$(:red):x}")[1].value === face"red"
+    # In a module with a palette, an unknown name is an error at expansion time
+    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{zzz_typo:x}"))
+    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{(fg=zzz_typo):x}"))
+    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{(inherit=zzz_typo):x}"))
 
     # Trailing (and non-trailing) Backslashes
     @test String(styled"\\") == "\\"
