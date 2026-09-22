@@ -94,7 +94,7 @@ julia> Base.annotations(str3)
  (region = 7:11, label = :pos, value = :pronoun)
  (region = 13:17, label = :pos, value = :noun)
 
-julia> str1 * str2 == str3 # *-concatenation works
+julia> str * str2 == str3 # *-concatenation works
 true
 ```
 
@@ -147,7 +147,7 @@ useful to create named faces that you can reuse, and other packages can build on
 
 ### [Named faces and `face""`](@id stdlib-styledstrings-named-faces)
 
-StyledStrings comes with 32 named faces. The `default` face fully specifies all
+StyledStrings comes with 48 named faces. The `default` face fully specifies all
 attributes, and represents the expected "ground state" of displayed text. The
 `foreground` and `background` faces give the default foreground and background
 of the `default` face. For convenience, the faces `bold`, `light`, `italic`,
@@ -256,7 +256,7 @@ When trying to create well-designed content for the terminal, only being able to
 
 By hooking into `REPL` initialisation, `StyledStrings` is able to query the terminal state and determine what the actual colors used by the terminal are. This allows for simplistic light/dark detection, as well as more sophisticated color blending.
 
-Light and dark variants of a face can be embedded in the `@usepalettes!` call that defines the faces, by using `.light` and `.dark` suffixes. For example:
+Light and dark variants of a face can be embedded in the `@defpalette!` call that defines the faces, by using `.light` and `.dark` suffixes. For example:
 
 ```julia
 @defpalette! begin
@@ -281,7 +281,7 @@ Using these tools, we can set `table_highlight` to fit in seamlessly with the ex
 # Must be placed within `__init__`
 StyledStrings.recolor() do
     faintyellow = StyledStrings.blend(face"yellow", face"background", 0.7)
-    StyledStrings.setface!(face"table_highlight", Face(background = faintyellow))
+    StyledStrings.setface!(face"table_highlight" => Face(background = faintyellow))
 end
 ```
 
@@ -337,6 +337,11 @@ The `annotations...` component is a comma-separated list of three types of annot
 - Face names (resolved using the same process described for `face""`)
 - Inline `Face` expressions `(key=val,...)`
 - `key=value` pairs
+
+In a module that defines or imports a palette, a face name that cannot be
+resolved is an error when the literal is expanded. Elsewhere the name is looked
+up when the string is constructed, and a name that is not registered by then
+stands for a placeholder face with no attributes.
 
 Interpolation is possible everywhere except for inline face _keys_.
 
@@ -471,6 +476,14 @@ color in the same manner:
 table_header.foreground = "blue"
 ```
 
+An attribute is unset, so that the face falls back to what it inherits, with
+the value `"inherit"`:
+
+```toml
+[shadow]
+foreground = "inherit"
+```
+
 Light and dark face variants may be set under the top-level tables `[light]` and `[dark]`. For instance, to set the table header to magenta in light mode, one may use:
 
 ```toml
@@ -478,7 +491,7 @@ Light and dark face variants may be set under the top-level tables `[light]` and
 table_header.foreground = "magenta"
 ```
 
-On initialization, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
+The first time styled output is produced, the `config/faces.toml` file under the first Julia depot (usually `~/.julia`) is loaded.
 
 ### Face remapping
 
@@ -495,7 +508,7 @@ This changes the annotations of the styled string itself.
 While `remapfaces` rewrites a styled string, it is also possible to change the meaning of each face while they are printed. This is done via [`withfaces`](@ref).
 
 ```@repl demo
-withfaces(face"yellow" => face"red", face"green" => face"blue") do
+StyledStrings.withfaces(face"yellow" => face"red", face"green" => face"blue") do
     println(styled"{yellow:red} and {green:blue} mixed make {magenta:purple}")
 end
 ```

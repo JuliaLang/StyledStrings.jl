@@ -45,19 +45,22 @@ styled"{bright_red:■} {bright_green:■} {bright_yellow:■} \
 
 This seems somewhat limited, because it is. This is only the _default_ set of
 colors though. It is important to note that the way the color `red` is
-implemented is by having it name a `Face(foreground=:red)` value. The ANSI
-printer knows to handle the ANSI named colors specially, but you can create
-more "named colors" simply by adding new faces.
+implemented is by having it name a face whose foreground is the `red` base
+colour. The ANSI printer knows to handle the ANSI named colors specially, but
+you can create more "named colors" simply by defining new faces in a palette.
 
 ```@repl examples
-StyledStrings.addface!(:orange => StyledStrings.Face(foreground = 0xFF7700))
+@defpalette! begin
+    orange = Face(foreground = 0xff7700)
+end
+@registerpalette!
 styled"{orange:this is orange text}"
 ```
 
-!!! warning "Appropriate face naming"
-    The face name `orange` is used here as an example, but this would be
-    inappropriate for a package to introduce as it's missing the `packagename_`
-    prefix. This is important for predictability, and to prevent name clashes.
+!!! note "Face naming"
+    In a package, `@registerpalette!` belongs in `__init__`, and the palette is
+    namespaced by the module: `orange` in a package `MyColors` is registered as
+    `MyColors_orange`, which is the name used when customising it.
 
 The fact that named colors are implemented this way also allows for other nice
 conveniences. For example, if you wanted a more subtle version of the warning
@@ -96,43 +99,42 @@ All the other [`Face`](@ref StyledStrings.Face) attributes can be set similarly.
 
 It is recommended that package authors create faces with a focus on the semantic
 meaning they wish to impart, and then consider what styling suits. For example,
-say that a hypothetical package `foobar` wants to mark something as important.
+say that a hypothetical package `Foobar` wants to mark something as important.
 Creating a named face allows for it to be re-used across the codebase and allows
 the styling everywhere its used to be updated by only changing the line
-declaring it. `foobar_important` would be an appropriate name for such a face.
+declaring it. `important` would be an appropriate name for such a face, which
+the `Foobar` package's palette registers as `Foobar_important`.
 
 ```@repl examples
-StyledStrings.addface!(:foobar_important => StyledStrings.Face(weight = :bold, inherit = :emphasis))
-styled"this is some {foobar_important:rather important} content"
+module Foobar
+    using StyledStrings
+    @defpalette! begin
+        important = Face(weight = :bold, inherit = emphasis)
+    end
+    __init__() = @registerpalette!
+end
+styled"this is some {Foobar.important:rather important} content"
 ```
 
-Other packages that interact with `foobar` can also re-use the
-`foobar_important` face for consistent styling. This is possible even for
-packages that don't have `foobar` as a direct dependency, as faces that don't
-exist are just ignored. Consider this styled content as an example:
+Other packages that interact with `Foobar` can also re-use the face for
+consistent styling, as `important` after `@usepalettes! Foobar`, or as
+`Foobar.important`. Consider this styled content as an example:
 
 ```@repl examples
-styled"{info,foobar_important,baz_important:some text}"
+styled"{info,Foobar.important:some text}"
 ```
 
-The styling of `"some text"` will be based only on `info` if neither
-`foobar_important` or `baz_important` are defined. Since `foobar_important` _is_
-defined, after applying the attributes of `info`, the attributes of
-`foobar_important` are applied to `"some text"` _overwriting_ any attributes set
-by `info`. Should `bar_important` be defined in the future, any attributes it
-sets will override `foobar_important` and `info`. Put more simply, the last face
-mentioned "wins".
+After applying the attributes of `info`, the attributes of `Foobar.important`
+are applied to `"some text"` _overwriting_ any attributes set by `info`. Put
+more simply, the last face mentioned "wins".
 
-!!! note
-    The silent ignoring of undefined faces is important in making it so that it's known if a [`styled"..."`](@ref @styled_str) string will cause errors when printed is known at compile-time instead of runtime.
-    
 ## User-customisation of faces
     
-Naming faces also allows for convenient customisation. Once `foobar_important`
+Naming faces also allows for convenient customisation. Once `Foobar_important`
 is defined, a user can change how it is styled in their `faces.toml`.
 
 ```toml
-[foobar.important]
+[Foobar.important]
 italic = true
 ```
 
@@ -144,10 +146,10 @@ italic = true
 Named faces can also be customised on-the-fly in certain printing contexts created by [`withfaces`](@ref StyledStrings.withfaces).
 
 ```@repl examples
-StyledStrings.withfaces(:foobar_important => :tip) do
-    println(styled"Sometimes you might want {foobar_important:some text} to look different")
+StyledStrings.withfaces(face"Foobar.important" => face"tip") do
+    println(styled"Sometimes you might want {Foobar.important:some text} to look different")
 end
-StyledStrings.withfaces(:log_info => [:magenta, :italic]) do
+StyledStrings.withfaces(face"log_info" => [face"magenta", face"italic"]) do
     @info "Hello there"
 end
 ```
@@ -156,9 +158,9 @@ This feature can be used to for example change the default colors to follow a
 certain color theme when generating HTML output.
 
 ```@repl examples
-StyledStrings.withfaces(:green => StyledStrings.Face(foreground = 0xb7ba25),
-                        :yellow => StyledStrings.Face(foreground = 0xfabc2e),
-                        :magenta => StyledStrings.Face(foreground = 0xd2859a)) do
+StyledStrings.withfaces(face"green" => StyledStrings.Face(foreground = 0xb7ba25),
+                        face"yellow" => StyledStrings.Face(foreground = 0xfabc2e),
+                        face"magenta" => StyledStrings.Face(foreground = 0xd2859a)) do
     str = styled"Sometimes you might want {green:different} {yellow:shades} of {magenta:colors}."
     println(str, "\n")
     show(stdout, MIME("text/html"), str)
