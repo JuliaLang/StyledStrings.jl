@@ -428,16 +428,16 @@ function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
         write(io, @inbounds digits[byte & 0xf + 1])
     end
     default = getface()
-    if color.value ∈ (FGBG_FACES.background, default.background)
+    if color.value === FGBG_FACES.background || color.value == default.f.background
         if background
             return print(io, "initial")
-        elseif default.background.value == FGBG_FACES.background
+        elseif default.f.background === FGBG_FACES.background
             return print(io, HTML_FGBG.background)
         end
-    elseif color.value ∈ (FGBG_FACES.foreground, default.foreground)
+    elseif color.value === FGBG_FACES.foreground || color.value == default.f.foreground
         if !background
             return print(io, "initial")
-        elseif default.foreground.value == FGBG_FACES.foreground
+        elseif default.f.foreground === FGBG_FACES.foreground
             return print(io, HTML_FGBG.foreground)
         end
     end
@@ -461,13 +461,24 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         print(io, attr, ": ", valparts...)
     end
     if face.font != lastface.font
-        printattr(io, "font-family")
-        print(io, "\"")
-        replace(io, face.font, '"' => "&quot;", '&' => "&amp;", '<' => "&lt;", '\\' => "\\\\")
-        print(io, "\"")
+        printattr(io, "font-family", '\'') # Escaped for CSS, then for HTML
+        replace(io, face.font, '\\' => "\\\\", '\'' => "\\'", '&' => "&amp;", '"' => "&quot;", '<' => "&lt;")
+        print(io, '\'')
     end
-    face.height == lastface.height ||
-        printattr(io, "font-size", string(face.height ÷ 10), "pt")
+    if face.f.height !== lastface.f.height
+        height, lastheight = face.height, lastface.height
+        if height isa Integer
+            points, tenths = divrem(height, 10)
+            if iszero(tenths)
+                printattr(io, "font-size", points, "pt")
+            else
+                printattr(io, "font-size", points, '.', tenths, "pt")
+            end
+        elseif height isa AbstractFloat # Relative to the enclosing span
+            relheight = if lastheight isa AbstractFloat height / lastheight else height end
+            printattr(io, "font-size", round(Int, 100 * relheight), "%")
+        end
+    end
     face.f.weight == lastface.f.weight ||
         printattr(io, "font-weight", get(HTML_WEIGHTS, face.f.weight + 1, 400))
     face.f.slant == lastface.f.slant ||
@@ -488,28 +499,21 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         printattr(io, "background-color")
         htmlcolor(io, background, true)
     end
-    if (face.f.underline !== lastface.f.underline || face.f.underline_style != lastface.f.underline_style) &&
-        !(isnothingflavour(face.f.underline_style) && isnothingflavour(lastface.f.underline_style))
+    if face.f.underline !== lastface.f.underline || face.f.underline_style != lastface.f.underline_style ||
+        face.f.strikethrough != lastface.f.strikethrough
         color, style = face.f.underline, face.f.underline_style
-        printattr(io, "text-decoration")
-        if isnothingflavour(style)
-            print(io, "none")
-        elseif !isnothingflavour(color)
-            htmlcolor(io, SimpleColor(color))
-            print(io, ' ')
-        elseif !isnothingflavour(lastface.f.underline)
-            print(io, "currentcolor ")
+        parts = String[]
+        if !isnothingflavour(style)
+            if !isnothingflavour(color)
+                csscolor = sprint(htmlcolor, SimpleColor(color))
+                csscolor == "initial" || push!(parts, csscolor) # Invalid here; without it, the line takes the text's colour
+            end
+            style != attrbyte(:underline, :straight) && push!(parts, HTML_UNDERLINE_STYLES[style + 1])
+            push!(parts, "underline")
         end
-        if isnothingflavour(style)
-        elseif style == attrbyte(:underline, :straight) && (isnothingflavour(lastface.f.underline_style) || lastface.f.underline_style == attrbyte(:underline, :straight))
-            print(io, "underline")
-        else
-            print(io, HTML_UNDERLINE_STYLES[style + 1], " underline")
-        end
+        face.f.strikethrough == 0x1 && push!(parts, "line-through")
+        printattr(io, "text-decoration", if isempty(parts) "none" else join(parts, ' ') end)
     end
-    face.strikethrough == lastface.strikethrough ||
-        !face.strikethrough && face.underline !== false ||
-        printattr(io, "text-decoration", ifelse(face.strikethrough, "line-through", "none"))
 end
 
 function htmlstyle(io::IO, face::Face, lastface::Face=getface())
@@ -535,13 +539,15 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
                 uriformat(String(styles[idx].value::AbstractString))
             end
         end
-        !isnothing(link) && print(buf, "<a href=\"", link, "\">")
         if face == getface()
             print(buf, "</span>" ^ stylestackdepth)
             stylestackdepth = 0
-        elseif (lastface.inverse, lastface.foreground, lastface.background) !=
-            (face.inverse, face.foreground, face.background)
-            # We can't un-inherit colors well, so we just need to reset and apply
+        elseif (lastface.f.inverse, lastface.f.foreground, lastface.f.background) !==
+                (face.f.inverse, face.f.foreground, face.f.background) ||
+            (!isnothing(lastface.underline) || lastface.strikethrough === true) &&
+                (lastface.f.underline, lastface.f.underline_style, lastface.f.strikethrough) !==
+                (face.f.underline, face.f.underline_style, face.f.strikethrough)
+            # We can't un-inherit colors or text decorations, so we just need to reset and apply
             print(buf, "</span>" ^ stylestackdepth)
             htmlstyle(buf, face, getface())
             stylestackdepth = 1
@@ -549,6 +555,7 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
             htmlstyle(buf, face, lastface)
             stylestackdepth += 1
         end
+        !isnothing(link) && print(buf, "<a href=\"", link, "\">")
         print(buf, htmlescape(str))
         !isnothing(link) && print(buf, "</a>")
         lastface = face
