@@ -65,6 +65,8 @@ end
 
 function mkunregisteredface(name::Symbol, use::Bool)
     @lock FACES.lock begin
+        registered = get(FACES.pool, name, nothing) # The name may have been registered since the unlocked check
+        isnothing(registered) || return registered
         existing = get(FACES.unregistered, name, nothing)
         !isnothing(existing) && (!use || getfield(existing, :f).height == UNDEF_INUSE_HEIGHT_FLAG) &&
             return existing
@@ -76,6 +78,7 @@ function mkunregisteredface(name::Symbol, use::Bool)
         if !isnothing(existing)
             # 'Upgrade' a customisation-only face to an in-use face
             register_displace!(existing, uface, name)
+            relayer!(uface)
         end
         FACES.unregistered[name] = uface
         FACES.names[uface] = name
@@ -389,11 +392,15 @@ macro defpalette!(pargs::Any...)
         end
         declsnt = Expr(:let, Expr(:block), Expr(:block, fhoist..., declsnt))
     end
-    esc(Expr(:toplevel, if !isnothing(varname)
-        :(const $varname = (; $MAGIC_DEFPALETTE_VARNAME = $declsnt))
+    if isnothing(varname)
+        esc(Expr(:toplevel, :(const $MAGIC_DEFPALETTE_VARNAME = $declsnt),
+                 :($reregister_palette!($MAGIC_DEFPALETTE_VARNAME)),
+                 MAGIC_DEFPALETTE_VARNAME))
     else
-        :(const $MAGIC_DEFPALETTE_VARNAME = $declsnt)
-    end))
+        esc(Expr(:toplevel, :(const $varname = (; $MAGIC_DEFPALETTE_VARNAME = $declsnt)),
+                 :($reregister_palette!($varname.$MAGIC_DEFPALETTE_VARNAME)),
+                 varname))
+    end
 end
 
 """
@@ -426,9 +433,10 @@ macro usepalettes!(names::Union{Expr, Symbol}...)
 end
 
 """
-    @registerpalette!
+    @registerpalette! [names...]
 
-Register the palette defined in the current module in the global registry.
+Register the palette defined in the current module in the global registry, along
+with the palettes `names` defined by `@defpalette! name ...`.
 
 This should be placed within the `__init__()` function of a module defining a palette.
 
@@ -445,61 +453,107 @@ function __init__()
 end
 ```
 """
-macro registerpalette!()
+macro registerpalette!(names::Symbol...)
     @noinline register_palette_warn(f, l) =
         @warn "@registerpalette! should only be executed during module initialization, within the __init__() function." _file=f _line=l
     @noinline register_palette_missing(f, l) =
         @warn "@registerpalette! was called without a corresponding palette defined (by @defpalette!)." _file=f _line=l
     gfaces = GlobalRef(@__MODULE__, :FACES)
     file, line = String(__source__.file), __source__.line
+    named = [:($register_palette!($(esc(name)).$MAGIC_DEFPALETTE_VARNAME)) for name in names]
     quote
         if !iszero(ccall(:jl_generating_output, Cint, ())) &&
             @noinline (() -> !any(sf -> sf.func === :__init__, stacktrace(backtrace())))()
             $register_palette_warn($file, $line)
-        elseif isdefined($__module__, $(QuoteNode(MAGIC_DEFPALETTE_VARNAME)))
-            palette = getglobal($__module__, $(QuoteNode(MAGIC_DEFPALETTE_VARNAME)))
-            @lock $gfaces.lock begin
-                for (name, face) in pairs(palette.base)
-                    fullname = palette.names[name]
-                    unreg = get($gfaces.unregistered, fullname, nothing)
-                    isnothing(unreg) || $register_displace!(unreg, face, fullname)
-                    $gfaces.pool[fullname] = face
-                    $gfaces.names[face] = fullname
-                end
-                for theme in (:light, :dark), (name, variant) in pairs(palette[theme])
-                    $gfaces.themes[theme][palette.base[name]] = variant
-                end
-                foreach($relayer!, values(palette.base))
-            end
         else
-            $register_palette_missing($file, $line)
+            @lock $gfaces.lock begin
+                if isdefined($__module__, $(QuoteNode(MAGIC_DEFPALETTE_VARNAME)))
+                    $register_palette!(getglobal($__module__, $(QuoteNode(MAGIC_DEFPALETTE_VARNAME))))
+                elseif $(isempty(names))
+                    $register_palette_missing($file, $line)
+                end
+                $(named...)
+                $emptycache!($gfaces.cache.default)
+            end
         end
         nothing
     end
 end
 
 """
-    register_displace!(unreg::Face, reg::Face, fullname::Symbol)
+    register_palette!(palette::NamedTuple)
 
-Displace an unregistered face with a registered one in the global face registry.
+Add the faces and variants of `palette` to the global registry.
+
+!!! warning
+    Assumes that the caller holds `FACES.lock`, and clears the face cache afterwards.
+"""
+function register_palette!(palette::NamedTuple)
+    for (name, face) in pairs(palette.base)
+        fullname = palette.names[name]
+        old = get(FACES.unregistered, fullname) do
+            get(FACES.pool, fullname, nothing) # Left by an earlier evaluation of the module
+        end
+        old === face || isnothing(old) || register_displace!(old, face, fullname)
+        FACES.pool[fullname] = face
+        FACES.names[face] = fullname
+    end
+    for theme in (:light, :dark), (name, variant) in pairs(palette[theme])
+        FACES.themes[theme][palette.base[name]] = variant
+    end
+    foreach(relayer!, values(palette.base))
+end
+
+"""
+    reregister_palette!(palette::NamedTuple)
+
+Register `palette` again, if an earlier definition of it is registered. This
+happens when a palette is evaluated anew outside of precompilation, for
+instance by Revise after an edit.
+"""
+function reregister_palette!(palette::NamedTuple)
+    Base.generating_output() && return
+    isredefined = any(pairs(palette.names)) do (facename, fullname)
+        registered = get(FACES.pool, fullname, nothing)
+        !isnothing(registered) && registered !== palette.base[facename]
+    end
+    isredefined || return
+    @lock FACES.lock begin
+        register_palette!(palette)
+        emptycache!(FACES.cache.default)
+    end
+end
+
+"""
+    register_displace!(old::Face, new::Face, fullname::Symbol)
+
+Replace `old`, a placeholder or an earlier registration of `fullname`, with `new`
+in the global face registry. The caller then derives the current definition of
+`new` with `relayer!`.
+
+The modifications of `old` move to `new`. So do its variants when `old` is a
+placeholder, while the variants of an earlier registration are dropped for those
+of the new palette.
 
 An in-use placeholder is recorded in `FACES.displacements`, so that interpolating
-it into styled markup yields `reg`.
+it into styled markup yields `new`.
 
 !!! warning
     Assumes that the caller holds `FACES.lock`.
 """
-function register_displace!(unreg::Face, reg::Face, fullname::Symbol)
+function register_displace!(old::Face, new::Face, fullname::Symbol)
     delete!(FACES.unregistered, fullname)
-    delete!(FACES.names, unreg)
+    delete!(FACES.names, old)
+    placeholder = old.f.height ∈ (UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG)
     for tables in (FACES.themes, FACES.modifications), table in tables
-        row = get(table, unreg, nothing)
+        row = get(table, old, nothing)
         isnothing(row) && continue
-        delete!(table, unreg)
-        table[reg] = row
+        delete!(table, old)
+        if placeholder || tables === FACES.modifications
+            table[new] = row
+        end
     end
-    relayer!(reg)
-    if unreg.f.height == UNDEF_INUSE_HEIGHT_FLAG
-        FACES.displacements[unreg] = reg
+    if old.f.height == UNDEF_INUSE_HEIGHT_FLAG
+        FACES.displacements[old] = new
     end
 end

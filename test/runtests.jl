@@ -604,6 +604,7 @@ end
     placeholder = StyledStrings.lookmakeface(:zzz_placeholder)
     registered = copy(Face())
     @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_placeholder)
+    StyledStrings.relayer!(registered)
     @test getface(registered).font == "custom"
     @test FACES.displacements[placeholder] === registered
     @test only(annotations(styled"{$placeholder:x}")).value === registered
@@ -668,6 +669,53 @@ end
             using StyledStrings
             @registerpalette!
         end
+        # Re-evaluating a palette module carries customisations over to the new faces
+        reeval = :(module TestPaletteReeval
+            using StyledStrings
+            @defpalette! begin r = Face(weight = :bold) end
+            @registerpalette!
+            const r = face"r"
+        end)
+        Core.eval(@__MODULE__, reeval)
+        old = @eval TestPaletteReeval.r
+        setface!(old => Face(font = "kept"))
+        Core.eval(@__MODULE__, reeval)
+        new = @eval TestPaletteReeval.r
+        @test new !== old
+        @test FACES.pool[Symbol(join(fullname(@eval TestPaletteReeval), '_'), "_r")] === new
+        @test getface(new).font == "kept"
+        @test !haskey(FACES.names, old)
+        resetfaces!(new)
+        # Evaluating a changed palette again, as Revise does, registers it without `__init__`
+        @eval module TestPaletteRevised
+            using StyledStrings
+            @defpalette! begin
+                r = Face(weight = :bold)
+                r.dark = Face(font = "dark")
+            end
+            __init__() = @registerpalette!
+        end
+        old = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
+        setface!(old => Face(font = "kept"))
+        Core.eval(@eval(TestPaletteRevised), :(@defpalette! begin r = Face(weight = :light) end))
+        new = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
+        @test FACES.pool[Symbol(join(fullname(@eval TestPaletteRevised), '_'), "_r")] === new
+        @test getface(new).weight == :light
+        @test getface(new).font == "kept"
+        @test !haskey(FACES.themes.dark, new) # The variant it no longer declares is gone
+        resetfaces!(new)
+        # A module with only named palettes registers them by name
+        @test_logs @eval module TestNamedPalettes
+            using StyledStrings
+            @defpalette! extra begin
+                thing = Face(font = "extra")
+                thing.dark = Face(font = "dark")
+            end
+            @registerpalette! extra
+        end
+        named = (@eval TestNamedPalettes.extra).var"##styledstrings-defpalette-variable#".base.thing
+        @test FACES.pool[Symbol(join(fullname(@eval TestNamedPalettes), '_'), "_extra_thing")] === named
+        @test FACES.themes.dark[named].font == "dark"
     end
 end
 
@@ -1269,6 +1317,16 @@ end
         setface!(face"region" => Face(font="modified"))
         resetfaces!()
         @test getface(face"region").background == FACES.themes.light[face"region"].background
+        # Registering a palette refreshes a resolution cached before it
+        @eval module TestPaletteLate
+            using StyledStrings
+            @defpalette! begin late = Face(weight = :bold); late.light = Face(slant = :italic) end
+            const late = face"late"
+        end
+        setcolors!(lightfbg)
+        @test getface(TestPaletteLate.late).slant == :normal
+        Core.eval(TestPaletteLate, :(@registerpalette!))
+        @test getface(TestPaletteLate.late).slant == :italic
         # Modifications and theme variants layer over the base face
         setface!(face"red" => Face(font="always"))
         setcolors!(darkfbg)
@@ -1286,6 +1344,7 @@ end
         setcolors!(lightfbg)
         registered = Face(weight=:bold)
         @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_displaced)
+        StyledStrings.relayer!(registered)
         @test getface(registered).font == "lightmod"
         resetfaces!(registered)
         # Resolved faces are cached, and a change to the current definitions is seen at once

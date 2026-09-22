@@ -217,10 +217,13 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
         isnothing(unreg) || register_displace!(unreg, default, name)
         FACES.pool[name] = default
         FACES.names[default] = name
+        relayer!(default)
+        emptycache!(FACES.cache.default)
     elseif !haskey(FACES.themes[theme], name)
         face = lookmakeface(name, false)
         FACES.themes[theme][face] = default
         relayer!(face)
+        emptycache!(FACES.cache.default)
     end
 end
 
@@ -233,12 +236,12 @@ function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
         empty!(current)
-        emptycache!(FACES.cache[])
         if current === FACES.current.default # Only when top-level
             map(empty!, values(FACES.modifications))
             theme = FACES.current_theme[]
             theme === :base || foreach(relayer!, keys(FACES.themes[theme]))
         end
+        emptycache!(FACES.cache[])
         current
     end
 end
@@ -276,7 +279,6 @@ If the face is not registered, nothing is done.
 function resetfaces!(face::Face, theme::Symbol = :all)
     @lock FACES.lock begin
         delete!(FACES.current[], face)
-        emptycache!(FACES.cache[])
         if FACES.current.default === FACES.current[] # Only when top-level
             if theme === :all
                 for mode in values(FACES.modifications)
@@ -287,6 +289,7 @@ function resetfaces!(face::Face, theme::Symbol = :all)
             end
             relayer!(face)
         end
+        emptycache!(FACES.cache[])
     end
     nothing
 end
@@ -768,6 +771,7 @@ end
 
 Recompute the current definition of `face` from its variant for the current
 theme and its base and current-theme modifications, layered as `setcolors!` does.
+The face cache is left for the caller to clear once its batch is done.
 """
 function relayer!(face::Face)
     theme = FACES.current_theme[]
@@ -781,7 +785,6 @@ function relayer!(face::Face)
     theme === :base || layer!(FACES.themes[theme])
     layer!(FACES.modifications.base)
     theme === :base || layer!(FACES.modifications[theme])
-    emptycache!(FACES.cache.default)
 end
 
 """
