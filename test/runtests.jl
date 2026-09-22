@@ -348,6 +348,11 @@ end
         getface([:bold]).foreground
     end == SimpleColor(face"red")
     @test withfaces(() -> 1) == 1
+    # A face given as the new definition is taken as currently defined
+    setface!(face"blue" => Face(font="bluefont"))
+    @test withfaces(() -> getface(face"red").font, face"red" => face"blue") == "bluefont"
+    @test withfaces(() -> getface(face"red").font, face"red" => [face"blue"]) == "bluefont"
+    resetfaces!(face"blue")
     # `remapfaces`
     @test StyledStrings.remapfaces(styled"{red:a}{note=x:b}", face"red" => face"blue") ==
         AnnotatedString("ab", [(1:1, :face, face"blue"), (2:2, :note, "x")])
@@ -361,6 +366,9 @@ end
     @test all(f -> getface(f, cache) == merge(getface(), f), adhoc)
     @test all(f -> getface(f) == merge(getface(), f), adhoc)
     @test getface(Face()) == getface()
+    # Only the face annotations at a position count
+    @test getface(styled"{link={https://x}:y}", 1) == getface()
+    @test getface(styled"{red,note=x:y}", 1).foreground == SimpleColor(face"red")
     # Unknown face names
     @test getface([face"red", :nonexistent]) == getface(face"red")
     @test withfaces(face"red" => :nonexistent) do
@@ -884,6 +892,17 @@ end
     @test sprint(StyledStrings.termcolor24bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;2;203;60;51m"
     # The color reset method
     @test sprint(StyledStrings.termcolor, nothing, '3') == "\e[39m"
+    with_terminfo(vt100) do
+        # A colour that chains to the default foreground, or cannot be resolved, resets
+        chain = Face(foreground=Face(foreground=face"foreground"))
+        @test sprint(print, styled"{red:a}{$chain:b}c", context = :color => true) == "\e[31ma\e[39mb\e[39mc"
+        unresolvable = Face(foreground=Face())
+        @test sprint(print, styled"{red:a}{$unresolvable:b}c", context = :color => true) == "\e[31ma\e[39mb\e[39mc"
+        # A customised colour face is still its colour
+        setface!(face"red" => Face(weight=:bold))
+        @test sprint(print, styled"{(fg=red):x}", context = :color => true) == "\e[31mx\e[39m"
+        resetfaces!(face"red")
+    end
     # ANSI attributes
     function ansi_change(; attrs...)
         face = getface(Face(; attrs...))
@@ -1075,6 +1094,11 @@ end
                          another => Face(foreground=final),
                          final => Face(foreground=face"red")]) == FACES.basecolors[face"red"]
         @test rgbcolor(indirect) == StyledStrings.UNRESOLVED_COLOR_FALLBACK
+        # Customisations of inherited faces are followed
+        setface!(face"emphasis" => Face(foreground=face"red"))
+        @test StyledStrings.finalcolor(face"highlight") === face"red"
+        @test rgbcolor(face"highlight") == FACES.basecolors[face"red"]
+        resetfaces!(face"emphasis")
     end
     @testset "Blending" begin
         @test blend((r = 0x00, g = 0x00, b = 0xff) => 0.5, (r = 0xff, g=0xff, b=0x00) => 0.5) ==
@@ -1119,6 +1143,14 @@ end
         setcolors!(darkfbg)
         @test getface(face"red").font == "monospace"
         resetfaces!(face"red")
+        # A reset keeps the variant of the current theme
+        setcolors!(lightfbg)
+        setface!(face"region" => Face(font="modified"))
+        resetfaces!(face"region")
+        @test getface(face"region").background == FACES.themes.light[face"region"].background
+        setface!(face"region" => Face(font="modified"))
+        resetfaces!()
+        @test getface(face"region").background == FACES.themes.light[face"region"].background
         # Modifications and theme variants layer over the base face
         setface!(face"red" => Face(font="always"))
         setcolors!(darkfbg)
