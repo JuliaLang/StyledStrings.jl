@@ -1181,15 +1181,37 @@ end
         "<span style=\"color: #a51c2c; background-color: #195eb3\">"
     @test html_change(slant=:italic) == "<span style=\"font-style: italic\">"
     @test html_change(height=180) == "<span style=\"font-size: 18pt\">"
+    @test html_change(height=185) == "<span style=\"font-size: 18.5pt\">"
+    @test html_change(font="Mono's \"x\"") == "<span style=\"font-family: 'Mono\\'s &quot;x&quot;'\">"
     @test html_change(underline=true) == "<span style=\"text-decoration: underline\">"
     @test html_change(underline=face"green") == "<span style=\"text-decoration: #25a268 underline\">"
     @test html_change(underline=:straight) == "<span style=\"text-decoration: underline\">"
     @test html_change(underline=:double) == "<span style=\"text-decoration: double underline\">"
     @test html_change(underline=:curly)  == "<span style=\"text-decoration: wavy underline\">"
+    @test html_change(underline=(face"foreground", :curly)) == "<span style=\"text-decoration: wavy underline\">"
     @test html_change(underline=:dotted) == "<span style=\"text-decoration: dotted underline\">"
     @test html_change(underline=:dashed) == "<span style=\"text-decoration: dashed underline\">"
     @test html_change(underline=(face"cyan", :double)) == "<span style=\"text-decoration: #0097a7 double underline\">"
     @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
+    @test html_change(underline=(face"red", :curly), strikethrough=true) ==
+        "<span style=\"text-decoration: #a51c2c wavy underline line-through\">"
+    @test sprint(StyledStrings.htmlstyle, getface(Face()), getface(Face(underline=true))) == "<span style=\"text-decoration: none\">"
+    setface!(face"default" => Face(height=1.5))
+    @test html_change(height=2.0) == "<span style=\"font-size: 200%\">"
+    @test sprint(show, MIME("text/html"), styled"{(height=2.0):a}{bold:b}") ==
+        "<span style=\"font-size: 200%\">a<span style=\"font-size: 50%; font-weight: 700\">b</span></span>"
+    resetfaces!(face"default")
+    # Text decorations cannot be removed within a nested span
+    @test sprint(show, MIME("text/html"), styled"{underline:a}{bold:b}") ==
+        "<span style=\"text-decoration: underline\">a</span><span style=\"font-weight: 700\">b</span>"
+    # A link sits inside the styling of its region
+    @test sprint(show, MIME("text/html"), styled"{red,link={https://x}:t}") ==
+        "<span style=\"color: #a51c2c\"><a href=\"https://x\">t</a></span>"
+    # The default face's colours are the page's own
+    setface!(face"default" => Face(background=0x101010))
+    @test sprint(show, MIME("text/html"), styled"{(bg=#101010):x}{(bg=#202020):y}") ==
+        "x<span style=\"background-color: #202020\">y</span>"
+    resetfaces!(face"default")
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
