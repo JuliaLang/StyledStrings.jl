@@ -236,6 +236,8 @@ function resetfaces!()
         emptycache!(FACES.cache[])
         if current === FACES.current.default # Only when top-level
             map(empty!, values(FACES.modifications))
+            theme = FACES.current_theme[]
+            theme === :base || foreach(relayer!, keys(FACES.themes[theme]))
         end
         current
     end
@@ -283,6 +285,7 @@ function resetfaces!(face::Face, theme::Symbol = :all)
             else
                 delete!(FACES.modifications[theme], face)
             end
+            relayer!(face)
         end
     end
     nothing
@@ -316,8 +319,9 @@ end
     withfaces(f, kv::Pair...)
     withfaces(f, kvpair_itr)
 
-Execute `f` with `FACES``.current` temporarily modified by zero or more `:name
-=> val` arguments `kv`, or `kvpair_itr` which produces `kv`-form values.
+Execute `f` with `FACES``.current` temporarily modified by zero or more `face
+=> val` arguments `kv`, or `kvpair_itr` which produces `kv`-form values. A face
+given as `val` is taken as it is currently defined.
 
 `withfaces` is generally used via the `withfaces(kv...) do ... end` syntax. A
 value of `nothing` can be used to temporarily unset a face (if it has been
@@ -348,7 +352,7 @@ function withfaces(f, keyvals_itr)
     newfaces = copy(FACES.current[])
     for (face, new) in keyvals_itr
         if new isa Face
-            newfaces[face] = new
+            newfaces[face] = get(FACES.current[], new, new)
         elseif new isa Symbol
             newf = lookmakeface(new)
             newfaces[face] = get(FACES.current[], newf, newf)
@@ -356,7 +360,7 @@ function withfaces(f, keyvals_itr)
             newfs = map(lookmakeface, new)
             newfaces[face] = Face(inherit=[get(FACES.current[], nf, nf) for nf in newfs])
         elseif new isa Vector{Face}
-            newfaces[face] = Face(inherit=new)
+            newfaces[face] = Face(inherit=[get(FACES.current[], nf, nf) for nf in new])
         elseif haskey(newfaces, face)
             delete!(newfaces, face)
         end
@@ -516,7 +520,7 @@ getface() = get(FACES.current[], STANDARD_FACES.default, STANDARD_FACES.default)
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
 getface(s::AnnotatedString, i::Integer) =
-    getface(map(last, annotations(s, i)))
+    getface([value for (; label, value) in annotations(s, i) if label === :face])
 
 """
     getface(c::AnnotatedChar)
@@ -862,19 +866,22 @@ Produces an `RGBTuple` or `Face` if successful, `nothing` otherwise.
 """
 function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
     current = FACES.current[]
+    original = face
+    face = get(current, original, original)
+    face.f.foreground === original && return original # A base colour already, the usual case
     for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
         fg = face.f.foreground
         if isnothingflavour(fg)
-            isempty(face.inherit) && return nothing
             for iface in face.inherit
                 irgb = finalcolor(iface, s - 1)
                 !isnothing(irgb) && return irgb
             end
+            return nothing
         elseif fg isa RGBTuple
             return fg
         else # fg isa Face
             face = get(current, fg, fg)
-            face.f.foreground === fg && return face
+            face.f.foreground === fg && return fg
         end
     end
 end
@@ -882,9 +889,7 @@ end
 function finalcolor(color::SimpleColor)
     value = color.value
     value isa RGBTuple && return value
-    face = get(FACES.current[], value, value)
-    face.f.foreground === value && return face # Final already, the usual case
-    finalcolor(face)
+    finalcolor(value)
 end
 
 """
@@ -900,13 +905,7 @@ The resolution follows these steps:
 """
 function rgbcolor end
 
-function rgbcolor(color::SimpleColor)
-    if color.value isa RGBTuple
-        color.value
-    else
-        rgbcolor(get(FACES.current[], color.value, color.value))
-    end
-end
+rgbcolor(color::SimpleColor) = if color.value isa RGBTuple color.value else rgbcolor(color.value) end
 
 function rgbcolor(face::Face)
     color = finalcolor(face)
@@ -921,8 +920,7 @@ end
 
 function rgbcolor(color::Symbol)
     face = get(FACES.pool, color, nothing)
-    isnothing(face) && return UNRESOLVED_COLOR_FALLBACK
-    rgbcolor(get(FACES.current[], face, face))
+    if !isnothing(face) rgbcolor(face) else UNRESOLVED_COLOR_FALLBACK end
 end
 
 """

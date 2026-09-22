@@ -168,7 +168,7 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
     cfinal = finalcolor(color)
     if cfinal isa Face
         ansi = get(ANSI_4BIT_COLORS, cfinal, nothing)
-        isnothing(ansi) && return # Unknown color
+        isnothing(ansi) && return termcolor(io, nothing, category) # The default foreground or background
         if category == '5'
             write(io, "\e[58;5;")
             writedigits(io, ansi, 'm')
@@ -182,6 +182,8 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
         else
             termcolor8bit(io, cfinal, category)
         end
+    else # Unresolvable
+        termcolor(io, nothing, category)
     end
 end
 
