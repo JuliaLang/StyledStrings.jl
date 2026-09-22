@@ -76,13 +76,17 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `foreground` (a `SimpleColor`): The text foreground color.
 - `background` (a `SimpleColor`): The text background color.
 - `underline`, the text underline, which takes one of the following forms:
-  - a `Bool`: Whether the text should be underlined or not.\\
+  - a `Bool`: `true` underlines the text, keeping any underline colour from
+    inherited or enclosing faces. `false` removes the underline and any such
+    colour.\\
   - a `SimpleColor`: The text should be underlined with this color.\\
+  - a `Symbol`: The underline style alone, one of `:straight`, `:double`,
+    `:curly`, `:dotted`, or `:dashed`. Any underline colour from inherited
+    or enclosing faces is kept.\\
   - a `Tuple{Nothing, Symbol}`: The text should be underlined using the style
-    set by the Symbol, one of `:straight`, `:double`, `:curly`, `:dotted`,
-    or `:dashed`.\\
+    set by the Symbol, as a plain underline with no colour.\\
   - a `Tuple{SimpleColor, Symbol}`: The text should be underlined in the specified
-    SimpleColor, and using the style specified by the Symbol, as before.
+    SimpleColor, and using the style specified by the Symbol.
 - `strikethrough` (a `Bool`): Whether the text should be struck through.
 - `inverse` (a `Bool`): Whether the foreground and background colors should
   be swapped.
@@ -330,12 +334,15 @@ function Face(; font::Union{Nothing, String} = nothing,
              expected one of $(join(map(repr, attrnames(attr)), ", ", " or "))"))
     ul, ulstyle = if isnothing(underline)
         WeakNothing(), weaknothing(UInt8)
-    elseif underline isa Tuple{<:Any, Symbol}
-        ascolor(underline[1]), asbyte(underline[2], :underline)
+    elseif underline isa Tuple{<:Any, Symbol} # nothing in a tuple means no colour, not an unset colour
+        if isnothing(underline[1]) StrongNothing() else ascolor(underline[1]) end,
+        asbyte(underline[2], :underline)
     elseif underline in ATTRIBUTES.underlines
         WeakNothing(), asbyte(underline, :underline)
-    elseif underline isa Bool
-        WeakNothing(), ifelse(underline, attrbyte(:underline, :straight), strongnothing(UInt8))
+    elseif underline === true
+        WeakNothing(), attrbyte(:underline, :straight)
+    elseif underline === false # Off, and drops any inherited colour
+        StrongNothing(), strongnothing(UInt8)
     else
         ascolor(underline), attrbyte(:underline, :straight)
     end

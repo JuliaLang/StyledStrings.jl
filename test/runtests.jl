@@ -257,6 +257,14 @@ end
     @test Face(underline=face"red").underline == (SimpleColor(face"red"), :straight)
     @test Face(underline=(nothing, :curly)).underline == (nothing, :curly)
     @test Face(underline=(face"red", :curly)).underline == (SimpleColor(face"red"), :curly)
+    @test Face(underline=false).underline === nothing
+    @test merge(Face(underline=face"red"), Face(underline=false)).underline === nothing
+    @test merge(Face(underline=face"red"), Face(underline=false), Face(underline=:curly)).underline == (nothing, :curly)
+    # true and a bare style keep an inherited colour, a tuple or false set the whole underline
+    @test merge(Face(underline=face"red"), Face(underline=true)).underline == (SimpleColor(face"red"), :straight)
+    @test merge(Face(underline=face"red"), Face(underline=:curly)).underline == (SimpleColor(face"red"), :curly)
+    @test merge(Face(underline=face"red"), Face(underline=(nothing, :straight))).underline == (nothing, :straight)
+    @test merge(Face(underline=face"red"), Face(underline=(nothing, :curly))).underline == (nothing, :curly)
     @test Face(strikethrough=true).strikethrough == true
     @test Face(inverse=true).inverse == true
     @test Face(inherit=face"blue").inherit  == [face"blue"]
@@ -296,6 +304,8 @@ end
         resetfaces!(face"default")
     end
     # Loading from TOML (a Dict)
+    @test convert(Face, Dict{String, Any}("underline" => true)) == Face(underline=true)
+    @test convert(Face, Dict{String, Any}("underline" => false)) == Face(underline=false)
     @test convert(Face, Dict{String, Any}("weight" => "wobbly", "underline" => ["red", "wavy"])) ==
         Face(underline = face"red")   # Unknown names are left unset
     @test convert(Face, Dict{String, Any}("height" => 1.5)).height == 1.5
@@ -445,6 +455,10 @@ end
     @test sprint(show, face"red") |> pkgstrip == "face\"red\""
     @test sprint(show, copy(face"red")) |> pkgstrip ==
         "Face(foreground = face\"red\")"
+    @test sprint(show, Face(underline=true)) |> pkgstrip == "Face(underline = true)"
+    @test sprint(show, Face(underline=(nothing, :straight))) |> pkgstrip == "Face(underline = (nothing, :straight))"
+    @test sprint(show, Face(underline=:curly)) |> pkgstrip == "Face(underline = :curly)"
+    @test sprint(show, Face(underline=(nothing, :curly))) |> pkgstrip == "Face(underline = (nothing, :curly))"
     @test sprint(show, MIME("text/plain"), copy(face"red"), context = :compact => true) |> pkgstrip ==
         "Face(foreground = face\"red\")"
     @test sprint(show, MIME("text/plain"), copy(face"red"), context = (:compact => true, :color => true)) |> pkgstrip ==

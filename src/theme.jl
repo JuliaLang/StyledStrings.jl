@@ -9,7 +9,7 @@ const STANDARD_FACES = let
     default = Face(FaceDef(
         "monospace",            # font
         foreground, background, # foreground, background
-        WeakNothing(),          # underline (color)
+        StrongNothing(),        # underline (color)
         120,                    # height
         attrbyte(:weight, :normal), attrbyte(:slant, :normal),
         strongnothing(UInt8),   # underline (style)
@@ -708,8 +708,10 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     background = safeget(spec, SimpleColor, "background", "bg")
     ul, ulstyle = if !haskey(spec, "underline")
         WeakNothing(), weaknothing(UInt8)
-    elseif spec["underline"] isa Bool
-        WeakNothing(), ifelse(spec["underline"]::Bool, attrbyte(:underline, :straight), strongnothing(UInt8))
+    elseif spec["underline"] === true
+        WeakNothing(), attrbyte(:underline, :straight)
+    elseif spec["underline"] === false
+        StrongNothing(), strongnothing(UInt8)
     elseif spec["underline"] isa String
         if spec["underline"]::String == "inherit"
             StrongNothing(), strongnothing(UInt8)
