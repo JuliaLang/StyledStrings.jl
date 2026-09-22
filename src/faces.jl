@@ -64,8 +64,8 @@ Most of the time, a [`Face`](@ref) will be given a name in a palette (see
 
 All attributes can be set via the keyword constructor, and default to `nothing`.
 
-- `height` (an `Int` or `Float64`): The height in either deci-pt (when an `Int`),
-  or as a factor of the base size (when a `Float64`).
+- `height` (an integer or a float): The height in either deci-pt (when an integer,
+  held as an `Int32`), or as a factor of the base size (when a float, held as a `Float32`).
 - `weight` (a `Symbol`): One of the symbols (from faintest to densest)
   `:thin`, `:extralight`, `:light`, `:semilight`, `:normal`,
   `:medium`, `:semibold`, `:bold`, `:extrabold`, or `:black`.
@@ -225,6 +225,15 @@ Base.@assume_effects :foldable function attrbyte(attr::Symbol, name::Symbol)
 end
 
 
+# The encoding of a height in deci-pt (an integer) or as a factor (a float), if it is in range
+function heightbits(height::Real)
+    if height isa Integer
+        if 0 <= height <= typemax(Int32) UInt32(height) end
+    elseif isfinite(Float32(height)) && Float32(height) > 0
+        reinterpret(UInt32, Float32(height)) | ~(typemax(UInt32) >> 1)
+    end
+end
+
 const NO_INHERIT = Memory{Face}()
 # A definition with every attribute unset but those given
 unsetdef(; foreground = WeakNothing(), height = weaknothing(UInt32)) =
@@ -286,19 +295,13 @@ function Face(; font::Union{Nothing, String} = nothing,
         ntuple(Returns(nothing), 10) && return EMPTY_FACE
     inheritlist = if isnothing(inherit)
         NO_INHERIT
-    elseif inherit isa Vector{Face}
-        inherit.ref.mem
-    elseif inherit isa Face
-        mem = Memory{Face}(undef, 1)
-        mem[1] = inherit
-        mem
-    elseif inherit isa Vector{Symbol} # Backwards compat (1)
-        # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
-        [lookmakeface(fname) for fname in inherit].ref.mem
-    elseif inherit isa Symbol # Backwards compat (2)
-        # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
-        mem = Memory{Face}(undef, 1)
-        mem[1] = lookmakeface(inherit)
+    else # A `Symbol` names a face, for backwards compatibility
+        # inherit isa Union{Symbol, Vector{Symbol}} && Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Reference faces directly with `face\"\"` instead.", :Face)
+        faces = if inherit isa Vector inherit else (inherit,) end
+        mem = Memory{Face}(undef, length(faces))
+        for (i, face) in enumerate(faces)
+            mem[i] = if face isa Symbol lookmakeface(face) else face end
+        end
         mem
     end
     ascolor(::Nothing) = WeakNothing()
@@ -323,12 +326,9 @@ function Face(; font::Union{Nothing, String} = nothing,
     end
     height1 = if isnothing(height)
         weaknothing(UInt32)
-    elseif height isa AbstractFloat
-        height > 0 || throw(ArgumentError("Face height factor must be positive"))
-        reinterpret(UInt32, Float32(height)) | ~(typemax(UInt32) >> 1)
     else
-        height < 0xff800000 || throw(ArgumentError("Face height in deci-pt must be less than $(0xff7fffff - 1)"))
-        UInt32(height)
+        @something heightbits(height) throw(ArgumentError(
+            "Face height must be deci-pt from 0 to $(typemax(Int32)), or a positive finite Float32 factor"))
     end
     f = FaceDef(something(font, WeakNothing()),
                 ascolor(foreground),
