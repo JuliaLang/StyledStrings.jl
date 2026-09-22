@@ -63,28 +63,23 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                                 MIME("text/plain"), color)
     function showunderlineval(io::IO, ul, ulstyle::UInt8, iscompact::Bool)
         showulfn = if iscompact showval else showcolor end
+        showstyle = if iscompact show else print end
         if isstrongnothing(ulstyle)
             print(io, "false")
-        elseif isnothingflavour(ul) && ulstyle == attrbyte(:underline, :straight)
+        elseif isweaknothing(ul) && ulstyle == attrbyte(:underline, :straight)
             print(io, "true")
+        elseif iscompact && isstrongnothing(ul) # A tuple with no colour, unlike a bare style
+            print(io, "(nothing, ", repr(ATTRIBUTES.underlines[ulstyle + 1]), ')')
         elseif isnothingflavour(ul)
-            if iscompact
-                show(io, ATTRIBUTES.underlines[ulstyle + 1])
-            else
-                print(io, ATTRIBUTES.underlines[ulstyle + 1])
-            end
+            showstyle(io, ATTRIBUTES.underlines[ulstyle + 1])
         elseif ulstyle == attrbyte(:underline, :straight) || isnothingflavour(ulstyle)
             showulfn(io, SimpleColor(ul))
         else
             iscompact && print(io, '(')
             showulfn(io, SimpleColor(ul))
             print(io, ", ")
-            if iscompact
-                show(io, ATTRIBUTES.underlines[ulstyle + 1])
-                print(io, ')')
-            else
-                print(io, ATTRIBUTES.underlines[ulstyle + 1])
-            end
+            showstyle(io, ATTRIBUTES.underlines[ulstyle + 1])
+            iscompact && print(io, ')')
         end
     end
     function printfield(io::IO, origface::Face, curface::Face, field::Symbol, valdisplay::F) where {F <: Function}
