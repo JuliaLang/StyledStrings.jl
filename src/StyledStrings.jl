@@ -40,6 +40,7 @@ Unless `force` is set, customisations are only applied when this function is
 called for the first time, and subsequent calls are a no-op.
 """
 function load_customisations!(; force::Bool=false)
+    Base.generating_output() && return # To avoid baking customisations into the precompiled image
     !force && HAVE_LOADED_CUSTOMISATIONS && return
     (function ()
          @noinline

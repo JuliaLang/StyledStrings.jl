@@ -28,15 +28,6 @@ StyledStrings.getface()
 StyledStrings.getface(face"red")
 StyledStrings.getface(styled"{red:red}", 1)
 
-# StyledStrings.addface!(:_precompile => Face(font="precompile"))
-# StyledStrings.setface!(:_precompile => Face(inverse=true))
-StyledStrings.loaduserfaces!(Dict{String, Any}("_precompile" =>
-    Dict{String, Any}("strikethough" => true)))
-# StyledStrings.resetfaces!(:_precompile)
-# StyledStrings.resetfaces!()
-
 StyledStrings.withfaces(face"yellow" => StyledStrings.Face(foreground=face"red"), face"green" => face"blue") do
     println(colorio, styled"{yellow:red} and {green:blue} mixed make {magenta:purple}")
 end
-
-StyledStrings.HAVE_LOADED_CUSTOMISATIONS = false
