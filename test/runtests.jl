@@ -1392,6 +1392,21 @@ end
             popfirst!(DEPOT_PATH)
         end
     end
+    # The Symbol-named face API
+    legacy = Face(slant = :italic)
+    @test StyledStrings.addface!(:zzz_legacy => legacy) === legacy
+    push!(HACKY_FACES, :zzz_legacy)
+    @test StyledStrings.addface!(:zzz_legacy => Face(slant = :oblique)) === nothing
+    @test FACES.pool[:zzz_legacy] === legacy && getface(legacy).slant == :italic
+    @test StyledStrings.addface!(:zzz_legacy => Face(font = "first"), :light) isa Face
+    @test StyledStrings.addface!(:zzz_legacy => Face(font = "second"), :light) === nothing
+    @test FACES.themes.light[legacy].font == "first"
+    StyledStrings.loadface!(:zzz_legacy => Face(weight = :bold))
+    @test getface(legacy).weight == :bold
+    StyledStrings.loadface!(:zzz_legacy => nothing)
+    @test getface(legacy).weight == :normal
+    delete!(FACES.themes.light, legacy)
+    cleanup_hacky_faces!()
 end
 
 @testset "Recoloring" begin
