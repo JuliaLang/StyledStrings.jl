@@ -531,9 +531,9 @@ Replace `old`, a placeholder or an earlier registration of `fullname`, with `new
 in the global face registry. The caller then derives the current definition of
 `new` with `relayer!`.
 
-The modifications of `old` move to `new`. So do its variants when `old` is a
-placeholder, while the variants of an earlier registration are dropped for those
-of the new palette.
+The modifications and recolourings of `old` move to `new`. So do its variants
+when `old` is a placeholder, while the variants of an earlier registration are
+dropped for those of the new palette.
 
 An in-use placeholder is recorded in `FACES.displacements`, so that interpolating
 it into styled markup yields `new`.
@@ -545,11 +545,11 @@ function register_displace!(old::Face, new::Face, fullname::Symbol)
     delete!(FACES.unregistered, fullname)
     delete!(FACES.names, old)
     placeholder = old.f.height ∈ (UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG)
-    for tables in (FACES.themes, FACES.modifications), table in tables
+    for tables in (FACES.themes, FACES.modifications, (; FACES.recolors)), table in tables
         row = get(table, old, nothing)
         isnothing(row) && continue
         delete!(table, old)
-        if placeholder || tables === FACES.modifications
+        if placeholder || tables !== FACES.themes
             table[new] = row
         end
     end

@@ -610,6 +610,13 @@ end
     @test only(annotations(styled"{$placeholder:x}")).value === registered
     @test !haskey(FACES.unregistered, :zzz_placeholder)
     resetfaces!(registered)
+    # A recolouring of a placeholder moves with it
+    recoloured = StyledStrings.lookmakeface(:zzz_displaced_recolour, false)
+    FACES.recolors[recoloured] = Face(font = "recoloured")
+    fresh = copy(Face())
+    @lock FACES.lock StyledStrings.register_displace!(recoloured, fresh, :zzz_displaced_recolour)
+    @test FACES.recolors[fresh].font == "recoloured" && !haskey(FACES.recolors, recoloured)
+    delete!(FACES.recolors, fresh)
     @testset "Declaration errors" begin
         declerror(decl) = macroexpand(TestPalette, :(@defpalette! $decl))
         @test_throws r"Cyclic face dependencies" declerror(:(begin a = Face(inherit = b); b = Face(foreground = a) end))
@@ -1291,16 +1298,16 @@ end
         recolor() do
             counter[] += 1
         end
-        @test counter[] == 0
+        @test counter[] == 1
         test_lightdark = hacky_addface!(:test_lightdark, Face(foreground=0x000001))
         hacky_addface!(:test_lightdark, Face(foreground=0x000002), :light)
         hacky_addface!(:test_lightdark, Face(foreground=0x000003), :dark)
         @test rgbcolor(SimpleColor(test_lightdark)).b == 0x01
         setcolors!(lightfbg)
-        @test counter[] == 1
+        @test counter[] == 2
         @test rgbcolor(SimpleColor(test_lightdark)).b == 0x02
         setcolors!(darkfbg)
-        @test counter[] == 2
+        @test counter[] == 3
         @test rgbcolor(SimpleColor(test_lightdark)).b == 0x03
         # Theme switch
         setcolors!(lightfbg)
@@ -1383,7 +1390,57 @@ end
         @test getface(test_lightdark).foreground.value == (r = 0x9d, g = 0x99, b = 0x92)
         setcolors!(darkfbg)
         @test getface(test_lightdark).foreground.value == (r = 0x43, g = 0x40, b = 0x3a)
+        # A recolor hook runs at once, beneath user customisations
+        setface!(face"region" => Face(background = 0x112233))
+        recolor(() -> setface!(face"region" => Face(background = 0x445566, font = "recoloured")))
+        @test getface(face"region").background.value == (r = 0x11, g = 0x22, b = 0x33)
+        @test getface(face"region").font == "recoloured"
+        setcolors!(lightfbg)
+        @test getface(face"region").background.value == (r = 0x11, g = 0x22, b = 0x33)
+        resetfaces!()
+        @test getface(face"region").background.value == (r = 0x44, g = 0x55, b = 0x66)
+        # An unset attribute survives a later customisation of the same face
+        setface!(face"emphasis" => Face(foreground = face"red"))
+        setface!(face"emphasis" => convert(Face, Dict{String, Any}("foreground" => "inherit")))
+        setface!(face"emphasis" => Face(font = "later"))
+        @test getface(face"emphasis").foreground.value === face"foreground"
+        StyledStrings.relayer!()
+        @test getface(face"emphasis").foreground.value === face"foreground"
+        # A hook's variant for another theme is not applied
+        recolor(() -> setface!(face"region" => Face(font = "dark only"), :dark))
+        @test FACES.current_theme[] === :light && getface(face"region").font != "dark only"
+        pop!(StyledStrings.recolor_hooks)
+        # A hook that fails at once is not registered
+        nhooks = length(StyledStrings.recolor_hooks)
+        @test_throws ErrorException recolor(() -> error("at once"))
+        @test length(StyledStrings.recolor_hooks) == nhooks
+        # A hook that fails later is logged, and the hooks after it still run
+        failing = Ref(false)
+        recolor(() -> if failing[] error("later") end)
+        ran = Ref(0)
+        recolor(() -> ran[] += 1)
+        failing[] = true
+        @test_logs (:error, "Recolor hook failed") setcolors!(darkfbg)
+        @test ran[] == 2 && FACES.current_theme[] === :dark
+        deleteat!(StyledStrings.recolor_hooks, nhooks+1:nhooks+2)
+        # Customisations first loaded by a hook as it is registered are not taken for its recolours
+        tomlface = hacky_addface!(:tomlface, copy(Face()))
+        mktempdir() do depot
+            mkpath(joinpath(depot, "config"))
+            write(joinpath(depot, "config", "faces.toml"), "[tomlface]\nfont = \"customised\"\n")
+            pushfirst!(DEPOT_PATH, depot)
+            setglobal!(StyledStrings, :HAVE_LOADED_CUSTOMISATIONS, false)
+            try
+                recolor(() -> sprint(print, styled"{red:x}", context = :color => true))
+                setcolors!(darkfbg)
+                @test getface(tomlface).font == "customised"
+            finally
+                pop!(StyledStrings.recolor_hooks)
+                popfirst!(DEPOT_PATH)
+            end
+        end
         copy!(StyledStrings.recolor_hooks, hooks)
+        resetfaces!()
         cleanup_hacky_faces!()
     end
 end

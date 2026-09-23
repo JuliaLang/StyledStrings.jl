@@ -130,6 +130,7 @@ const FACES = let
          base = IdDict{Face, Face}(),
          light = IdDict{Face, Face}(),
          dark = IdDict{Face, Face}()),
+     recolors = IdDict{Face, Face}(),
      displacements = IdDict{Face, Face}(),
      current = ScopedValue(IdDict{Face, Face}()),
      cache = ScopedValue(emptycache()),
@@ -140,24 +141,26 @@ end
 ## Adding and resetting faces ##
 
 """
-    override(base::Face, mods::Face)
+    override(base::Face, mods::Face; unset::Bool = true)
 
-Create a new [`Face`](@ref) by overriding the attributes of `base` with those
-set in `mods`.
+Apply the modification `mods` over `base`: each attribute set in `mods` replaces the
+one in `base`, and a weak nothing leaves it unchanged.
 
-Strong-nothing values in `mods` unset the corresponding property in `base` and
-leave a weak-nothing in the result, while weak-nothing values in `mods` leave
-the corresponding property in `base` unchanged.
+In a modification, a strong nothing means "unset this attribute", as `"inherit"` does
+in a faces.toml file. By default it leaves the attribute unset (a weak nothing), so
+that the face falls back to what it inherits. When two modifications are combined
+into one, pass `unset = false` to keep the strong nothing, so that it still unsets
+the attribute when the combined modification is applied.
 """
 function override end
 
-function override(base::FaceDef, mods::FaceDef)
+function override(base::FaceDef, mods::FaceDef; unset::Bool = true)
     Base.@constprop :aggressive function mergeattr(a::FaceDef, b::FaceDef, attr::Symbol)
         a_attr = getfield(a, attr)
         b_attr = getfield(b, attr)
         if isweaknothing(b_attr)
             a_attr
-        elseif isstrongnothing(b_attr)
+        elseif isstrongnothing(b_attr) && unset
             weaknothing(b_attr)
         else
             b_attr
@@ -181,7 +184,7 @@ function override(base::FaceDef, mods::FaceDef)
         end)
 end
 
-override(base::Face, mods::Face) = Face(override(base.f, mods.f))
+override(base::Face, mods::Face; unset::Bool = true) = Face(override(base.f, mods.f; unset))
 
 """
     addface!(name::Symbol => default::Face, theme::Symbol = :base)
@@ -235,11 +238,11 @@ Reset the current global face dictionary to the default value.
 function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
-        empty!(current)
         if current === FACES.current.default # Only when top-level
-            map(empty!, values(FACES.modifications))
-            theme = FACES.current_theme[]
-            theme === :base || foreach(relayer!, keys(FACES.themes[theme]))
+            foreach(empty!, values(FACES.modifications))
+            relayer!()
+        else
+            empty!(current)
         end
         emptycache!(FACES.cache[])
         current
@@ -576,17 +579,20 @@ Face (sample)
 """
 function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
+        isactive = theme ∈ (:base, FACES.current_theme[])
+        RECOLORING[] && !isactive && return # Hooks run again on each theme change
         current = FACES.current[]
         if FACES.current.default === current # Only save top-level modifications
-            mface = get(FACES.modifications[theme], original, nothing)
-            isnothing(mface) || (update = override(mface, update))
-            FACES.modifications[theme][original] = update
+            layer = if RECOLORING[] FACES.recolors else FACES.modifications[theme] end
+            prior = get(layer, original, nothing)
+            layer[original] = if isnothing(prior) update else override(prior, update; unset = false) end
+            relayer!(original)
+        elseif isactive
+            current[original] = override(get(current, original, original), update)
         end
-        if theme ∈ (:base, FACES.current_theme[])
-            update = override(get(current, original, original), update)
-            current[original] = update
+        if isactive
             emptycache!(FACES.cache[])
-            update
+            get(current, original, original)
         end
     end
 end
@@ -749,20 +755,27 @@ end
 ## Recolouring ##
 
 const recolor_hooks = Function[]
-const recolor_lock = ReentrantLock()
+const RECOLORING = ScopedValue(false) # Whether `setface!` is called from a recolor hook
 
 """
     recolor(f::Function)
 
-Register a hook function `f` to be called whenever the colors change.
+Register a hook function `f` to be called now, and again whenever the colors change.
 
-Usually hooks will be called once after terminal colors have been
-determined. These hooks enable dynamic retheming, but are specifically *not* run when faces
-are changed. They sit in between the default faces and modifications layered on
-top with `setface!` and user customisations.
+An error from the first call propagates, and `f` is not registered. Errors from
+later calls are logged.
+
+These hooks enable dynamic retheming, but are specifically *not* run when faces
+are changed. Faces set with `setface!` from a hook sit in between the default
+faces and the modifications layered on top by other calls to `setface!` and user
+customisations.
 """
 function recolor(f::Function)
-    @lock recolor_lock push!(recolor_hooks, f)
+    @lock FACES.lock begin
+        load_customisations!() # Were the hook to load them, they would be filed as its recolours
+        @with RECOLORING => true f()
+        push!(recolor_hooks, f)
+    end
     nothing
 end
 
@@ -770,7 +783,7 @@ end
     relayer!(face::Face)
 
 Recompute the current definition of `face` from its variant for the current
-theme and its base and current-theme modifications, layered as `setcolors!` does.
+theme, its recolouring, and its base and current-theme modifications.
 The face cache is left for the caller to clear once its batch is done.
 """
 function relayer!(face::Face)
@@ -783,8 +796,21 @@ function relayer!(face::Face)
         current[face] = override(get(current, face, face), update)
     end
     theme === :base || layer!(FACES.themes[theme])
+    layer!(FACES.recolors)
     layer!(FACES.modifications.base)
     theme === :base || layer!(FACES.modifications[theme])
+end
+
+"""
+    relayer!()
+
+Recompute the current definition of every face with a layer, as `relayer!(face)` does.
+"""
+function relayer!()
+    empty!(FACES.current.default)
+    for table in (FACES.themes..., FACES.recolors, FACES.modifications..., FACES.displacements)
+        foreach(relayer!, keys(table))
+    end
 end
 
 """
@@ -797,11 +823,9 @@ Update the known base colors with those in `colors`, and recalculate current fac
 loaded. Otherwise, only the base theme will be applied.
 """
 function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
-    lock(recolor_lock)
-    lock(FACES.lock)
-    # Make sure we've loaded customisations before re-layering them.
-    load_customisations!()
-    try
+    @lock FACES.lock begin
+        # Make sure we've loaded customisations before re-layering them.
+        load_customisations!()
         # Apply colors
         fg, bg = nothing, nothing
         for (name, rgb) in colors
@@ -818,29 +842,16 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
             ifelse(sum(fg) > sum(bg), :dark, :light)
         end
         FACES.current_theme[] = newtheme
-        # Reset all themes to defaults
-        current = FACES.current[]
-        empty!(current)
-        if newtheme ∈ keys(FACES.themes)
-            for (name, face) in FACES.themes[newtheme]
-                current[name] = override(get(current, name, name), face)
+        empty!(FACES.recolors)
+        relayer!()
+        @with RECOLORING => true for hook in recolor_hooks
+            try
+                hook()
+            catch err
+                @error "Recolor hook failed" hook exception = (err, catch_backtrace())
             end
         end
-        # Run recolor hooks
-        for hook in recolor_hooks
-            hook()
-        end
-        # Layer on modifications
-        for theme in keys(FACES.modifications)
-            theme ∈ (:base, newtheme) || continue
-            for (name, face) in FACES.modifications[theme]
-                current[name] = override(get(current, name, name), face)
-            end
-        end
-        emptycache!(FACES.cache[])
-    finally
-        unlock(FACES.lock)
-        unlock(recolor_lock)
+        emptycache!(FACES.cache.default)
     end
 end
 
