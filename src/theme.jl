@@ -215,18 +215,22 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     #               Please define faces with `@defpalette!` and `@registerpalette!` instead.",
     #                :addface!)
     @lock FACES.lock if theme === :base
-        haskey(FACES.pool, name) && @warn lazy"Face $name already exists, overriding"
+        haskey(FACES.pool, name) && return
         unreg = get(FACES.unregistered, name, nothing)
         isnothing(unreg) || register_displace!(unreg, default, name)
         FACES.pool[name] = default
         FACES.names[default] = name
         relayer!(default)
         emptycache!(FACES.cache.default)
-    elseif !haskey(FACES.themes[theme], name)
+        get(FACES.current.default, default, default)
+    else
         face = lookmakeface(name, false)
-        FACES.themes[theme][face] = default
-        relayer!(face)
-        emptycache!(FACES.cache.default)
+        if !haskey(FACES.themes[theme], face)
+            FACES.themes[theme][face] = default
+            relayer!(face)
+            emptycache!(FACES.cache.default)
+            get(FACES.current.default, face, face)
+        end
     end
 end
 
@@ -618,9 +622,7 @@ function loadface!((name, _)::Pair{Symbol, Nothing})
     # Base.depwarn("`loadface!` with `Symbol` names is deprecated as of v1.14 and will be removed in a future release. \
     #               Instead you should call `setface!` and specify the target face directly as a `Face` (e.g. from `face\"\"`).",
     #              :loadface!)
-    if haskey(FACES.current[], name)
-        resetfaces!(name)
-    end
+    resetfaces!(name)
 end
 
 """
