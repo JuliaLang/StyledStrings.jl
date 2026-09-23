@@ -1280,6 +1280,7 @@ end
             SimpleColor(0x6baac6)
         @test blend(SimpleColor(0x000000) => 0.2, SimpleColor(0xffffff) => 0.6, SimpleColor(0x00ff00) => 0.2) ==
             SimpleColor(0x9fbe9c)
+        @test blend(SimpleColor(0x123456)) == SimpleColor(0x123456)
         withfaces([face"blue" => Face(foreground=0x0000ff),
                    face"yellow" => Face(foreground=0xffff00)]) do
                        @test blend(face"blue" => 0.5, face"yellow" => 0.5) == SimpleColor(0x6baac6)

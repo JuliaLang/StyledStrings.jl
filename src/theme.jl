@@ -996,7 +996,7 @@ function blend(x1::Pair{RGBTuple, <:Real}, x2::Pair{RGBTuple, <:Real}...)
 end
 
 blend(base::RGBTuple, primaries::Pair{RGBTuple, <:Real}...) =
-    blend(base => 1.0 - sum(last, primaries), primaries...)
+    blend(base => 1.0 - sum(last, primaries; init = 0.0), primaries...)
 
 blend((c0, w0)::Pair{<:Union{Symbol, Face, SimpleColor}, <:Real}, primaries::Pair{<:Union{Symbol, Face, SimpleColor}, <:Real}...) =
     SimpleColor(blend(rgbcolor(c0) => w0, (rgbcolor(c) => w for (c, w) in primaries)...))
