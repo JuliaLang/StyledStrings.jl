@@ -597,6 +597,9 @@ end
     @test FACES.themes.dark[TestPaletteVariant.mark].foreground.value === TestPaletteVariant.spot
     @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette! begin x.dark = Face(weight = :bold) end))
     @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
+    @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
     @test StyledStrings.facename(TestPaletteUser, heading) == :heading
     # A placeholder customised before use hands its customisation on to the registered face,
     # and once in use is displaced by it when interpolated
@@ -876,7 +879,7 @@ end
         @macroexpand styled"{$key=$val:text}")
     @test astmatch(
         :(let ;
-              AnnotatedString("val", _[(; region = 1:3, label = :face, value = Face(foreground = color))])
+              AnnotatedString("val", _[(; region = 1:3, label = :face, value = Face(foreground = $(Expr(:let, Expr(:block, :(_v = color)), :_))))])
           end),
         @macroexpand styled"{(foreground=$color):val}"
     )
@@ -974,6 +977,9 @@ end
     @test styled("{red:x}{note=n:y}") isa AnnotatedString{String, Union{Face, String}}
     # An unknown name is a placeholder that a later registration displaces, as in the macro
     @test annotations(styled("{zzz_fnface:x}"))[1].value === StyledStrings.lookmakeface(:zzz_fnface)
+    # A dotted name is a namespaced name, in a face name and an inline face alike
+    @test only(annotations(styled("{zzz_ns.face:x}"))).value === StyledStrings.lookmakeface(:zzz_ns_face)
+    @test only(annotations(styled("{(fg=zzz_ns.face):x}"))).value.foreground.value === StyledStrings.lookmakeface(:zzz_ns_face)
     # A name unknown at expansion time is looked up when the string is built
     lazyinline() = styled"{(fg=zzz_lazyinline):x}"
     @test annotations(lazyinline())[1].value.foreground.value === StyledStrings.lookmakeface(:zzz_lazyinline)

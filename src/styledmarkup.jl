@@ -658,7 +658,19 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             expr, _ = readexpr!(state)
             lastchar = last(popfirst!(state.s))
             needseval = true
-            esc(expr)
+            if key ∈ (:foreground, :background, :inherit) # Look up face names as written ones are
+                :(let v = $(esc(expr))
+                      if v isa Symbol
+                          $interpface(v, $(state.out.mod), $(state.strict))
+                      elseif v isa Vector{Symbol}
+                          [$interpface(n, $(state.out.mod), $(state.strict)) for n in v]
+                      else
+                          v
+                      end
+                  end)
+            else
+                esc(expr)
+            end
         elseif key == :font
             if isnextchar(state, '"')
                 readexpr!(state, first(peek(state.s))) |> first
@@ -767,7 +779,7 @@ Returns a `Face`, or when `state` is from a macro invocation an
 `Expr` that evaluates to a `Face` may be returned.
 """
 function resolveface(state::State, facename::String)
-    ismacro(state) || return lookmakeface(Symbol(facename))
+    ismacro(state) || return lookmakeface(Symbol(replace(facename, '.' => '_')))
     if '.' in facename
         components = map(Symbol, eachsplit(facename, '.'))
         push!(components, :base, last(components))
@@ -901,7 +913,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
     elseif key !== ""
         face = if !ismacro(state)
             get!(state.out.rfaces, key) do
-                lookmakeface(Symbol(replace(key, '.' => '_')))
+                resolveface(state, key)
             end
         elseif haskey(state.out.rfaces, Symbol(key))
             state.out.rfaces[Symbol(key)]
