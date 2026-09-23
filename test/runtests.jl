@@ -630,6 +630,10 @@ end
         @test_throws r"must be a `Face\(...\)` expression" declerror(:(begin a = 1 end))
         @test_throws r"must be a face name" declerror(:(begin a = Face(foreground = :red) end))
         @test_throws r"must be a face name or a vector" declerror(:(begin a = Face(inherit = "b") end))
+        @test_throws r"must be a face name, a color literal" declerror(:(begin a = Face(foreground = 255) end))
+        @test_throws r"underline color value" declerror(:(begin a = Face(underline = 255) end))
+        @test_throws r"`forground = red`, as `forground` is not one of" declerror(:(begin a = Face(forground = red) end))
+        @test Core.eval(TestPalette, :(@defpalette! emptyinherit begin a = Face(inherit = []) end)).var"##styledstrings-defpalette-variable#".base.a.inherit == Face[]
         @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette! namespace = 1 begin a = Face() end))
     end
     @testset "References" begin
@@ -999,6 +1003,19 @@ end
     @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
     @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
     @test_throws MalformedStylingMacro styled("{(invalid=):}")
+    @test styled"{(inherit=[]):x}" == AnnotatedString("x", [(1:1, :face, Face())])
+    @test_throws MalformedStylingMacro styled("{(inherit=[")
+    @test_throws MalformedStylingMacro styled("{(height=5x):}")
+    @test_throws MalformedStylingMacro styled("{(height=0.0):}")
+    @test_throws MalformedStylingMacro styled("{(height=1e-46):}")
+    @test_throws MalformedStylingMacro styled("{(fg=):x}")
+    @test_throws MalformedStylingMacro styled("{(inherit=):x}")
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{(bg=):x}"))
+    @test_throws MalformedStylingMacro styled("{(fg=#ff000):}")
+    @test_throws MalformedStylingMacro styled("{(strikethrough=maybe):}")
+    @test_throws MalformedStylingMacro styled("{(underline=(red, curly)")
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, Meta.parse("styled\"{(underline=(red, \$x\""))
+    @test_throws MalformedStylingMacro styled("{x.:y}")
     # Test the error printing too
     aio = AnnotatedIOBuffer()
     try

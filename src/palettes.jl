@@ -12,6 +12,9 @@ const var"##styledstrings-defpalette-variable#" =
 const UNDEF_CUSTOM_HEIGHT_FLAG = 0xff800001
 const UNDEF_INUSE_HEIGHT_FLAG = 0xff800002
 
+const FACE_KEYWORDS = (:font, :height, :weight, :slant, :foreground, :fg, :background, :bg,
+                       :underline, :strikethrough, :inverse, :inherit)
+
 struct UnknownFaceError <: Exception
     context::Module
     name::Symbol
@@ -200,7 +203,7 @@ macro defpalette!(pargs::Any...)
     parsed = Dict{@NamedTuple{name::Symbol, theme::Symbol}, @NamedTuple{i::Int, args::Vector{Pair{Symbol, Any}}, deps::Vector{Symbol}, line::Union{LineNumberNode, Nothing}}}()
     lastline = nothing
     isname(x) = x isa Symbol && x !== :nothing
-    isliteral(x) = x === :nothing || x isa Integer || x isa AbstractString
+    isliteral(x) = x === :nothing || x isa Unsigned || x isa AbstractString
     for (i, decl) in enumerate(decls)
         if decl isa LineNumberNode
             lastline = decl
@@ -224,6 +227,9 @@ macro defpalette!(pargs::Any...)
         for arg in facecall.args[2:end]
             Meta.isexpr(arg, :kw, 2) || throw(ArgumentError("Invalid Face argument `$arg`."))
             k, v = arg.args
+            written = string(Expr(:(=), k, v))
+            k ∈ FACE_KEYWORDS || throw(ArgumentError(
+                "Invalid Face argument `$written`, as `$k` is not one of $(join(FACE_KEYWORDS, ", ", ", or "))."))
             if k == :fg
                 k = :foreground
             elseif k == :bg
@@ -235,7 +241,7 @@ macro defpalette!(pargs::Any...)
             end
             if k ∈ (:foreground, :background)
                 isname(v) && push!(deps, v)
-                isname(v) || isliteral(v) || Meta.isexpr(v, :., 2) || throw(ArgumentError("Invalid Face argument `$arg`, $k color value (`$v`) must be a face name, a color literal, or a `\$(...)` expression."))
+                isname(v) || isliteral(v) || Meta.isexpr(v, :., 2) || throw(ArgumentError("Invalid Face argument `$written`, $k color value (`$v`) must be a face name, a color literal, or a `\$(...)` expression."))
             elseif k == :inherit
                 if v isa Symbol
                     push!(deps, v)
@@ -243,17 +249,19 @@ macro defpalette!(pargs::Any...)
                 elseif Meta.isexpr(v, :vect)
                     for f in v.args
                         Meta.isexpr(f, :., 2) && continue
-                        f isa Symbol || throw(ArgumentError("Invalid Face argument `$arg`, inherit value (`$f`) must be a variable name."))
+                        f isa Symbol || throw(ArgumentError("Invalid Face argument `$written`, inherit value (`$f`) must be a variable name."))
                         push!(deps, f)
                     end
                 else
-                    throw(ArgumentError("Invalid Face argument `$arg`, inherit value (`$v`) must be a face name or a vector of face names."))
+                    throw(ArgumentError("Invalid Face argument `$written`, inherit value (`$v`) must be a face name or a vector of face names."))
                 end
             elseif k == :underline
                 if isname(v)
                     push!(deps, v)
                 elseif Meta.isexpr(v, :tuple, 2) && isname(v.args[1])
                     push!(deps, v.args[1])
+                elseif v isa Signed
+                    throw(ArgumentError("Invalid Face argument `$written`, underline color value (`$v`) must be a face name, a color literal, or a `\$(...)` expression."))
                 end
             end
             push!(faceargs, k => v)
@@ -307,7 +315,7 @@ macro defpalette!(pargs::Any...)
             Expr(:., Expr(:., Expr(:., f.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), f.args[2])
         elseif Meta.isexpr(f, :$, 1)
             f.args[1]
-        elseif f isa Integer || f isa AbstractString
+        elseif f isa Unsigned || f isa AbstractString
             f
         else
             throw(ArgumentError("Invalid face reference expression `$f`."))
@@ -321,7 +329,7 @@ macro defpalette!(pargs::Any...)
                 :background => faceorlookup(value)
             elseif arg == :inherit
                 :inherit => if Meta.isexpr(value, :vect)
-                    Expr(:vect, map(faceorlookup, value.args)...)
+                    Expr(:ref, Face, map(faceorlookup, value.args)...)
                 else
                     faceorlookup(value)
                 end

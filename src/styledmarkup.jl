@@ -48,7 +48,7 @@ module StyledMarkup
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
     ATTRIBUTES,
-    findface, lookupface, lookmakeface, UNDEF_INUSE_HEIGHT_FLAG,
+    findface, lookupface, lookmakeface, heightbits, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
@@ -501,20 +501,19 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     readsymbol!(state, lastchar) = read_while!(∉((' ', '\t', '\n', '\r', ',', ')')), state.s, lastchar)
     function parsecolor(color::String)
         if color == "nothing"
-        elseif startswith(color, '#') && length(color) == 7
-            tryparse(SimpleColor, color)
-        elseif startswith(color, "0x") && length(color) == 8
-            tryparse(SimpleColor, '#' * color[3:end])
+        elseif startswith(color, '#') || startswith(color, "0x")
+            rgb = tryparse(SimpleColor, if startswith(color, '#') color else '#' * color[3:end] end)
+            isnothing(rgb) && styerr!(state, "Invalid colour '$color', should be #rrggbb or 0xrrggbb", -length(color) - 1)
+            rgb
         else
             resolveface(state, color)
         end
     end
     function nextnonwhitespace!(state, lastchar)
-        if lastchar ∈ (' ', '\t', '\n', '\r')
-            skipwhitespace!(state)
-            _, lastchar = popfirst!(state.s)
-        end
-        lastchar
+        lastchar ∈ (' ', '\t', '\n', '\r') || return lastchar
+        skipwhitespace!(state)
+        isempty(state.s) && return lastchar
+        last(popfirst!(state.s))
     end
     function read_underline!(state, lastchar, needseval)
         if isnextchar(state, '(')
@@ -525,6 +524,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 nothing
             elseif isnextchar(state, '$') && ismacro(state)
                 expr, _ = readexpr!(state)
+                isempty(state.s) && return nothing, lastchar, needseval
                 lastchar = last(popfirst!(state.s))
                 needseval = true
                 esc(expr)
@@ -538,6 +538,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 skipwhitespace!(state)
                 if isnextchar(state, '$') && ismacro(state)
                     expr, _ = readexpr!(state)
+                    isempty(state.s) && return nothing, lastchar, needseval
                     lastchar = last(popfirst!(state.s))
                     needseval = true
                     ustyle = esc(expr)
@@ -556,6 +557,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                     lastchar = nextnonwhitespace!(state, lastchar)
                 end
                 if lastchar == ')'
+                    isempty(state.s) && return nothing, lastchar, needseval
                     lastchar = last(popfirst!(state.s))
                 else
                     styerr!(state, "Malformed underline value, should be (<color>, <style>)",
@@ -600,13 +602,14 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             readvec = true
             while readvec
                 skipwhitespace!(state)
+                isempty(state.s) && break
                 nextchar = last(peek(state.s))
                 if nextchar == ':'
                     # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
                     popfirst!(state.s)
                 elseif nextchar == ']'
                     popfirst!(state.s)
-                    lastchar = last(popfirst!(state.s))
+                    isempty(state.s) || (lastchar = last(popfirst!(state.s)))
                     break
                 end
                 facename, lastchar = read_while!(∉((',', ']', ')')), state.s, lastchar)
@@ -620,7 +623,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             push!(inherit, resolveface(state, String(rstrip(facename))))
         end
         if ismacro(state)
-            Expr(:vect, inherit...)
+            Expr(:ref, Face, inherit...)
         else
             inherit
         end, lastchar
@@ -656,7 +659,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         # Parse value
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
-            lastchar = last(popfirst!(state.s))
+            isempty(state.s) || (lastchar = last(popfirst!(state.s)))
             needseval = true
             if key ∈ (:foreground, :background, :inherit) # Look up face names as written ones are
                 :(let v = $(esc(expr))
@@ -679,14 +682,16 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 str
             end
         elseif key == :height
-            if isnextchar(state, ('.', '0':'9'...))
-                num = readexpr!(state, first(peek(state.s))) |> first
-                lastchar = last(popfirst!(state.s))
-                ifelse(num isa Number, num, nothing)
+            start = first(peek(state.s))
+            num = if isnextchar(state, ('.', '0':'9'...)) first(readexpr!(state, start)) end
+            rest, lastchar = readsymbol!(state, lastchar) # Empty after a well-formed number
+            if isempty(rest) && num isa Real && !isnothing(heightbits(num))
+                num
             else
-                invalid, lastchar = readsymbol!(state, lastchar)
+                stop = if isempty(state.s) lastindex(state.content) + 1 else first(peek(state.s)) end
+                invalid = rstrip(∈((' ', '\t', '\n', '\r', ',', ')')), state.content[start:prevind(state.content, stop)])
                 styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
-                                                [(17:16+ncodeunits(string(invalid)), :face, FACES.pool[:warning])]),
+                                                [(17:16+ncodeunits(invalid), :face, FACES.pool[:warning])]),
                         -3)
             end
         elseif key ∈ (:weight, :slant)
@@ -716,6 +721,8 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 true
             elseif flag == "false"
                 false
+            else
+                styerr!(state, "Invalid $key value '$flag', should be true or false", -length(flag) - 1)
             end
         elseif key == :underline
             ul, lastchar, needseval = read_underline!(state, lastchar, needseval)
@@ -779,6 +786,11 @@ Returns a `Face`, or when `state` is from a macro invocation an
 `Expr` that evaluates to a `Face` may be returned.
 """
 function resolveface(state::State, facename::String)
+    if any(isempty, eachsplit(facename, '.'))
+        styerr!(state, if isempty(facename) "Missing face name" else "Invalid face name '$facename'" end,
+                -length(facename) - 1)
+        return Face()
+    end
     ismacro(state) || return lookmakeface(Symbol(replace(facename, '.' => '_')))
     if '.' in facename
         components = map(Symbol, eachsplit(facename, '.'))
@@ -1305,7 +1317,7 @@ function Base.showerror(io::IO, err::MalformedStylingMacro)
             window = Base.escape_string(err.raw[start:stop])
             begin_ellipsis = ifelse(start == firstindex(err.raw), "", "…")
             end_ellipsis = ifelse(stop == lastindex(err.raw), "", "…")
-            npre = ncodeunits(Base.escape_string(err.raw[start:position]))
+            npre = textwidth(Base.escape_string(err.raw[start:position]))
             println(io, styled"{error:│} $message:\n\
                            {error:│}  {bright_green:\"{shadow:$begin_ellipsis}$window{shadow:$end_ellipsis}\"}\n\
                            {error:│}  $(' '^(1+textwidth(begin_ellipsis)+npre)){info:╰─╴$hint}")
