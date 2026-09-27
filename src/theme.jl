@@ -743,9 +743,9 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     inherit = if !haskey(spec, "inherit")
         Face[]
     elseif spec["inherit"] isa String
-        [lookmakeface(Symbol(spec["inherit"]::String))]
+        [lookmakeface(registrykey(spec["inherit"]::String))]
     elseif spec["inherit"] isa Vector{String}
-        [lookmakeface(Symbol(name)) for name in spec["inherit"]::Vector{String}]
+        [lookmakeface(registrykey(name)) for name in spec["inherit"]::Vector{String}]
     else
         Face[]
     end

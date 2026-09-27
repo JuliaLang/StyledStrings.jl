@@ -48,7 +48,8 @@ module StyledMarkup
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
     ATTRIBUTES,
-    findface, lookupface, lookmakeface, heightbits, UNDEF_INUSE_HEIGHT_FLAG,
+    lookupface, lookmakeface, faceref, pathface, similarface, registrykey, heightbits,
+    UnknownFaceError, FacePathError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
@@ -502,7 +503,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     function parsecolor(color::String)
         if color == "nothing"
         elseif startswith(color, '#') || startswith(color, "0x")
-            rgb = tryparse(SimpleColor, if startswith(color, '#') color else '#' * color[3:end] end)
+            rgb = tryparse(SimpleColor, color)
             isnothing(rgb) && styerr!(state, "Invalid colour '$color', should be #rrggbb or 0xrrggbb", -length(color) - 1)
             rgb
         else
@@ -527,7 +528,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 isempty(state.s) && return nothing, lastchar, needseval
                 lastchar = last(popfirst!(state.s))
                 needseval = true
-                esc(expr)
+                :($interpattr($(esc(expr)), $(state.out.mod), $(state.strict)))
             else
                 word, lastchar = readsymbol!(state, lastchar)
                 parsecolor(word)
@@ -662,15 +663,9 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             isempty(state.s) || (lastchar = last(popfirst!(state.s)))
             needseval = true
             if key ∈ (:foreground, :background, :inherit) # Look up face names as written ones are
-                :(let v = $(esc(expr))
-                      if v isa Symbol
-                          $interpface(v, $(state.out.mod), $(state.strict))
-                      elseif v isa Vector{Symbol}
-                          [$interpface(n, $(state.out.mod), $(state.strict)) for n in v]
-                      else
-                          v
-                      end
-                  end)
+                :($interpattr($(esc(expr)), $(state.out.mod), $(state.strict)))
+            elseif key == :underline
+                :($interpunderline($(esc(expr)), $(state.out.mod), $(state.strict)))
             else
                 esc(expr)
             end
@@ -786,23 +781,35 @@ Returns a `Face`, or when `state` is from a macro invocation an
 `Expr` that evaluates to a `Face` may be returned.
 """
 function resolveface(state::State, facename::String)
-    if any(isempty, eachsplit(facename, '.'))
-        styerr!(state, if isempty(facename) "Missing face name" else "Invalid face name '$facename'" end,
-                -length(facename) - 1)
-        return Face()
+    function nameerror!(message)
+        here = if isempty(state.s) lastindex(state.content) else first(peek(state.s)) end
+        start = if isempty(facename) # Where the name should be: the terminator just read
+            prevind(state.content, here)
+        else
+            first(something(findprev(facename, state.content, here), here:here))
+        end
+        styerr!(state, message, prevind(state.content, start))
+        Face()
     end
-    ismacro(state) || return lookmakeface(Symbol(replace(facename, '.' => '_')))
-    if '.' in facename
-        components = map(Symbol, eachsplit(facename, '.'))
-        push!(components, :base, last(components))
-        components[end-2] = MAGIC_DEFPALETTE_VARNAME
-        esc(foldl((a, b) -> Expr(:., a, QuoteNode(b)), components[2:end]; init = first(components)))
+    all(Base.isidentifier, eachsplit(facename, '.')) ||
+        return nameerror!(if isempty(facename) "Missing face name" else "Invalid face name '$facename'" end)
+    ismacro(state) || return lookmakeface(registrykey(facename))
+    name = Symbol(facename)
+    face = if '.' in facename
+        pathface(state.out.mod, facename)
     elseif state.strict
-        lookupface(state.out.mod, Symbol(facename))
+        @something(faceref(state.out.mod, name), UnknownFaceError(state.out.mod, name))
     else
-        @something(findface(state.out.mod, Symbol(facename)),
-                   Expr(:call, lookmakeface, state.out.mod, QuoteNode(Symbol(facename))))
+        @something(faceref(state.out.mod, name), Expr(:call, lookmakeface, state.out.mod, QuoteNode(name)))
     end
+    face isa Exception || return face
+    nameerror!(if face isa UnknownFaceError
+        suggestion = similarface(state.out.mod, name)
+        hint = if isnothing(suggestion) "" else " (did you mean '$suggestion'?)" end
+        "Unknown face '$facename'$hint"
+    else
+        String(chopsuffix(sprint(showerror, face), ".")) # The report adds its own colon
+    end)
 end
 
 """
@@ -988,6 +995,29 @@ function interpface(face::Symbol, mod::Module, strict::Bool)
 end
 
 interpface(face, ::Module, ::Bool) = throw(ArgumentError("Face interpolation must evaluate to a Symbol or Face, not $(typeof(face))"))
+
+"""
+    interpattr(value, mod::Module, strict::Bool)
+
+Resolve the faces in `value`, an interpolated face attribute, with `interpface`.
+Other values, such as colour literals and `true`, are kept as they are.
+"""
+function interpattr end
+
+interpattr(value::Union{Symbol, Face}, mod::Module, strict::Bool) = interpface(value, mod, strict)
+interpattr(value::AbstractString, mod::Module, strict::Bool) =
+    if all(Base.isidentifier, eachsplit(value, '.'))
+        interpface(registrykey(value), mod, strict)
+    else
+        parse(SimpleColor, value)
+    end
+interpattr(values::Vector, mod::Module, strict::Bool) = map(v -> interpface(v, mod, strict), values)
+interpattr((color, style)::Tuple{Any, Symbol}, mod::Module, strict::Bool) = (interpattr(color, mod, strict), style)
+interpattr(value, ::Module, ::Bool) = value
+
+interpunderline(value::Symbol, mod::Module, strict::Bool) =
+    if value in ATTRIBUTES.underlines value else interpface(value, mod, strict) end
+interpunderline(value, mod::Module, strict::Bool) = interpattr(value, mod, strict)
 
 """
     run_state_machine!(state::State)

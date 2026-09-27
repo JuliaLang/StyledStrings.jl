@@ -147,10 +147,9 @@ end
 """
     tryparse(::Type{SimpleColor}, rgb::AbstractString)
 
-Attempt to parse `rgb` as a `SimpleColor`. If `rgb` starts with
-`#` and has a length of 7, it is converted into a `RGBTuple`-backed `SimpleColor`.
-If `rgb` starts with `a`-`z`, `rgb` is interpreted as a color name
-and converted to a [`Face`](@ref)-backed `SimpleColor`.
+Attempt to parse `rgb` as a `SimpleColor`. A hex colour, as `#rrggbb` or `0xrrggbb`, is
+converted into a `RGBTuple`-backed `SimpleColor`. A face name, which is a Julia identifier
+or a dotted path of them, is converted to a [`Face`](@ref)-backed `SimpleColor`.
 
 Otherwise, `nothing` is returned.
 
@@ -167,15 +166,13 @@ julia> tryparse(SimpleColor, "#nocolor")
 ```
 """
 function Base.tryparse(::Type{SimpleColor}, rgb::AbstractString)
-    if ncodeunits(rgb) == 7 && first(rgb) == '#' &&
-        all(isxdigit, SubString(rgb, 2))
-        SimpleColor(parse(UInt8, rgb[2:3], base=16),
-                    parse(UInt8, rgb[4:5], base=16),
-                    parse(UInt8, rgb[6:7], base=16))
-    elseif !isempty(rgb) && ('a' <= rgb[1] <= 'z' || 'A' <= rgb[1] <= 'Z')
-        SimpleColor(lookmakeface(Symbol(rgb), false))
-    else
-        nothing
+    hex = if startswith(rgb, '#') SubString(rgb, 2) elseif startswith(rgb, "0x") SubString(rgb, 3) end
+    if !isnothing(hex) && ncodeunits(hex) == 6 && all(isxdigit, hex)
+        SimpleColor(parse(UInt8, hex[1:2], base=16),
+                    parse(UInt8, hex[3:4], base=16),
+                    parse(UInt8, hex[5:6], base=16))
+    elseif isnothing(hex) && all(Base.isidentifier, eachsplit(rgb, '.'))
+        SimpleColor(lookmakeface(registrykey(rgb), false))
     end
 end
 

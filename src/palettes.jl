@@ -22,6 +22,8 @@ end
 
 function Base.showerror(io::IO, e::UnknownFaceError)
     print(io, "Unknown face '", e.name, "' in module ", e.context, '.')
+    suggestion = similarface(e.context, e.name)
+    isnothing(suggestion) || print(io, " Did you mean '", suggestion, "'?")
     hasdefs = isdefined(e.context, MAGIC_DEFPALETTE_VARNAME)
     if hasdefs
         println(io, " Faces defined in the module:")
@@ -35,31 +37,129 @@ function Base.showerror(io::IO, e::UnknownFaceError)
             println(io, "  - ", source)
         end
     elseif !hasdefs
-        print(io, " No faces are defined or imported.")
+        print(io, " Only the standard faces are available, as ", e.context, " defines no palette and uses none.")
     end
 end
 
-function findface(mod::Module, name::Symbol)
+"""
+    FacePathError(context::Module, path::String, depth::Int)
+
+The dotted face name `path`, written in `context`, does not lead to a face. Its
+first `depth` components name modules or named palettes, and the next does not.
+"""
+struct FacePathError <: Exception
+    context::Module
+    path::String
+    depth::Int
+end
+
+function Base.showerror(io::IO, e::FacePathError)
+    names = split(e.path, '.')
+    if e.depth == length(names) - 1
+        print(io, "`", join(names[1:e.depth], '.'), "` has no face named '", last(names), "'.")
+    else
+        print(io, "Cannot find the face '", e.path, "' from module ", e.context, ": `",
+              join(names[1:e.depth+1], '.'), "` is not a module or named palette. Dotted face names are module paths.")
+    end
+    if haskey(FACES.pool, registrykey(e.path))
+        print(io, " The face is registered as '", registrykey(e.path),
+              "'; refer to it by the path of the module that defines it.")
+    end
+end
+
+"""
+    registrykey(name::AbstractString) -> Symbol
+
+The key of the face written as `name` in the global registry. The dots of a module
+path (`Mod.face`) become underscores (`Mod_face`).
+"""
+registrykey(name::AbstractString) = Symbol(replace(name, '.' => '_'))
+
+"""
+    paletteface(mod::Module, name::Symbol) -> Union{Face, Nothing}
+
+Find the face `name` in the palettes defined in or used by `mod`.
+"""
+function paletteface(mod::Module, name::Symbol)
     if isdefined(mod, MAGIC_DEFPALETTE_VARNAME) && haskey(getglobal(mod, MAGIC_DEFPALETTE_VARNAME).base, name)
         getproperty(getglobal(mod, MAGIC_DEFPALETTE_VARNAME).base, name)::Face
     elseif isdefined(mod, MAGIC_USEPALETTE_VARNAME) && haskey(getglobal(mod, MAGIC_USEPALETTE_VARNAME).base, name)
         getproperty(getglobal(mod, MAGIC_USEPALETTE_VARNAME).base, name)::Face
-    else
-        get(FACES.pool, name, nothing)
     end
 end
 
 lookupface(mod::Module, name::Symbol) =
-    @something(findface(mod, name), throw(UnknownFaceError(mod, name)))
+    @something(paletteface(mod, name), get(FACES.pool, name, nothing), throw(UnknownFaceError(mod, name)))
 
-function lookmakeface(mod::Module, name::Symbol, use::Bool = true)
-    lface = findface(mod, name)
-    if !isnothing(lface)
-        lface
+"""
+    faceref(mod::Module, name::Symbol) -> Union{Face, Expr, Nothing}
+
+Code that refers to the face `name` in `mod`, for a macro to emit.
+
+A palette face or a standard face is referred to directly, as a constant holds it.
+A face only the registry holds, such as one added by `addface!`, is looked up when
+the code runs. Precompiled code would otherwise hold a copy of it.
+"""
+function faceref(mod::Module, name::Symbol)
+    face = paletteface(mod, name)
+    isnothing(face) || return face
+    registered = get(FACES.pool, name, nothing)
+    if isnothing(registered) || any(f -> f === registered, STANDARD_FACES)
+        registered
     else
-        mkunregisteredface(name, use)
+        Expr(:call, lookmakeface, QuoteNode(name))
     end
 end
+
+"""
+    pathface(mod::Module, path::String) -> Union{Face, FacePathError}
+
+Find the face named by the dotted `path` (`Mod.face`, `Mod.palette.face`), whose
+components are looked up from `mod`.
+"""
+function pathface(mod::Module, path::String)
+    names = map(Symbol, eachsplit(path, '.'))
+    holder::Any = mod
+    for (depth, name) in enumerate(names[1:end-1])
+        holder = if holder isa Module && isdefined(holder, name) getglobal(holder, name) end
+        ispalette = holder isa Module || holder isa NamedTuple && haskey(holder, MAGIC_DEFPALETTE_VARNAME)
+        ispalette || return FacePathError(mod, path, depth - 1)
+    end
+    palette = if holder isa Module && isdefined(holder, MAGIC_DEFPALETTE_VARNAME)
+        getglobal(holder, MAGIC_DEFPALETTE_VARNAME)
+    elseif holder isa NamedTuple
+        holder[MAGIC_DEFPALETTE_VARNAME]
+    end
+    face = if !isnothing(palette) get(palette.base, last(names), nothing) end
+    @something(face, FacePathError(mod, path, length(names) - 1))
+end
+
+"""
+    similarface(mod::Module, name::Symbol) -> Union{Symbol, Nothing}
+
+Suggest a face known to `mod` whose name is close to `name`, a misspelling.
+"""
+function similarface(mod::Module, name::Symbol)
+    function editdistance(a::String, b::String)
+        row = collect(0:length(b))
+        for (i, ca) in enumerate(a)
+            diag, row[1] = row[1], i
+            for (j, cb) in enumerate(b)
+                diag, row[j+1] = row[j+1], min(row[j+1] + 1, row[j] + 1, diag + (ca != cb))
+            end
+        end
+        last(row)
+    end
+    candidates = collect(Symbol, keys(STANDARD_FACES))
+    for var in (MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME)
+        isdefined(mod, var) && append!(candidates, keys(getglobal(mod, var).base))
+    end
+    target = String(name)
+    distance, best = minimum(c -> (editdistance(String(c), target), c), candidates)
+    if distance <= max(1, length(target) ÷ 3) best end
+end
+
+lookmakeface(mod::Module, name::Symbol) = @something(paletteface(mod, name), lookmakeface(name))
 
 function lookmakeface(name::Symbol, use::Bool = true)
     @something(get(FACES.pool, name, nothing),
@@ -119,14 +219,13 @@ Basic faces are always available, as well as any pulled in with
 """
 macro face_str(name::String)
     isempty(name) && return Face()
-    if '.' in name
-        components = map(Symbol, eachsplit(name, '.'))
-        push!(components, :base, last(components))
-        components[end-2] = MAGIC_DEFPALETTE_VARNAME
-        esc(foldl((a, b) -> Expr(:., a, QuoteNode(b)), components[2:end]; init = first(components)))
+    face = if '.' in name
+        pathface(__module__, name)
     else
-        lookupface(__module__, Symbol(name))
+        @something(faceref(__module__, Symbol(name)), UnknownFaceError(__module__, Symbol(name)))
     end
+    face isa Exception && throw(face)
+    face
 end
 
 """
@@ -154,7 +253,7 @@ end
 ```
 """
 macro defpalette!(pargs::Any...)
-    nsmodule = Ref(__module__)
+    nsmodule = __module__
     namespace = ""
     # Apply keyword arguments
     decls = collect(pargs)
@@ -162,16 +261,14 @@ macro defpalette!(pargs::Any...)
         if Meta.isexpr(decl, :(=), 2)
             key, val = decl.args
             if key == :namespace
-                namespace = if val isa String
-                    String(val) * '_'
-                elseif val isa QuoteNode
+                namespace = if val isa QuoteNode
                     String(val.value) * '_'
                 elseif Meta.isexpr(val, :call) && first(val.args) == :Face
                     continue
                 else
                     nsval = Core.eval(__module__, val)
-                    nsval isa Module || throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a String, Symbol, or Module."))
-                    nsmodule[] = nsval
+                    nsval isa Module || throw(ArgumentError("Invalid @defpalette! argument `$decl`, namespace must be a Symbol or Module."))
+                    nsmodule = nsval
                     "" # Derived from the module's path below
                 end
             else
@@ -182,7 +279,7 @@ macro defpalette!(pargs::Any...)
     end
     # Determine namespace
     if isempty(namespace)
-        parents = Module[nsmodule[]]
+        parents = Module[nsmodule]
         while parentmodule(first(parents)) != first(parents)
             pushfirst!(parents, parentmodule(first(parents)))
         end
@@ -309,10 +406,14 @@ macro defpalette!(pargs::Any...)
         if f === :nothing
             nothing
         elseif f isa Symbol
-            @something(get(hoistfaces, f, nothing),
-                       Expr(:call, GlobalRef(@__MODULE__, :lookmakeface), nsmodule[], QuoteNode(f)))
+            ref = @something(get(hoistfaces, f, nothing), faceref(__module__, f), Some(nothing))
+            # A palette is built while precompiling, where a face only the registry holds is a copy
+            ref isa Union{Symbol, Face} || throw(UnknownFaceError(__module__, f))
+            ref
         elseif Meta.isexpr(f, :., 2)
-            Expr(:., Expr(:., Expr(:., f.args[1], QuoteNode(MAGIC_DEFPALETTE_VARNAME)), QuoteNode(:base)), f.args[2])
+            face = pathface(__module__, string(f))
+            face isa Exception && throw(face)
+            face
         elseif Meta.isexpr(f, :$, 1)
             f.args[1]
         elseif f isa Unsigned || f isa AbstractString

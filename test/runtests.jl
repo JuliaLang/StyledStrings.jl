@@ -204,6 +204,8 @@ pkgstrip(s::String) = replace(s, "StyledStrings." => "")
     @test tryparse(SimpleColor, "#010203") == SimpleColor(0x010203)
     @test tryparse(SimpleColor, "#12345g") === nothing
     @test tryparse(SimpleColor, "!not a color") === nothing
+    @test tryparse(SimpleColor, "0x010203") == SimpleColor(0x010203)
+    @test tryparse(SimpleColor, "red-ish") === nothing
     @test Face(foreground = SubString("#010203", 1)) == Face(foreground = 0x010203)
     @test parse(SimpleColor, "blue") == SimpleColor(face"blue")
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
@@ -547,15 +549,14 @@ end
 module TestPaletteB
     using StyledStrings
     using ..TestPaletteA
-    @defpalette! namespace = "custom" begin
+    @defpalette! namespace = :custom begin
         shared = Face(weight = :light)
         cross = Face(foreground = TestPaletteA.shared)
         std = Face(fg = red, bg = $(StyledStrings.SimpleColor(0x123456)), font = $(uppercase("mono")))
         chain = Face(inherit = [shared, cross])
-        lazy = Face(inherit = zzz_undefined)
     end
     __init__() = @registerpalette!
-    const shared, cross, std, chain, lazy = face"shared", face"cross", face"std", face"chain", face"lazy"
+    const shared, cross, std, chain = face"shared", face"cross", face"std", face"chain"
 end
 
 # Literal colours and unset attributes need no escaping.
@@ -605,6 +606,32 @@ end
     @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
     @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
     @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
+    # Interpolated names are looked up as written ones are, whether Symbols or Strings
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(string(:heading))):x}")))).value.foreground.value === heading
+    @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(bg=$(string(:nope))):x}"))
+    hexred = "#ff0000"
+    @test only(annotations(styled"{(fg=$hexred):x}")).value.foreground == SimpleColor(0xff0000)
+    # Interpolated underline colours are looked up in the palette too, and styles are kept
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:heading)):x}")))).value.underline == (SimpleColor(heading), :straight)
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(:heading), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:curly)):x}")))).value.underline == (nothing, :curly)
+    # Unknown faces in markup are reported where they are written
+    unknownmarkup = try Core.eval(TestPalette, :(styled"{headng:x} {(weight=bolder):y}")) catch err sprint(showerror, err) end
+    @test occursin("Unknown face 'headng' (did you mean 'heading'?)", unknownmarkup)
+    @test occursin("Invalid weight", unknownmarkup)
+    # Dotted names are module paths, resolved when the macro is expanded
+    @test only(annotations(Core.eval(TestPaletteUser, :(styled"{TestPalette.heading:x}")))).value === heading
+    @test only(annotations(Core.eval(TestPaletteUser, :(let TestPalette = 1; styled"{TestPalette.heading:x}" end)))).value === heading
+    @test_throws r"has no face named 'headng':" Core.eval(TestPaletteUser, :(styled"{TestPalette.headng:x}"))
+    @test_throws r"Dotted face names are module paths" Core.eval(TestPaletteUser, :(styled"{custom.shared:x}"))
+    @test_throws r"registered as 'custom_shared'" Core.eval(TestPaletteUser, :(face"custom.shared"))
+    @test only(annotations(styled("{custom.shared:x}"))).value === TestPaletteB.shared
+    @test tryparse(SimpleColor, "custom.shared") == SimpleColor(TestPaletteB.shared)
+    # A face only the registry holds is looked up when the code runs
+    @test StyledStrings.faceref(Main, :red) === face"red"
+    @test StyledStrings.faceref(TestPalette, :heading) === heading
+    @test StyledStrings.faceref(Main, :custom_shared) isa Expr
+    @test StyledStrings.faceref(Main, :zzz_never_defined) === nothing
     @test StyledStrings.facename(TestPaletteUser, heading) == :heading
     # A placeholder customised before use hands its customisation on to the registered face,
     # and once in use is displaced by it when interpolated
@@ -640,17 +667,20 @@ end
         @test_throws r"`forground = red`, as `forground` is not one of" declerror(:(begin a = Face(forground = red) end))
         @test Core.eval(TestPalette, :(@defpalette! emptyinherit begin a = Face(inherit = []) end)).var"##styledstrings-defpalette-variable#".base.a.inherit == Face[]
         @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette! namespace = 1 begin a = Face() end))
+        @test_throws r"namespace must be a Symbol or Module" macroexpand(TestPalette, :(@defpalette! namespace = "ns" begin a = Face() end))
+        # Every face referred to must be known when the palette is defined
+        @test_throws r"Unknown face 'zzz_undefined'" declerror(:(begin a = Face(inherit = zzz_undefined) end))
+        @test_throws r"Did you mean 'heading'" declerror(:(begin a = Face(foreground = headng) end))
+        @test_throws r"Unknown face 'custom_shared'" declerror(:(begin a = Face(inherit = custom_shared) end))
+        @test_throws r"`TestPaletteA` has no face named 'nope'" macroexpand(TestPaletteB, :(@defpalette! begin a = Face(inherit = TestPaletteA.nope) end))
     end
     @testset "References" begin
-        (; shared, cross, std, chain, lazy) = TestPaletteB
+        (; shared, cross, std, chain) = TestPaletteB
         @test cross.foreground == SimpleColor(TestPaletteA.shared)
         @test std.foreground == SimpleColor(face"red")
         @test std.background == SimpleColor(0x123456)
         @test std.font == "MONO"
         @test chain.inherit == [shared, cross]
-        # A reference to an unknown face is a lazily interned placeholder
-        @test only(lazy.inherit) === FACES.unregistered[:zzz_undefined]
-        @test getface(lazy) == getface(Face())
         (; hex, none) = TestPaletteLiterals
         @test hex.foreground == SimpleColor(0xff0000)
         @test hex.background == SimpleColor(0x00ff00)
@@ -670,7 +700,8 @@ end
         @test StyledStrings.facename(TestPaletteImporter, imported) == :onlya
         unknown = sprint(showerror, StyledStrings.UnknownFaceError(TestPaletteImporter, :nope))
         @test occursin("shared", unknown) && occursin("TestPaletteA", unknown) && occursin("TestPaletteB", unknown)
-        @test occursin("No faces are defined", sprint(showerror, StyledStrings.UnknownFaceError(Main, :nope)))
+        @test occursin("Only the standard faces are available, as Main defines no palette and uses none",
+                       sprint(showerror, StyledStrings.UnknownFaceError(Main, :nope)))
         # Only modules and named palettes with a palette can be used
         @test_throws r"needs at least one module" macroexpand(TestPaletteUser, :(@usepalettes!))
         @test_throws r"has no palette to use" @eval module TestUseNoPalette
@@ -884,7 +915,7 @@ end
         @macroexpand styled"{$key=$val:text}")
     @test astmatch(
         :(let ;
-              AnnotatedString("val", _[(; region = 1:3, label = :face, value = Face(foreground = $(Expr(:let, Expr(:block, :(_v = color)), :_))))])
+              AnnotatedString("val", _[(; region = 1:3, label = :face, value = Face(foreground = interpattr(color, _, false)))])
           end),
         @macroexpand styled"{(foreground=$color):val}"
     )
@@ -942,9 +973,9 @@ end
     @test annotations(styled"{TestPaletteA.shared:x}")[1].value === TestPaletteA.shared
     @test annotations(styled"{$(:red):x}")[1].value === face"red"
     # In a module with a palette, an unknown name is an error at expansion time
-    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{zzz_typo:x}"))
-    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{(fg=zzz_typo):x}"))
-    @test_throws StyledStrings.UnknownFaceError macroexpand(TestPalette, :(styled"{(inherit=zzz_typo):x}"))
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{zzz_typo:x}"))
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{(fg=zzz_typo):x}"))
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{(inherit=zzz_typo):x}"))
 
     # Trailing (and non-trailing) Backslashes
     @test String(styled"\\") == "\\"
@@ -1021,6 +1052,11 @@ end
     @test_throws MalformedStylingMacro styled("{(underline=(red, curly)")
     @test_throws MalformedStylingMacro macroexpand(@__MODULE__, Meta.parse("styled\"{(underline=(red, \$x\""))
     @test_throws MalformedStylingMacro styled("{x.:y}")
+    @test_throws MalformedStylingMacro styled("{red-ish:y}")
+    let hex = "0x010203", notname = "red-ish"
+        @test only(annotations(styled"{(fg=$hex):x}")).value == Face(foreground = 0x010203)
+        @test_throws ArgumentError styled"{(fg=$notname):x}"
+    end
     # Test the error printing too
     aio = AnnotatedIOBuffer()
     try
