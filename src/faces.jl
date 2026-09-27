@@ -144,6 +144,8 @@ function Base.convert(::Type{SimpleColor}, namedcolor::Symbol)
     SimpleColor(lookmakeface(namedcolor, false))
 end
 
+SimpleColor(namedcolor::Symbol) = convert(SimpleColor, namedcolor)
+
 """
     tryparse(::Type{SimpleColor}, rgb::AbstractString)
 

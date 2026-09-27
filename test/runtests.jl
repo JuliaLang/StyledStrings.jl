@@ -1620,6 +1620,12 @@ if NON_STDLIB_TESTS
         @test withfaces(:red => [:green, :inverse]) do
             get(FACES.current[], face"red", nothing)
         end == Face(inherit=[:green, :inverse])
+        @test SimpleColor(:red) == SimpleColor(face"red")
+        @test withfaces(() -> getface(face"red").font, :red => Face(font = "compat")) == "compat"
+        @test withfaces(face"red" => Union{Symbol, Face}[face"bold", :blue]) do
+            (getface(face"red").weight, getface(face"red").foreground)
+        end == (:bold, SimpleColor(face"blue"))
+        @test withfaces(() -> getface(face"red").weight, face"red" => [:bold]) == :bold
     end
 end
 

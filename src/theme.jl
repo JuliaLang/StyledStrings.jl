@@ -351,42 +351,37 @@ function withfaces(f, keyvals_itr)
     # Before modifying the current `FACES`, we should ensure
     # that we've loaded the user's customisations.
     load_customisations!()
-    if eltype(keyvals_itr) <: Pair{Face}
-    elseif eltype(keyvals_itr) <: Pair{Symbol}
-        keyvals_itr = Iterators.map(keyvals_itr) do (k, v)
-            lookmakeface(k) => v
-        end
-    else
+    eltype(keyvals_itr) <: Pair{<:Union{Face, Symbol}} ||
         throw(MethodError(withfaces, (f, keyvals_itr)))
+    current = FACES.current[]
+    function resolve(new)
+        face = if new isa Symbol lookmakeface(new) else new end
+        get(current, face, face)
     end
-    newfaces = copy(FACES.current[])
-    for (face, new) in keyvals_itr
-        if new isa Face
-            newfaces[face] = get(FACES.current[], new, new)
-        elseif new isa Symbol
-            newf = lookmakeface(new)
-            newfaces[face] = get(FACES.current[], newf, newf)
-        elseif new isa Vector{Symbol}
-            newfs = map(lookmakeface, new)
-            newfaces[face] = Face(inherit=[get(FACES.current[], nf, nf) for nf in newfs])
-        elseif new isa Vector{Face}
-            newfaces[face] = Face(inherit=[get(FACES.current[], nf, nf) for nf in new])
-        elseif haskey(newfaces, face)
+    newfaces = copy(current)
+    for (key, new) in keyvals_itr
+        face = if key isa Symbol lookmakeface(key) else key end
+        if new isa Union{Face, Symbol}
+            newfaces[face] = resolve(new)
+        elseif new isa Vector
+            newfaces[face] = Face(inherit = map(resolve, new))
+        else
             delete!(newfaces, face)
         end
     end
     @with(FACES.current => newfaces, FACES.cache => emptycache(), f())
 end
 
-function withfaces(f, keyvals::Pair{Symbol, <:Union{Symbol, Vector{Symbol}, Nothing}}...)
+const FaceReplacement = Union{Face, Symbol, Vector{Face}, Vector{Symbol}, Vector{Union{Symbol, Face}}, Nothing}
+
+function withfaces(f, keyvals::Pair{Symbol, <:FaceReplacement}...)
     # Base.depwarn("`withfaces` with `Symbol` face names is deprecated as of v1.14 and will be removed in a future release. \
     #               Instead you should specify the target faces directly as `Face`s (e.g. from `face\"\"`).",
     #                :withfaces)
     withfaces(f, keyvals)
 end
 
-withfaces(f, keyvals::Pair{Face, <:Union{Face, Union{Symbol, Face}, Vector{Face}, Vector{Union{Symbol, Face}}, Nothing}}...) =
-    withfaces(f, keyvals)
+withfaces(f, keyvals::Pair{Face, <:FaceReplacement}...) = withfaces(f, keyvals)
 
 withfaces(f) = f()
 
