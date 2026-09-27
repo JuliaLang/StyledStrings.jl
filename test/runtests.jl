@@ -992,6 +992,10 @@ end
 # Markup fuzzing!
 styfuzz()
 
+struct Hue end
+Base.AnnotatedDisplay.AnnotationStyle(::Type{Hue}) = StyledStrings.Styled()
+Base.convert(::Type{Face}, ::Hue) = face"red"
+
 struct CallableWriter end
 (::CallableWriter)(io::IO, s) = print(io, s)
 
@@ -1015,6 +1019,8 @@ struct CallableWriter end
     # A link spanning several styled regions is one hyperlink
     @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
         "\e]8;;https://x.org\e\\\e[1ma\e[22mb\e]8;;\e\\ c"
+    # Another value type is displayed through `convert(Face, value)`
+    @test sprint(print, AnnotatedString{String, Hue}("x", [(1:1, :face, Hue())]), context = :color => true) == "\e[31mx\e[39m"
     # Escaping is applied to each run of text as it is styled
     @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
 end
