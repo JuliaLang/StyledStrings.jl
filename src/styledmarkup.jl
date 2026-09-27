@@ -1034,7 +1034,6 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     isempty(interps) && return avar
     push!(state.out.lets, :(interp_annot_count = 0))
     avars = Symbol[]
-    avtype0 = something(state.out.avtype, STYLED_VALTYPE)
     varinstances = Dict{Symbol, Vector{Int}}()
     for (i, (; var)) in enumerate(interps)
         push!(get!(() -> Int[], varinstances, var), i)
@@ -1070,11 +1069,7 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     if length(interps) == 1 && first(interps).startpos == 1 && first(interps).annotidx == lastindex(state.out.annots) + 1
         append!(state.out.lets,
                 (quote
-                     $newavar = if $avtype0 == $(something(state.out.avtype, STYLED_VALTYPE))
-                         $avar
-                     else
-                         Vector{$avtype}($avar)
-                     end
+                     $newavar = convert(Vector{$avtype}, $avar)
                      iszero(interp_annot_count) ||
                          append!($newavar, $(first(avars)))
                  end).args)
@@ -1135,7 +1130,7 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
               :(if !iszero(interp_annot_count)
                     $(iexprs...)
                 else
-                    $newavar = $avar
+                    $newavar = convert(Vector{$avtype}, $avar)
                 end))
     end
     newavar
