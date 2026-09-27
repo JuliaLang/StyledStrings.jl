@@ -645,6 +645,21 @@ end
     @test only(annotations(styled"{$placeholder:x}")).value === registered
     @test !haskey(FACES.unregistered, :zzz_placeholder)
     resetfaces!(registered)
+    # Faces holding a displaced placeholder show its replacement
+    early = StyledStrings.lookmakeface(:zzz_displaced)
+    inheriting, colouring = Face(inherit = early), Face(foreground = early)
+    customised = StyledStrings.lookmakeface(:zzz_displaced_custom, false)
+    setface!(face"shadow" => Face(background = customised))
+    late = Face(foreground = 0x00ff00)
+    @lock FACES.lock StyledStrings.register_displace!(early, late, :zzz_displaced)
+    @lock FACES.lock StyledStrings.register_displace!(customised, late, :zzz_displaced_custom)
+    StyledStrings.emptycache!(FACES.cache.default)
+    @test getface(inheriting).foreground == SimpleColor(0x00ff00)
+    @test rgbcolor(colouring.foreground) == (r = 0x00, g = 0xff, b = 0x00)
+    @test rgbcolor(getface(face"shadow").background) == (r = 0x00, g = 0xff, b = 0x00)
+    StyledStrings.relayer!()
+    @test getface(inheriting).foreground == SimpleColor(0x00ff00)
+    resetfaces!(face"shadow")
     # A recolouring of a placeholder moves with it
     recoloured = StyledStrings.lookmakeface(:zzz_displaced_recolour, false)
     FACES.recolors[recoloured] = Face(font = "recoloured")
@@ -754,6 +769,17 @@ end
         @test getface(new).font == "kept"
         @test !haskey(FACES.themes.dark, new) # The variant it no longer declares is gone
         resetfaces!(new)
+        # A face in use before its palette is registered follows each later registration of it
+        early = StyledStrings.lookmakeface(Symbol(join((fullname(@__MODULE__)..., :TestPaletteLate, :r), '_')))
+        latepalette(weight) = :(module TestPaletteLate
+            using StyledStrings
+            @defpalette! begin r = Face(weight = $(QuoteNode(weight))) end
+            @registerpalette!
+        end)
+        Core.eval(@__MODULE__, latepalette(:bold))
+        @test getface(early).weight == :bold
+        Core.eval(@__MODULE__, latepalette(:light))
+        @test getface(early).weight == :light
         # A module with only named palettes registers them by name
         @test_logs @eval module TestNamedPalettes
             using StyledStrings
@@ -1017,6 +1043,10 @@ end
     @test styled("{red:x}{note=n:y}") isa AnnotatedString{String, Union{Face, String}}
     # An unknown name is a placeholder that a later registration displaces, as in the macro
     @test annotations(styled("{zzz_fnface:x}"))[1].value === StyledStrings.lookmakeface(:zzz_fnface)
+    early = styled("{zzz_fnlate:x}")
+    StyledStrings.addface!(:zzz_fnlate => Face(foreground = 0x00ff00))
+    push!(HACKY_FACES, :zzz_fnlate)
+    @test getface(early, 1).foreground == SimpleColor(0x00ff00)
     # A dotted name is a namespaced name, in a face name and an inline face alike
     @test only(annotations(styled("{zzz_ns.face:x}"))).value === StyledStrings.lookmakeface(:zzz_ns_face)
     @test only(annotations(styled("{(fg=zzz_ns.face):x}"))).value.foreground.value === StyledStrings.lookmakeface(:zzz_ns_face)
