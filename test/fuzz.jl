@@ -119,7 +119,7 @@ const interpolated = Data.OneOf(
     map(s -> "\$("*s*")", identifier)
 )
 
-const facename = Data.Text(Data.SampledFrom(alphanum); min_len=1, max_len=20)
+const facename = identifier
 const face = facename #| interpolated
 
 const key = (@composed function k(
