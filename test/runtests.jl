@@ -359,6 +359,11 @@ end
     # Only annotation values are substituted, not the attributes of a face
     @test StyledStrings.remapfaces(styled"{(foreground=red):a}", face"red" => face"blue") ==
         AnnotatedString("a", [(1:1, :face, Face(foreground = face"red"))])
+    # The value type is kept, whatever the values
+    linked = styled"{red:a}{link=x:b}"
+    @test typeof(StyledStrings.remapfaces(linked, face"red" => face"blue")) == typeof(linked)
+    @test typeof(StyledStrings.remapfaces(styled("{red:a}"), face"red" => face"blue")) == typeof(styled("{red:a}"))
+    @inferred StyledStrings.remapfaces(linked, face"red" => face"blue")
     # The face cache serves an explicit instance, and evicts correctly under churn
     cache = StyledStrings.emptycache()
     @test getface(face"red", cache) == getface(face"red")
@@ -820,11 +825,7 @@ end
               _!annots = _[]
               _!interp_annot_count = 0
               _...
-              _!interp_annots = if _
-                  _!annots
-              else
-                  Vector{_}(_!annots)
-              end
+              _!interp_annots = convert(Vector{_}, _!annots)
               _...
               AnnotatedString(_!val_str, _!interp_annots)
           end),
@@ -933,6 +934,10 @@ end
     @test styled"{red:x}" isa AnnotatedString{String, Face}
     @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{String, Face}}
     @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, Face}}
+    # The value type follows from the argument types, not from whether they are annotated
+    boldafter(a) = styled"{bold:x} $a"
+    @test typeof(boldafter(styled("y"))) == typeof(boldafter(styled("{red:y}")))
+    @test Base.return_types(boldafter, (typeof(styled("y")),)) == [typeof(styled("y"))]
     # Faces by dotted path and by interpolated name
     @test annotations(styled"{TestPaletteA.shared:x}")[1].value === TestPaletteA.shared
     @test annotations(styled"{$(:red):x}")[1].value === face"red"

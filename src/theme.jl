@@ -310,10 +310,10 @@ julia> remapfaces(styled"some {red:important} text", face"red" => face"blue") |>
  (region = 6:14, label = :face, value = face"blue")
 ```
 """
-function remapfaces(s::AnnotatedString, kv::Pair{Face, Face}...)
+function remapfaces(s::AnnotatedString{S, V}, kv::Pair{Face, Face}...) where {S, V}
     remap = IdDict{Face, Face}(kv)
-    AnnotatedString(s.string, map(annotations(s)) do (; region, label, value)
-        if label === :face
+    AnnotatedString{S, V}(s.string, map(annotations(s)) do (; region, label, value)
+        if label === :face && value isa Face
             (; region, label, value = get(remap, value, value))
         else
             (; region, label, value)
