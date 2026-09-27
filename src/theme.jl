@@ -784,13 +784,19 @@ end
     relayer!(face::Face)
 
 Recompute the current definition of `face` from its variant for the current
-theme, its recolouring, and its base and current-theme modifications.
+theme, its recolouring, and its base and current-theme modifications. A displaced
+placeholder inherits from the face that replaced it.
 The face cache is left for the caller to clear once its batch is done.
 """
 function relayer!(face::Face)
     theme = FACES.current_theme[]
     current = FACES.current.default
-    delete!(current, face)
+    replacement = get(FACES.displacements, face, nothing)
+    if isnothing(replacement)
+        delete!(current, face)
+    else
+        current[face] = Face(inherit = replacement)
+    end
     function layer!(table)
         update = get(table, face, nothing)
         isnothing(update) && return

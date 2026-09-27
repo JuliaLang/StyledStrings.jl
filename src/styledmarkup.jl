@@ -981,8 +981,11 @@ Resolve an interpolated `face` from styled markup.
 function interpface end
 
 function interpface(face::Face, ::Module, ::Bool)
-    face.f.height == UNDEF_INUSE_HEIGHT_FLAG || return face
-    get(FACES.displacements, face, face)
+    face.f.height ∈ (UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG) || return face
+    while haskey(FACES.displacements, face)
+        face = FACES.displacements[face]
+    end
+    face
 end
 
 function interpface(face::Symbol, mod::Module, strict::Bool)

@@ -644,8 +644,10 @@ The modifications and recolourings of `old` move to `new`. So do its variants
 when `old` is a placeholder, while the variants of an earlier registration are
 dropped for those of the new palette.
 
-An in-use placeholder is recorded in `FACES.displacements`, so that interpolating
-it into styled markup yields `new`.
+A placeholder is recorded in `FACES.displacements`, and its current definition
+inherits from `new`. Faces and strings that still hold the placeholder then show
+`new`, and interpolating it into styled markup yields `new`. When `old` is an
+earlier registration, the placeholders it displaced move to `new`.
 
 !!! warning
     Assumes that the caller holds `FACES.lock`.
@@ -662,7 +664,9 @@ function register_displace!(old::Face, new::Face, fullname::Symbol)
             table[new] = row
         end
     end
-    if old.f.height == UNDEF_INUSE_HEIGHT_FLAG
-        FACES.displacements[old] = new
+    displaced = if placeholder; [old] else Face[p for (p, target) in FACES.displacements if target === old] end
+    for face in displaced
+        FACES.displacements[face] = new
+        relayer!(face)
     end
 end
