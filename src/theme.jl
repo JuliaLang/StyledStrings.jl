@@ -407,7 +407,8 @@ Named faces (base colours included) map to ours by identity, so that self-refere
 faces terminate and theme overrides keyed on the equivalent face still apply. Other faces
 with our `FaceDef` layout are copied field by field, those with our properties are rebuilt
 from them, and anything else is a `MethodError`. A face name `Symbol`, which is how pre-1.14
-copies refer to colours and inheritance, is looked up as ours.
+copies refer to colours and inheritance, is looked up as ours. A value of another type is
+converted with `convert(Face, face)`.
 """
 function foreignface(face)
     T = typeof(face)
@@ -420,7 +421,7 @@ function foreignface(face)
         !(t isa Union || s isa Union) && nameof(t) == nameof(s)
     end
     if nameof(other) !== :StyledStrings || nameof(T) !== :Face
-        throw(MethodError(_mergedface, (face,)))
+        return convert(Face, face)::Face
     end
     name = if isdefined(other, :FACES) && hasproperty(other.FACES, :names) get(other.FACES.names, face, nothing) end
     named = if !isnothing(name) get(FACES.pool, name, nothing) end

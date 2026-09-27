@@ -391,8 +391,8 @@ end
 
 The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face`: annotated strings whose
 values include `Face`s are displayed by StyledStrings. Another annotation value type can
-be displayed the same way by declaring `Styled()` as its style, provided
-[`getface`](@ref) can interpret its values.
+be displayed the same way by declaring `Styled()` as its style, and defining
+`convert(Face, value)` for its values.
 """
 struct Styled <: AnnotatedDisplay.AbstractAnnotationStyle end
 
