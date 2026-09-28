@@ -657,6 +657,19 @@ end
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
     @test printstyled(aio, "f", color=208) |> isnothing
     @test annotations(read(seekstart(aio), AnnotatedString))[end].value.foreground == SimpleColor(0xff8700)
+    # A faulty faces.toml is reported once, and printing still works
+    mktempdir() do depot
+        mkpath(joinpath(depot, "config"))
+        write(joinpath(depot, "config", "faces.toml"), "[[[")
+        pushfirst!(DEPOT_PATH, depot)
+        try
+            @test_logs (:error, r"Could not load the face customisations") StyledStrings.load_customisations!(force = true)
+            @test_logs StyledStrings.load_customisations!()
+            @test sprint(print, styled"{red:x}", context = :color => true) == "\e[31mx\e[39m"
+        finally
+            popfirst!(DEPOT_PATH)
+        end
+    end
 end
 
 # A look-alike for another copy of StyledStrings, whose `Face` is a distinct type with the

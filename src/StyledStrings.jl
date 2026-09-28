@@ -39,12 +39,16 @@ function load_customisations!(; force::Bool=false)
     !force && HAVE_LOADED_CUSTOMISATIONS && return
     (function ()
          @noinline
+         global HAVE_LOADED_CUSTOMISATIONS = true # First, so that a faulty file is reported once
          if !isempty(DEPOT_PATH)
              userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
-             isfile(userfaces) && loaduserfaces!(userfaces)
+             try
+                 isfile(userfaces) && loaduserfaces!(userfaces)
+             catch err
+                 @error "Could not load the face customisations in $userfaces" exception = (err, catch_backtrace())
+             end
          end
          Legacy.load_env_colors!()
-         global HAVE_LOADED_CUSTOMISATIONS = true
      end)()
     nothing
 end
