@@ -651,8 +651,10 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             expr, _ = readexpr!(state)
             isempty(state.s) || (lastchar = last(popfirst!(state.s)))
             needseval = true
-            if key ∈ (:foreground, :background, :inherit) # Look up face names as written ones are
+            if key ∈ (:foreground, :background) # Look up face names as written ones are
                 :($interpattr($(esc(expr)), $(state.out.mod), $(state.strict)))
+            elseif key == :inherit
+                :($interpface($(esc(expr)), $(state.out.mod), $(state.strict)))
             elseif key == :underline
                 :($interpunderline($(esc(expr)), $(state.out.mod), $(state.strict)))
             else
@@ -895,11 +897,16 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
             needseval = true
-            vvar = if expr isa Symbol
+            vvar = if expr isa Symbol && key != "face"
                 esc(expr)
             else
                 vsym = gensym(:value)
-                push!(state.out.lets, :($vsym = $(esc(expr))))
+                value = if key == "face"
+                    :($interpfaceannot($(esc(expr)), $(state.out.mod), $(state.strict)))
+                else
+                    esc(expr)
+                end
+                push!(state.out.lets, :($vsym = $value))
                 vsym
             end
             annotpromote!(state, :(typeof($vvar)))
@@ -914,6 +921,10 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             end
             String(chars)
         end
+        if key == "face" && value isa String
+            styerr!(state, "A face is written by name, as in {red:…}, or interpolated, as in {face=\$f:…}",
+                    -length(value) - 1)
+        end
         if ismacro(state) && value isa String
             annotpromote!(state, :String)
         end
@@ -927,7 +938,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             state.out.rfaces[Symbol(key)]
         else
             fval = if key isa Symbol || key isa Expr
-                :($interpface($key, $(state.out.mod), $(state.strict)))
+                :($interpfaceannot($key, $(state.out.mod), $(state.strict)))
             else
                 resolveface(state, key)
             end
@@ -981,6 +992,12 @@ function interpface(face::Symbol, mod::Module, strict::Bool)
     end
 end
 
+interpface(faces::Union{Vector, Tuple}, mod::Module, strict::Bool) = Face[interpface(face, mod, strict) for face in faces]
+
+# As an annotation, an interpolated vector or tuple of faces stacks them, the first taking priority
+interpfaceannot(faces::Union{Vector, Tuple}, mod::Module, strict::Bool) = Face(inherit = interpface(faces, mod, strict))
+interpfaceannot(face, mod::Module, strict::Bool) = interpface(face, mod, strict)
+
 interpface(face, ::Module, ::Bool) = throw(ArgumentError("Face interpolation must evaluate to a Symbol or Face, not $(typeof(face))"))
 
 interpattr(value::Union{Symbol, Face}, mod::Module, strict::Bool) = interpface(value, mod, strict)
@@ -990,12 +1007,12 @@ interpattr(value::AbstractString, mod::Module, strict::Bool) =
     else
         parse(SimpleColor, value)
     end
-interpattr(values::Vector, mod::Module, strict::Bool) = map(v -> interpface(v, mod, strict), values)
 interpattr((color, style)::Tuple{Any, Symbol}, mod::Module, strict::Bool) = (interpattr(color, mod, strict), style)
 interpattr(value, ::Module, ::Bool) = value
 
 interpunderline(value::Symbol, mod::Module, strict::Bool) =
     if value in ATTRIBUTES.underlines value else interpface(value, mod, strict) end
+interpunderline(value::AbstractString, ::Module, ::Bool) = value # A hex colour, as `Face` requires
 interpunderline(value, mod::Module, strict::Bool) = interpattr(value, mod, strict)
 
 """
