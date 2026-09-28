@@ -1762,3 +1762,52 @@ Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = S
         @test out in ("true,true", "same copy")
     end
 end
+
+# Faces seen from precompiled packages, in a fresh process with its own faces.toml
+@testset "Precompiled packages" begin
+    mktempdir() do dir
+        function package(name, uuid, deps, code)
+            mkpath(joinpath(dir, name, "src"))
+            write(joinpath(dir, name, "Project.toml"),
+                  "name = \"$name\"\nuuid = \"$uuid\"\n[deps]\n",
+                  join(("$dep = \"$depuuid\"\n" for (dep, depuuid) in deps)))
+            write(joinpath(dir, name, "src", "$name.jl"), "module $name\n$code\nend\n")
+        end
+        styledstrings = "StyledStrings" => "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+        legacy = "PkgLegacy" => "6c4b5d0e-0000-4000-8000-000000000001"
+        palette = "PkgPalette" => "6c4b5d0e-0000-4000-8000-000000000002"
+        package(legacy..., [styledstrings], """
+            using StyledStrings
+            __init__() = StyledStrings.addface!(:zzz_pkglegacy => Face(foreground = 0x00ff00))""")
+        package(palette..., [styledstrings], """
+            using StyledStrings
+            @defpalette! begin accent = Face(foreground = 0xff0000) end
+            __init__() = @registerpalette!
+            const accent = face"accent\"""")
+        package("PkgUser", "6c4b5d0e-0000-4000-8000-000000000003", [styledstrings, legacy, palette], """
+            using StyledStrings, PkgLegacy, PkgPalette
+            legacy() = styled"{zzz_pkglegacy:x}"
+            accent() = styled"{PkgPalette.accent:x}\"""")
+        depot = mkpath(joinpath(dir, "depot", "config"))
+        write(joinpath(depot, "faces.toml"), """
+            zzz_pkglegacy.weight = "bold"
+            PkgPalette.accent.weight = "bold"
+            shadow.foreground = "PkgPalette.accent"
+            """)
+        script = """
+            using StyledStrings: StyledStrings, FACES, getface, rgbcolor, @face_str
+            StyledStrings.load_customisations!() # Before `PkgPalette` registers the face it names
+            using PkgUser, PkgPalette
+            legacy = only(Base.annotations(PkgUser.legacy())).value
+            accent = only(Base.annotations(PkgUser.accent())).value
+            print(legacy === FACES.pool[:zzz_pkglegacy], ' ', getface(legacy).weight, ' ',
+                  accent === PkgPalette.accent, ' ', getface(accent).weight, ' ',
+                  rgbcolor(getface(face"shadow").foreground) == (r = 0xff, g = 0x00, b = 0x00))
+            """
+        pathsep = if Sys.iswindows() ';' else ':' end
+        loadpath = join([pkgdir(StyledStrings), map(name -> joinpath(dir, name), ["PkgLegacy", "PkgPalette", "PkgUser"])..., "@stdlib"], pathsep)
+        cmd = addenv(`$(Base.julia_cmd()) --startup-file=no -e $script`,
+                     "JULIA_LOAD_PATH" => loadpath, "JULIA_DEPOT_PATH" => dirname(depot) * pathsep)
+        @test readchomp(cmd) == "true bold true bold true"
+    end
+end
