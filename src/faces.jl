@@ -338,6 +338,8 @@ function Face(; font::Union{Nothing, String} = nothing,
         asbyte(underline[2], :underline)
     elseif underline in ATTRIBUTES.underlines
         WeakNothing(), asbyte(underline, :underline)
+    elseif underline isa AbstractString && !(startswith(underline, '#') || startswith(underline, "0x"))
+        throw(ArgumentError("invalid Face underline $(repr(underline)), a string must be a hex colour such as \"#ff0000\""))
     elseif underline === true
         WeakNothing(), attrbyte(:underline, :straight)
     elseif underline === false # Off, and drops any inherited colour

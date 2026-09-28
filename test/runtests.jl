@@ -247,6 +247,7 @@ end
         @test Face(underline=style).underline == (nothing, style)
         @test Face(underline=(face"red", style)).underline == (SimpleColor(face"red"), style)
     end
+    @test_throws ArgumentError Face(underline="red")
     @test_throws ArgumentError Face(underline=(nothing, :unknown))
     @test sizeof(StyledStrings.FaceDef) + sizeof(Int) <= 64 # A `Face` fits one 64-byte allocation
     @test Face(foreground=SimpleColor(face"red")).foreground == SimpleColor(face"red")
@@ -605,12 +606,22 @@ end
     @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
     @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
     @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
+    # Strings name colours, as in `fg` and an underline tuple, but not faces to inherit or a bare underline
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(string(:heading)), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
+    @test_throws ArgumentError Core.eval(TestPalette, :(styled"{(inherit=$(string(:heading))):x}"))
+    @test_throws ArgumentError Core.eval(TestPalette, :(styled"{(underline=$(string(:heading))):x}"))
+    # A face given as a `face=` value is looked up as an interpolated face is
+    let facekey = Core.eval(TestPalette, :(let f = :heading; styled"{face=$f:x}" end))
+        @test facekey isa AnnotatedString{String, Face}
+        @test annotations(facekey) == [(region = 1:1, label = :face, value = heading)]
+    end
     @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
     # Interpolated names are looked up as written ones are, whether Symbols or Strings
     @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(string(:heading))):x}")))).value.foreground.value === heading
     @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(bg=$(string(:nope))):x}"))
     hexred = "#ff0000"
     @test only(annotations(styled"{(fg=$hexred):x}")).value.foreground == SimpleColor(0xff0000)
+    @test only(annotations(styled"{(underline=$hexred):x}")).value.underline == (SimpleColor(0xff0000), :straight)
     # Interpolated underline colours are looked up in the palette too, and styles are kept
     @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:heading)):x}")))).value.underline == (SimpleColor(heading), :straight)
     @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(:heading), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
@@ -916,14 +927,14 @@ end
         @macroexpand styled"{nonexistent_face:x}")
     @test astmatch(
         :(let ;
-              _f = interpface(face, _, false)
+              _f = interpfaceannot(face, _, false)
               AnnotatedString("val", _[(; region = 1:3, label = :face, value = _f)])
           end),
         @macroexpand styled"{$face:val}")
     @test astmatch(
         :(let ;
-              _f1 = interpface(f1, _, false)
-              _f2 = interpface(f2, _, false)
+              _f1 = interpfaceannot(f1, _, false)
+              _f2 = interpfaceannot(f2, _, false)
               AnnotatedString("v1v2", _[(; region = 1:2, label = :face, value = _f1), (; region = 3:4, label = :face, value = _f2)])
           end),
         @macroexpand styled"{$f1:v1}{$f2:v2}")
@@ -998,6 +1009,11 @@ end
     # Faces by dotted path and by interpolated name
     @test annotations(styled"{TestPaletteA.shared:x}")[1].value === TestPaletteA.shared
     @test annotations(styled"{$(:red):x}")[1].value === face"red"
+    # An interpolated vector of faces stacks them, the first taking priority
+    stack = [face"red", face"bold", face"blue"]
+    @test getface(styled"{$stack:x}", 1).foreground == SimpleColor(face"red")
+    @test getface(styled"{$stack,inverse:x}", 1).weight == :bold
+    @test getface(styled"{$stack,inverse:x}", 1).inverse
     # In a module with a palette, an unknown name is an error at expansion time
     @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{zzz_typo:x}"))
     @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{(fg=zzz_typo):x}"))
@@ -1077,6 +1093,7 @@ end
     @test_throws MalformedStylingMacro styled("{(fg=):x}")
     @test_throws MalformedStylingMacro styled("{(inherit=):x}")
     @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{(bg=):x}"))
+    @test_throws MalformedStylingMacro styled("{face=red:x}")
     @test_throws MalformedStylingMacro styled("{(fg=#ff000):}")
     @test_throws MalformedStylingMacro styled("{(strikethrough=maybe):}")
     @test_throws MalformedStylingMacro styled("{(underline=(red, curly)")
