@@ -64,13 +64,13 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
     function showunderlineval(io::IO, ul, ulstyle::UInt8, iscompact::Bool)
         showulfn = if iscompact showval else showcolor end
         showstyle = if iscompact show else print end
-        if isstrongnothing(ulstyle)
+        if ulstyle == NO_UNDERLINE
             print(io, "false")
         elseif isweaknothing(ul) && ulstyle == attrbyte(:underline, :straight)
             print(io, "true")
-        elseif iscompact && isstrongnothing(ul) # A tuple with no colour, unlike a bare style
+        elseif iscompact && ul === BASE_FACES.foreground # A tuple with no colour, unlike a bare style
             print(io, "(nothing, ", repr(ATTRIBUTES.underlines[ulstyle + 1]), ')')
-        elseif isnothingflavour(ul)
+        elseif isnothingflavour(ul) || ul === BASE_FACES.foreground
             showstyle(io, ATTRIBUTES.underlines[ulstyle + 1])
         elseif ulstyle == attrbyte(:underline, :straight) || isnothingflavour(ulstyle)
             showulfn(io, SimpleColor(ul))
@@ -116,7 +116,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             for attr in setdiff(propertynames(face), (:inherit,))
                 if attr == :underline
                     ul, ulstyle = face.f.underline, face.f.underline_style
-                    if isnothingflavour(ul) && isweaknothing(ulstyle)
+                    if isnothingflavour(ul) && isnothingflavour(ulstyle)
                         continue
                     else
                         if isfirst; isfirst = false else print(io, ", ") end
@@ -152,15 +152,15 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         for field in (:foreground, :background)
             printfield(io, face, cface, field, showcolor)
         end
-        if !isweaknothing(face.f.underline_style) || !isweaknothing(cface.f.underline_style)
+        if !isnothingflavour(face.f.underline_style) || !isnothingflavour(cface.f.underline_style)
             oul, osty, cul, csty = face.f.underline, face.f.underline_style, cface.f.underline, cface.f.underline_style
             print(io, '\n', lpad("underline", fieldnamepad, ' '), ": ")
-            if isweaknothing(csty)
+            if isnothingflavour(csty)
                 print(io, styled"{light:unset}")
             else
                 showunderlineval(io, cul, csty, false)
             end
-            if isweaknothing(osty)
+            if isnothingflavour(osty)
                 print(io, styled" {light,grey:(default unset)}")
             elseif oul !== cul || osty != csty
                 print(io, styled" {light:(default: }")
