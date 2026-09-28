@@ -130,7 +130,7 @@ function Base.AnnotatedDisplay.styled_print(io::AnnotatedIOBuffer, @nospecialize
         get(kwargs, attr, false)::Bool && face!(str, attr)
     end
     get(kwargs, :reverse, false)::Bool && face!(str, :inverse)
-    color = get(kwargs, :color, :normal)::Symbol
+    color = get(kwargs, :color, :normal)::Union{Symbol, Int}
     color !== :normal && face!(str, Face(foreground=legacy_color(color)))
     write(io, str)
     nothing

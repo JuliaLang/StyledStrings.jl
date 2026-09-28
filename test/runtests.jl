@@ -654,6 +654,8 @@ end
     @test printstyled(aio, "d", reverse=true)   |> isnothing
     @test printstyled(aio, "e", color=:green)   |> isnothing
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
+    @test printstyled(aio, "f", color=208) |> isnothing
+    @test annotations(read(seekstart(aio), AnnotatedString))[end].value.foreground == SimpleColor(0xff8700)
 end
 
 # A look-alike for another copy of StyledStrings, whose `Face` is a distinct type with the
