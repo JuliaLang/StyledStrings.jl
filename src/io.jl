@@ -33,21 +33,13 @@ const FGBG_FACES =
     (foreground = FACES.pool[:foreground],
      background = FACES.pool[:background])
 
-"""
-    writebytes(io::IO, word::UInt64, nb::Integer)
-
-Write the low `nb` bytes of `word`, as they lie in memory, to `io` in one call.
-"""
+# The low `nb` bytes of `word`, in memory order, in one call
 function writebytes(io::IO, word::UInt64, nb::Integer)
     bytes = Ref(htol(word))
     GC.@preserve bytes unsafe_write(io, Ptr{UInt8}(pointer_from_objref(bytes)), nb)
 end
 
-"""
-    packdigits(num::UInt8) -> (digits::UInt64, ndigits)
-
-The decimal digits of `num` packed little-endian, first digit lowest, and their count.
-"""
+# The decimal digits of `num` packed little-endian, first digit lowest, and their count
 function packdigits(num::UInt8)
     hundreds, rest = divrem(num, UInt8(100))
     tens, ones = divrem(rest, UInt8(10))
@@ -56,12 +48,6 @@ function packdigits(num::UInt8)
     ((zero + hundreds) | (zero + tens) << 8 | (zero + ones) << 16) >> (8 * (0x3 - ndigits)), ndigits
 end
 
-"""
-    writedigits(io::IO, num::UInt8, suffix::Char = '\\0')
-
-Efficiently write an 8-bit unsigned number (`num`) to `io` as a decimal, followed by
-`suffix` when one is given.
-"""
 function writedigits(io::IO, num::UInt8, suffix::Char = '\0')
     digits, ndigits = packdigits(num)
     writebytes(io, digits | UInt64(suffix) << (8 * ndigits), ndigits + (suffix != '\0'))
@@ -422,11 +408,6 @@ const HTML_FGBG = (
 )
 
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
-    function writehex(byte::UInt8)
-        digits = b"0123456789abcdef"
-        write(io, @inbounds digits[byte >> 4 + 1])
-        write(io, @inbounds digits[byte & 0xf + 1])
-    end
     default = getface()
     if color.value === FGBG_FACES.background || color.value == default.f.background
         if background
@@ -441,9 +422,8 @@ function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
             return print(io, HTML_FGBG.foreground)
         end
     end
-    (; r, g, b) = rgbcolor(color)
     print(io, '#')
-    writehex(r); writehex(g); writehex(b)
+    bytes2hex(io, rgbcolor(color))
 end
 
 # Indexed as `ATTRIBUTES.weights` and `ATTRIBUTES.underlines`

@@ -49,7 +49,7 @@ using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
     ATTRIBUTES,
     lookupface, lookmakeface, faceref, pathface, similarface, registrykey, heightbits,
-    UnknownFaceError, FacePathError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
+    UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
@@ -146,10 +146,7 @@ function State(content::String, mod::Union{Module, Nothing}=nothing)
     end
     State(content, Vector{UInt8}(content), # content, bytes
           Iterators.Stateful(pairs(content)), strict, # s, strict
-          # Any[], # parts
           0, 1, false, # offset, point, escape
-          # Vector{Tuple{Int, Int, Any, Any}}[], # active_styles
-          # Tuple{UnitRange{Int}, Any, Any}[], # pending_styles
           @NamedTuple{source::Int, inds::Vector{Int}}[], # activestyles
           output, # out
           NamedTuple{(:message, :position, :hint), # errors
@@ -989,14 +986,7 @@ end
 
 interpface(face, ::Module, ::Bool) = throw(ArgumentError("Face interpolation must evaluate to a Symbol or Face, not $(typeof(face))"))
 
-"""
-    interpattr(value, mod::Module, strict::Bool)
-
-Resolve the faces in `value`, an interpolated face attribute, with `interpface`.
-Other values, such as colour literals and `true`, are kept as they are.
-"""
-function interpattr end
-
+# The faces in an interpolated face attribute go through `interpface`
 interpattr(value::Union{Symbol, Face}, mod::Module, strict::Bool) = interpface(value, mod, strict)
 interpattr(value::AbstractString, mod::Module, strict::Bool) =
     if all(Base.isidentifier, eachsplit(value, '.'))

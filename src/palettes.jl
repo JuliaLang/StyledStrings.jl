@@ -41,12 +41,7 @@ function Base.showerror(io::IO, e::UnknownFaceError)
     end
 end
 
-"""
-    FacePathError(context::Module, path::String, depth::Int)
-
-The dotted face name `path`, written in `context`, does not lead to a face. Its
-first `depth` components name modules or named palettes, and the next does not.
-"""
+# The first `depth` components of `path` name modules or named palettes, and the next does not
 struct FacePathError <: Exception
     context::Module
     path::String
@@ -67,19 +62,8 @@ function Base.showerror(io::IO, e::FacePathError)
     end
 end
 
-"""
-    registrykey(name::AbstractString) -> Symbol
-
-The key of the face written as `name` in the global registry. The dots of a module
-path (`Mod.face`) become underscores (`Mod_face`).
-"""
 registrykey(name::AbstractString) = Symbol(replace(name, '.' => '_'))
 
-"""
-    paletteface(mod::Module, name::Symbol) -> Union{Face, Nothing}
-
-Find the face `name` in the palettes defined in or used by `mod`.
-"""
 function paletteface(mod::Module, name::Symbol)
     if isdefined(mod, MAGIC_DEFPALETTE_VARNAME) && haskey(getglobal(mod, MAGIC_DEFPALETTE_VARNAME).base, name)
         getproperty(getglobal(mod, MAGIC_DEFPALETTE_VARNAME).base, name)::Face
@@ -91,15 +75,8 @@ end
 lookupface(mod::Module, name::Symbol) =
     @something(paletteface(mod, name), get(FACES.pool, name, nothing), throw(UnknownFaceError(mod, name)))
 
-"""
-    faceref(mod::Module, name::Symbol) -> Union{Face, Expr, Nothing}
-
-Code that refers to the face `name` in `mod`, for a macro to emit.
-
-A palette face or a standard face is referred to directly, as a constant holds it.
-A face only the registry holds, such as one added by `addface!`, is looked up when
-the code runs. Precompiled code would otherwise hold a copy of it.
-"""
+# For a macro to emit. A face only the registry holds (as from `addface!`) is looked up
+# when the code runs, as precompiled code would otherwise hold a copy of it.
 function faceref(mod::Module, name::Symbol)
     face = paletteface(mod, name)
     isnothing(face) || return face
@@ -111,12 +88,6 @@ function faceref(mod::Module, name::Symbol)
     end
 end
 
-"""
-    pathface(mod::Module, path::String) -> Union{Face, FacePathError}
-
-Find the face named by the dotted `path` (`Mod.face`, `Mod.palette.face`), whose
-components are looked up from `mod`.
-"""
 function pathface(mod::Module, path::String)
     names = map(Symbol, eachsplit(path, '.'))
     holder::Any = mod
@@ -134,11 +105,6 @@ function pathface(mod::Module, path::String)
     @something(face, FacePathError(mod, path, length(names) - 1))
 end
 
-"""
-    similarface(mod::Module, name::Symbol) -> Union{Symbol, Nothing}
-
-Suggest a face known to `mod` whose name is close to `name`, a misspelling.
-"""
 function similarface(mod::Module, name::Symbol)
     function editdistance(a::String, b::String)
         row = collect(0:length(b))
@@ -510,15 +476,12 @@ macro defpalette!(pargs::Any...)
         end
         declsnt = Expr(:let, Expr(:block), Expr(:block, fhoist..., declsnt))
     end
-    if isnothing(varname)
-        esc(Expr(:toplevel, :(const $MAGIC_DEFPALETTE_VARNAME = $declsnt),
-                 :($reregister_palette!($MAGIC_DEFPALETTE_VARNAME)),
-                 MAGIC_DEFPALETTE_VARNAME))
+    definition, palette = if isnothing(varname)
+        :(const $MAGIC_DEFPALETTE_VARNAME = $declsnt), MAGIC_DEFPALETTE_VARNAME
     else
-        esc(Expr(:toplevel, :(const $varname = (; $MAGIC_DEFPALETTE_VARNAME = $declsnt)),
-                 :($reregister_palette!($varname.$MAGIC_DEFPALETTE_VARNAME)),
-                 varname))
+        :(const $varname = (; $MAGIC_DEFPALETTE_VARNAME = $declsnt)), :($varname.$MAGIC_DEFPALETTE_VARNAME)
     end
+    esc(Expr(:toplevel, definition, :($reregister_palette!($palette)), something(varname, MAGIC_DEFPALETTE_VARNAME)))
 end
 
 """
@@ -598,14 +561,7 @@ macro registerpalette!(names::Symbol...)
     end
 end
 
-"""
-    register_palette!(palette::NamedTuple)
-
-Add the faces and variants of `palette` to the global registry.
-
-!!! warning
-    Assumes that the caller holds `FACES.lock`, and clears the face cache afterwards.
-"""
+# The caller holds `FACES.lock`, and clears the face cache afterwards
 function register_palette!(palette::NamedTuple)
     for (name, face) in pairs(palette.base)
         fullname = palette.names[name]
@@ -622,13 +578,7 @@ function register_palette!(palette::NamedTuple)
     foreach(relayer!, values(palette.base))
 end
 
-"""
-    reregister_palette!(palette::NamedTuple)
-
-Register `palette` again, if an earlier definition of it is registered. This
-happens when a palette is evaluated anew outside of precompilation, for
-instance by Revise after an edit.
-"""
+# For a palette evaluated anew outside of precompilation, as by Revise
 function reregister_palette!(palette::NamedTuple)
     Base.generating_output() && return
     isredefined = any(pairs(palette.names)) do (facename, fullname)
@@ -642,25 +592,10 @@ function reregister_palette!(palette::NamedTuple)
     end
 end
 
-"""
-    register_displace!(old::Face, new::Face, fullname::Symbol)
-
-Replace `old`, a placeholder or an earlier registration of `fullname`, with `new`
-in the global face registry. The caller then derives the current definition of
-`new` with `relayer!`.
-
-The modifications and recolourings of `old` move to `new`. So do its variants
-when `old` is a placeholder, while the variants of an earlier registration are
-dropped for those of the new palette.
-
-A placeholder is recorded in `FACES.displacements`, and its current definition
-inherits from `new`. Faces and strings that still hold the placeholder then show
-`new`, and interpolating it into styled markup yields `new`. When `old` is an
-earlier registration, the placeholders it displaced move to `new`.
-
-!!! warning
-    Assumes that the caller holds `FACES.lock`.
-"""
+# Replace `old`, a placeholder or an earlier registration of `fullname`, with `new`. Modifications
+# and recolourings move to `new`, as do a placeholder's variants. A placeholder `old`, or the
+# placeholders an earlier registration `old` displaced, inherit from `new`. The caller holds
+# `FACES.lock`, and relayers `new`.
 function register_displace!(old::Face, new::Face, fullname::Symbol)
     delete!(FACES.unregistered, fullname)
     delete!(FACES.names, old)

@@ -214,23 +214,23 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     # Base.depwarn("`addface!` is deprecated as of v1.14 and will be removed in a future release. \
     #               Please define faces with `@defpalette!` and `@registerpalette!` instead.",
     #                :addface!)
-    @lock FACES.lock if theme === :base
-        haskey(FACES.pool, name) && return
-        unreg = get(FACES.unregistered, name, nothing)
-        isnothing(unreg) || register_displace!(unreg, default, name)
-        FACES.pool[name] = default
-        FACES.names[default] = name
-        relayer!(default)
-        emptycache!(FACES.cache.default)
-        get(FACES.current.default, default, default)
-    else
-        face = lookmakeface(name, false)
-        if !haskey(FACES.themes[theme], face)
-            FACES.themes[theme][face] = default
-            relayer!(face)
-            emptycache!(FACES.cache.default)
-            get(FACES.current.default, face, face)
+    @lock FACES.lock begin
+        face = if theme === :base
+            haskey(FACES.pool, name) && return
+            unreg = get(FACES.unregistered, name, nothing)
+            isnothing(unreg) || register_displace!(unreg, default, name)
+            FACES.pool[name] = default
+            FACES.names[default] = name
+            default
+        else
+            themed = lookmakeface(name, false)
+            haskey(FACES.themes[theme], themed) && return
+            FACES.themes[theme][themed] = default
+            themed
         end
+        relayer!(face)
+        emptycache!(FACES.cache.default)
+        get(FACES.current.default, face, face)
     end
 end
 
@@ -784,10 +784,8 @@ end
 """
     relayer!(face::Face)
 
-Recompute the current definition of `face` from its variant for the current
-theme, its recolouring, and its base and current-theme modifications. A displaced
-placeholder inherits from the face that replaced it.
-The face cache is left for the caller to clear once its batch is done.
+Recompute the current definition of `face` from its layers. The caller clears the
+face cache once its batch is done.
 """
 function relayer!(face::Face)
     theme = FACES.current_theme[]
@@ -809,13 +807,9 @@ function relayer!(face::Face)
     theme === :base || layer!(FACES.modifications[theme])
 end
 
-"""
-    relayer!()
-
-Recompute the current definition of every face with a layer, as `relayer!(face)` does.
-"""
 function relayer!()
     empty!(FACES.current.default)
+    # Every face with a layer, as `relayer!(face)` picks the layers that apply
     for table in (FACES.themes..., FACES.recolors, FACES.modifications..., FACES.displacements)
         foreach(relayer!, keys(table))
     end
