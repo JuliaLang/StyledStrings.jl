@@ -9,10 +9,10 @@ const STANDARD_FACES = let
     default = Face(FaceDef(
         "monospace",            # font
         foreground, background, # foreground, background
-        StrongNothing(),        # underline (color)
+        foreground,             # underline (color)
         120,                    # height
         attrbyte(:weight, :normal), attrbyte(:slant, :normal),
-        strongnothing(UInt8),   # underline (style)
+        NO_UNDERLINE,           # underline (style)
         0x00, 0x00,             # strikethrough, inverse
         Memory{Face}()))
     # Property faces
@@ -141,50 +141,31 @@ end
 ## Adding and resetting faces ##
 
 """
-    override(base::Face, mods::Face; unset::Bool = true)
+    override(base::Face, mods::Face)
 
-Apply the modification `mods` over `base`: each attribute set in `mods` replaces the
-one in `base`, and a weak nothing leaves it unchanged.
-
-In a modification, a strong nothing means "unset this attribute", as `"inherit"` does
-in a faces.toml file. By default it leaves the attribute unset (a weak nothing), so
-that the face falls back to what it inherits. When two modifications are combined
-into one, pass `unset = false` to keep the strong nothing, so that it still unsets
-the attribute when the combined modification is applied.
+Layer the modification `mods` over `base`: each attribute of `mods` replaces the one in
+`base`, except a weak nothing, which leaves it unchanged. A strong nothing replaces it
+too, resetting the attribute, as `"inherit"` does in a faces.toml file: the face then
+falls back to what it inherits.
 """
 function override end
 
-function override(base::FaceDef, mods::FaceDef; unset::Bool = true)
-    Base.@constprop :aggressive function mergeattr(a::FaceDef, b::FaceDef, attr::Symbol)
-        a_attr = getfield(a, attr)
-        b_attr = getfield(b, attr)
-        if isweaknothing(b_attr)
-            a_attr
-        elseif isstrongnothing(b_attr) && unset
-            weaknothing(b_attr)
-        else
-            b_attr
-        end
-    end
-    FaceDef(
-        mergeattr(base, mods, :font),
-        mergeattr(base, mods, :foreground),
-        mergeattr(base, mods, :background),
-        mergeattr(base, mods, :underline),
-        mergeattr(base, mods, :height),
-        mergeattr(base, mods, :weight),
-        mergeattr(base, mods, :slant),
-        mergeattr(base, mods, :underline_style),
-        mergeattr(base, mods, :strikethrough),
-        mergeattr(base, mods, :inverse),
-        if isempty(mods.inherit)
-            base.inherit
-        else
-            mods.inherit
-        end)
+function override(base::FaceDef, mods::FaceDef)
+    layer(a, b) = if isweaknothing(b) a else b end
+    FaceDef(layer(base.font, mods.font),
+            layer(base.foreground, mods.foreground),
+            layer(base.background, mods.background),
+            layer(base.underline, mods.underline),
+            layer(base.height, mods.height),
+            layer(base.weight, mods.weight),
+            layer(base.slant, mods.slant),
+            layer(base.underline_style, mods.underline_style),
+            layer(base.strikethrough, mods.strikethrough),
+            layer(base.inverse, mods.inverse),
+            if isempty(mods.inherit) base.inherit else mods.inherit end)
 end
 
-override(base::Face, mods::Face; unset::Bool = true) = Face(override(base.f, mods.f; unset))
+override(base::Face, mods::Face) = Face(override(base.f, mods.f))
 
 """
     addface!(name::Symbol => default::Face, theme::Symbol = :base)
@@ -453,7 +434,7 @@ function foreignface(face)
              foreground = color(face.foreground), background = color(face.background),
              underline = if underline isa Tuple
                              (color(underline[1]), underline[2])
-                         elseif underline isa Union{Nothing, Bool}
+                         elseif underline isa Union{Nothing, Bool, Symbol}
                              underline
                          else
                              color(underline)
@@ -593,7 +574,7 @@ function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
         if FACES.current.default === current # Only save top-level modifications
             layer = if RECOLORING[] FACES.recolors else FACES.modifications[theme] end
             prior = get(layer, original, nothing)
-            layer[original] = if isnothing(prior) update else override(prior, update; unset = false) end
+            layer[original] = if isnothing(prior) update else override(prior, update) end
             relayer!(original)
         elseif isactive
             current[original] = override(get(current, original, original), update)
@@ -730,7 +711,7 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     elseif spec["underline"] === true
         WeakNothing(), attrbyte(:underline, :straight)
     elseif spec["underline"] === false
-        StrongNothing(), strongnothing(UInt8)
+        BASE_FACES.foreground, NO_UNDERLINE
     elseif spec["underline"] isa String
         if spec["underline"]::String == "inherit"
             StrongNothing(), strongnothing(UInt8)
@@ -739,7 +720,8 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
         end
     elseif spec["underline"] isa Vector{String} && length(spec["underline"]::Vector{String}) == 2
         color_str, style_str = (spec["underline"]::Vector{String})
-        colorvalue(color_str), something(attrbyte(:underline, Symbol(style_str)), attrbyte(:underline, :straight))
+        if color_str == "inherit" StrongNothing() else colorvalue(color_str) end,
+        something(attrbyte(:underline, Symbol(style_str)), attrbyte(:underline, :straight))
     else
         WeakNothing(), weaknothing(UInt8)
     end

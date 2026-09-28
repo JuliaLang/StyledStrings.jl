@@ -218,9 +218,9 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         let slanted = face.f.slant < attrbyte(:slant, :normal) # italic or oblique
             if haskey(Base.current_terminfo(), :enter_italics_mode)
                 print(io, ifelse(slanted, ANSI_STYLE_CODES.start_italics, ANSI_STYLE_CODES.end_italics))
-            elseif slanted && isnothing(face.underline)
+            elseif slanted && face.f.underline_style >= NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.start_underline)
-            elseif !slanted && isnothing(lastface.underline)
+            elseif !slanted && lastface.f.underline_style >= NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.end_underline)
             end
         end
@@ -230,22 +230,20 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
         if haskey(Base.current_terminfo(), :set_underline_style) || get(Base.current_terminfo(), :can_style_underline, false)
             ul, ulstyle = face.f.underline, face.f.underline_style
             lastul, lastulstyle = lastface.f.underline, lastface.f.underline_style
-            if ulstyle != lastulstyle && !isnothingflavour(ulstyle)
-                if isnothingflavour(lastulstyle) && ulstyle == attrbyte(:underline, :straight)
+            # The named styles come before `NO_UNDERLINE`, and the nothing bytes after it
+            if ulstyle != lastulstyle && ulstyle < NO_UNDERLINE
+                if lastulstyle >= NO_UNDERLINE && ulstyle == attrbyte(:underline, :straight)
                     print(io, ANSI_STYLE_CODES.start_underline)
                 else # Kitty numbers the styles from 1 in `ATTRIBUTES.underlines` order
                     print(io, "\e[4:", Char(UInt8('1') + ulstyle), 'm')
                 end
             end
-            if !isnothingflavour(ul)
-                termcolor(io, SimpleColor(ul), '5')
-            elseif !isnothingflavour(lastul)
-                termcolor(io, SimpleColor(FGBG_FACES.foreground), '5')
-            end
-            if isnothingflavour(ulstyle) && !isnothingflavour(lastulstyle)
+            ulcolor(c) = if isnothingflavour(c) FGBG_FACES.foreground else c end # No colour is the text's own
+            ulcolor(ul) === ulcolor(lastul) || termcolor(io, SimpleColor(ulcolor(ul)), '5')
+            if ulstyle >= NO_UNDERLINE && lastulstyle < NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.end_underline)
             end
-        elseif !isnothing(face.underline)
+        elseif face.f.underline_style < NO_UNDERLINE
             print(io, ANSI_STYLE_CODES.start_underline)
         elseif haskey(Base.current_terminfo(), :enter_italics_mode) || face.f.slant >= attrbyte(:slant, :normal) # Not standing in for italics
             print(io, ANSI_STYLE_CODES.end_underline)
@@ -483,7 +481,7 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         face.f.strikethrough != lastface.f.strikethrough
         color, style = face.f.underline, face.f.underline_style
         parts = String[]
-        if !isnothingflavour(style)
+        if style < NO_UNDERLINE
             if !isnothingflavour(color)
                 csscolor = sprint(htmlcolor, SimpleColor(color))
                 csscolor == "initial" || push!(parts, csscolor) # Invalid here; without it, the line takes the text's colour
@@ -524,7 +522,7 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
             stylestackdepth = 0
         elseif (lastface.f.inverse, lastface.f.foreground, lastface.f.background) !==
                 (face.f.inverse, face.f.foreground, face.f.background) ||
-            (!isnothing(lastface.underline) || lastface.strikethrough === true) &&
+            (lastface.f.underline_style < NO_UNDERLINE || lastface.strikethrough === true) &&
                 (lastface.f.underline, lastface.f.underline_style, lastface.f.strikethrough) !==
                 (face.f.underline, face.f.underline_style, face.f.strikethrough)
             # We can't un-inherit colors or text decorations, so we just need to reset and apply

@@ -2,7 +2,9 @@
 
 const RGBTuple = NamedTuple{(:r, :g, :b), NTuple{3, UInt8}}
 
-# Splitting `nothing` in two to allow for three-valued logic
+# Two kinds of `nothing`. A weak nothing leaves an attribute unset. A strong nothing resets
+# it: in `override` it clears the value beneath, and elsewhere it acts as unset. An attribute
+# that is explicitly off holds a value, as `NO_UNDERLINE` is for the underline style.
 struct WeakNothing end
 struct StrongNothing end
 
@@ -227,6 +229,7 @@ Base.@assume_effects :foldable function attrbyte(attr::Symbol, name::Symbol)
     if !isnothing(index) UInt8(index - 1) end
 end
 
+const NO_UNDERLINE = UInt8(length(ATTRIBUTES.underlines)) # The style byte of `underline = false`
 
 # The encoding of a height in deci-pt (an integer) or as a factor (a float), if it is in range
 function heightbits(height::Real)
@@ -333,8 +336,8 @@ function Face(; font::Union{Nothing, String} = nothing,
              expected one of $(join(map(repr, attrnames(attr)), ", ", " or "))"))
     ul, ulstyle = if isnothing(underline)
         WeakNothing(), weaknothing(UInt8)
-    elseif underline isa Tuple{<:Any, Symbol} # nothing in a tuple means no colour, not an unset colour
-        if isnothing(underline[1]) StrongNothing() else ascolor(underline[1]) end,
+    elseif underline isa Tuple{<:Any, Symbol} # nothing in a tuple is the default colour, not an unset one
+        if isnothing(underline[1]) BASE_FACES.foreground else ascolor(underline[1]) end,
         asbyte(underline[2], :underline)
     elseif underline in ATTRIBUTES.underlines
         WeakNothing(), asbyte(underline, :underline)
@@ -343,7 +346,7 @@ function Face(; font::Union{Nothing, String} = nothing,
     elseif underline === true
         WeakNothing(), attrbyte(:underline, :straight)
     elseif underline === false # Off, and drops any inherited colour
-        StrongNothing(), strongnothing(UInt8)
+        BASE_FACES.foreground, NO_UNDERLINE
     else
         ascolor(underline), attrbyte(:underline, :straight)
     end
@@ -370,11 +373,16 @@ end
 Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function Base.getproperty(face::Face, attr::Symbol)
     attr == :f && return getfield(face, :f)
     val = getfield(getfield(face, :f), attr)
-    if attr == :underline
+    if attr == :underline # In the form that the constructor takes
         style = getfield(getfield(face, :f), :underline_style)
-        if !isnothingflavour(val) || !isnothingflavour(style)
-            (if !isnothingflavour(val) SimpleColor(val) end,
-             if !isnothingflavour(style) ATTRIBUTES.underlines[style + 1] end)
+        if style == NO_UNDERLINE
+            false
+        elseif isnothingflavour(style)
+            if !isnothingflavour(val) && val !== BASE_FACES.foreground; (SimpleColor(val), nothing) end
+        elseif isnothingflavour(val)
+            if style == attrbyte(:underline, :straight) true else ATTRIBUTES.underlines[style + 1] end
+        else # A colour, where the default foreground stands for the `nothing` of a tuple
+            (if val !== BASE_FACES.foreground SimpleColor(val) end, ATTRIBUTES.underlines[style + 1])
         end
     elseif isnothingflavour(val)
         nothing
@@ -443,11 +451,11 @@ Base.merge(a::Face, b::Face) = Face(merge(a.f, b.f))
 Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 function Base.merge(a::FaceDef, b::FaceDef)
-    mergeattr(va, vb) = if isweaknothing(vb) va else vb end
+    mergeattr(va, vb) = if isnothingflavour(vb) va else vb end
     if isempty(b.inherit)
-        abheight = if isweaknothing(b.height)
+        abheight = if isnothingflavour(b.height)
             a.height
-        elseif isnothingflavour(a.height) || isstrongnothing(b.height)
+        elseif isnothingflavour(a.height)
             b.height
         elseif iszero(b.height & ~(typemax(UInt32) >> 1)) # b.height::Int
             b.height

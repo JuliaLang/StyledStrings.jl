@@ -244,9 +244,15 @@ end
         @test_throws ArgumentError Face(; attr => :unknown)
     end
     for style in StyledStrings.ATTRIBUTES.underlines
-        @test Face(underline=style).underline == (nothing, style)
+        @test Face(underline=style).underline === if style === :straight true else style end
         @test Face(underline=(face"red", style)).underline == (SimpleColor(face"red"), style)
     end
+    # Each form of underline reads back as a value that builds the same face
+    for underline in (true, false, :curly, (nothing, :straight), (nothing, :curly), face"red",
+                      (face"red", :curly), SimpleColor(0xff0000), 0xff0000, "#ff0000", ("#ff0000", :dotted))
+        @test Face(underline = Face(; underline).underline) == Face(; underline)
+    end
+    @test Face(underline="#ff0000").underline == (SimpleColor(0xff0000), :straight)
     @test_throws ArgumentError Face(underline="red")
     @test_throws ArgumentError Face(underline=(nothing, :unknown))
     @test sizeof(StyledStrings.FaceDef) + sizeof(Int) <= 64 # A `Face` fits one 64-byte allocation
@@ -256,18 +262,29 @@ end
     @test Face(foreground="#ff0000").foreground == SimpleColor(0xff0000)
     @test Face(background=SimpleColor(face"red")).background == SimpleColor(face"red")
     @test Face(background=0xff0000).background == SimpleColor(0xff0000)
-    @test Face(underline=true).underline == (nothing, :straight)
+    @test Face(underline=true).underline === true
     @test Face(underline=face"red").underline == (SimpleColor(face"red"), :straight)
     @test Face(underline=(nothing, :curly)).underline == (nothing, :curly)
     @test Face(underline=(face"red", :curly)).underline == (SimpleColor(face"red"), :curly)
-    @test Face(underline=false).underline === nothing
-    @test merge(Face(underline=face"red"), Face(underline=false)).underline === nothing
+    @test Face(underline=false).underline === false
+    @test merge(Face(underline=face"red"), Face(underline=false)).underline === false
     @test merge(Face(underline=face"red"), Face(underline=false), Face(underline=:curly)).underline == (nothing, :curly)
     # true and a bare style keep an inherited colour, a tuple or false set the whole underline
     @test merge(Face(underline=face"red"), Face(underline=true)).underline == (SimpleColor(face"red"), :straight)
     @test merge(Face(underline=face"red"), Face(underline=:curly)).underline == (SimpleColor(face"red"), :curly)
     @test merge(Face(underline=face"red"), Face(underline=(nothing, :straight))).underline == (nothing, :straight)
     @test merge(Face(underline=face"red"), Face(underline=(nothing, :curly))).underline == (nothing, :curly)
+    # A strong nothing (from "inherit") is unset when faces are merged, and resets when layered
+    reset = convert(Face, Dict{String, Any}("foreground" => "inherit", "underline" => "inherit"))
+    @test merge(Face(foreground=face"red", underline=true), reset) == Face(foreground=face"red", underline=true)
+    @test StyledStrings.override(Face(foreground=face"red", underline=true), reset).foreground === nothing
+    @test getface(StyledStrings.override(Face(foreground=face"red", inherit=face"blue"), reset)).foreground == SimpleColor(face"blue")
+    # Off is a value, so it survives a modification and clears an enclosing underline
+    @test StyledStrings.override(Face(underline=true), Face(underline=false)).underline === false
+    @test convert(Face, Dict{String, Any}("underline" => false)) == Face(underline=false)
+    setface!(face"emphasis" => Face(underline=false))
+    @test getface([face"underline", face"emphasis"]).underline === false
+    resetfaces!(face"emphasis")
     @test Face(strikethrough=true).strikethrough == true
     @test Face(inverse=true).inverse == true
     @test Face(inherit=face"blue").inherit  == [face"blue"]
@@ -312,6 +329,8 @@ end
     @test convert(Face, Dict{String, Any}("weight" => "wobbly", "underline" => ["red", "wavy"])) ==
         Face(underline = face"red")   # Unknown names are left unset
     @test convert(Face, Dict{String, Any}("height" => 1.5)).height == 1.5
+    @test convert(Face, Dict{String, Any}("underline" => ["inherit", "curly"])).f.underline === StyledStrings.StrongNothing()
+    @test !haskey(FACES.unregistered, :inherit)
     @test convert(Face, Dict{String, Any}("height" => -3)).height === nothing
     anotherface = hacky_addface!(:anotherface, copy(Face()))
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
@@ -402,7 +421,7 @@ end
             @test merge(Face(), f) == f == merge(f, Face())
         end
         @test merge(merge(a, b), c) == merge(a, merge(b, c))
-        @test merge(a, c).underline === nothing
+        @test merge(a, c).underline === false
         @test merge(face"default", c) == face"default"
     end
     # Merging, inheritence, and canonicalisation
@@ -625,7 +644,7 @@ end
     # Interpolated underline colours are looked up in the palette too, and styles are kept
     @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:heading)):x}")))).value.underline == (SimpleColor(heading), :straight)
     @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(:heading), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
-    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:curly)):x}")))).value.underline == (nothing, :curly)
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:curly)):x}")))).value.underline === :curly
     # Unknown faces in markup are reported where they are written
     unknownmarkup = try Core.eval(TestPalette, :(styled"{headng:x} {(weight=bolder):y}")) catch err sprint(showerror, err) end
     @test occursin("Unknown face 'headng' (did you mean 'heading'?)", unknownmarkup)
