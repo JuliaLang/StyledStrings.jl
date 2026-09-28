@@ -206,11 +206,15 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
         face = if theme === :base
             haskey(FACES.pool, name) && return
+            haskey(FACES.names, default) && throw(ArgumentError(
+                "Cannot add `$name`, as the face `$(FACES.names[default])` is already registered. \
+                 To base `$name` on it, use `Face(inherit = face\"$(FACES.names[default])\")` instead."))
+            named = if default === EMPTY_FACE copy(default) else default end # `Face()` is shared
             unreg = get(FACES.unregistered, name, nothing)
-            isnothing(unreg) || register_displace!(unreg, default, name)
-            FACES.pool[name] = default
-            FACES.names[default] = name
-            default
+            isnothing(unreg) || register_displace!(unreg, named, name)
+            FACES.pool[name] = named
+            FACES.names[named] = name
+            named
         else
             themed = lookmakeface(name, false)
             haskey(FACES.themes[theme], themed) && return
@@ -348,6 +352,8 @@ function withfaces(f, keyvals_itr)
     newfaces = copy(current)
     for (key, new) in keyvals_itr
         face = if key isa Symbol lookmakeface(key) else key end
+        face === EMPTY_FACE && throw(ArgumentError(
+            "`Face()` cannot be changed, as every face without attributes is it. Name a face to change with `@defpalette`."))
         if new isa Union{Face, Symbol}
             newfaces[face] = resolve(new)
         elseif new isa Vector
@@ -567,6 +573,8 @@ Face (sample)
 ```
 """
 function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
+    original === EMPTY_FACE && throw(ArgumentError(
+        "`Face()` cannot be changed, as every face without attributes is it. Name a face to change with `@defpalette`."))
     @lock FACES.lock begin
         isactive = theme ∈ (:base, FACES.current_theme[])
         RECOLORING[] && !isactive && return # Hooks run again on each theme change
