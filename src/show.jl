@@ -145,8 +145,6 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             print(io, AnnotatedString(String(name), [(region=1:ncodeunits(String(name)), label=:face, value=Face(weight=:bold))]))
         end
         print(io, AnnotatedString(" (sample)", [(region=3:8, label=:face, value=face)]))
-        setfields = Pair{Symbol, Any}[]
-        isempty(setfields) || print(io, ":")
         fieldnamepad = 14
         for field in (:font, :height, :weight, :slant)
             printfield(io, face, cface, field, print)
