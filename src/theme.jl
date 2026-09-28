@@ -217,11 +217,15 @@ function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     @lock FACES.lock begin
         face = if theme === :base
             haskey(FACES.pool, name) && return
+            haskey(FACES.names, default) && throw(ArgumentError(
+                "Cannot add `$name`, as the face `$(FACES.names[default])` is already registered. \
+                 To base `$name` on it, use `Face(inherit = face\"$(FACES.names[default])\")` instead."))
+            named = if default === EMPTY_FACE copy(default) else default end # `Face()` is shared
             unreg = get(FACES.unregistered, name, nothing)
-            isnothing(unreg) || register_displace!(unreg, default, name)
-            FACES.pool[name] = default
-            FACES.names[default] = name
-            default
+            isnothing(unreg) || register_displace!(unreg, named, name)
+            FACES.pool[name] = named
+            FACES.names[named] = name
+            named
         else
             themed = lookmakeface(name, false)
             haskey(FACES.themes[theme], themed) && return

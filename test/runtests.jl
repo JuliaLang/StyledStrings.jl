@@ -1414,6 +1414,16 @@ end
     @test StyledStrings.addface!(:zzz_legacy => legacy) === legacy
     push!(HACKY_FACES, :zzz_legacy)
     @test StyledStrings.addface!(:zzz_legacy => Face(slant = :oblique)) === nothing
+    # A face that is already registered is not registered again under another name
+    @test_throws r"face `blue` is already registered" StyledStrings.addface!(:zzz_alias => face"blue")
+    @test repr(face"blue") |> pkgstrip == "face\"blue\"" && !haskey(FACES.pool, :zzz_alias)
+    # A registered empty face is its own, not the shared `Face()`
+    blank = StyledStrings.addface!(:zzz_blank => Face())
+    push!(HACKY_FACES, :zzz_blank)
+    StyledStrings.loadface!(:zzz_blank => Face(weight = :bold))
+    @test getface(FACES.pool[:zzz_blank]).weight == :bold && getface(Face()).weight == :normal
+    StyledStrings.loadface!(:zzz_blank => nothing)
+    @test Core.eval(TestPalette, :(@defpalette! blank begin b = Face(foreground = nothing) end)).var"##styledstrings-defpalette-variable#".base.b !== Face()
     @test FACES.pool[:zzz_legacy] === legacy && getface(legacy).slant == :italic
     @test StyledStrings.addface!(:zzz_legacy => Face(font = "first"), :light) isa Face
     @test StyledStrings.addface!(:zzz_legacy => Face(font = "second"), :light) === nothing

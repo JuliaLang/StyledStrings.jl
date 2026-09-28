@@ -437,25 +437,19 @@ macro defpalette!(pargs::Any...)
              base = Union{Expr, LineNumberNode}[],
              light = Union{Expr, LineNumberNode}[],
              dark = Union{Expr, LineNumberNode}[])
+    # Copied, as `Face()` is shared and each palette face must be distinct
+    newface(args) = Expr(:call, copy, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...)))
     for ((; name, theme), (; args)) in parsedordered
         # isnothing(line) || push!(decls[theme], line)
         hoistname = get(hoistfaces, name, nothing)
         if theme == :base
             fullname = QuoteNode(Symbol(namespace * String(name)))
             push!(decls.names, Expr(:kw, name, fullname))
-            if !isnothing(hoistname)
-                push!(decls.base, Expr(:kw, name, hoistname))
-            elseif isempty(args)
-                push!(decls[theme], Expr(:kw, name, copy(Face())))
-            else
-                push!(decls[theme], Expr(:kw, name, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...))))
-            end
+            push!(decls.base, Expr(:kw, name, @something(hoistname, newface(args))))
         elseif name ∉ allnames
             throw(ArgumentError("A $theme variant of face '$name' is declared, without a base variant. Consider adding `$name = Face()` to the palette."))
-        elseif isempty(args)
-            push!(decls[theme], Expr(:kw, name, copy(Face())))
         else
-            push!(decls[theme], Expr(:kw, name, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...))))
+            push!(decls[theme], Expr(:kw, name, newface(args)))
         end
     end
     declsnt = Expr(:parameters)
@@ -467,12 +461,7 @@ macro defpalette!(pargs::Any...)
         fhoist = Expr[]
         for ((; name, theme), (; args)) in parsedordered
             theme == :base && haskey(hoistfaces, name) || continue
-            fexpr = if isempty(args)
-                copy(Face())
-            else
-                Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...))
-            end
-            push!(fhoist, Expr(:(=), hoistfaces[name], fexpr))
+            push!(fhoist, Expr(:(=), hoistfaces[name], newface(args)))
         end
         declsnt = Expr(:let, Expr(:block), Expr(:block, fhoist..., declsnt))
     end
