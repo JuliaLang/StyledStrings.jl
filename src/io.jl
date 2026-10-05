@@ -127,13 +127,11 @@ where `category` is set as follows:
 - `'4'` sets the background color
 - `'5'` sets the underline color
 
-The color is followed to its final value with `finalcolor`. A base color is
-written as its code in `ANSI_4BIT_COLORS`, and any other face resets the color.
+The color is final, as in a face from `getface`. A base color is written as its
+code in `ANSI_4BIT_COLORS`, and any other face resets the color.
 
 An `RGBTuple` is written as 24-bit color when `get_have_truecolor()` returns true.
 Otherwise, an 8-bit approximation of it is used.
-
-If `color` cannot be resolved, the color is reset.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
     value = color.value
@@ -151,10 +149,9 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
     # [1]: There is no true way to selectively set the fg/bg in the terminal to the
     # bg/fg colour, but with the way most terminals/terminal themes treat white/black
     # we can often get a close result with them.
-    cfinal = finalcolor(color)
-    if cfinal isa Face
-        ansi = get(ANSI_4BIT_COLORS, cfinal, nothing)
-        isnothing(ansi) && return termcolor(io, nothing, category) # The default foreground or background
+    if value isa Face
+        ansi = get(ANSI_4BIT_COLORS, value, nothing)
+        isnothing(ansi) && return termcolor(io, nothing, category)
         if category == '5'
             write(io, "\e[58;5;")
             writedigits(io, ansi, 'm')
@@ -162,14 +159,10 @@ function termcolor(io::IO, color::SimpleColor, category::Char)
             digits, ndigits = packdigits(ansi_4bit(ansi, category == '4'))
             writebytes(io, UInt64(0x5b1b) | digits << 16 | UInt64(UInt8('m')) << (16 + 8 * ndigits), ndigits + 3)
         end
-    elseif cfinal isa RGBTuple
-        if Base.get_have_truecolor()
-            termcolor24bit(io, cfinal, category)
-        else
-            termcolor8bit(io, cfinal, category)
-        end
-    else # Unresolvable
-        termcolor(io, nothing, category)
+    elseif Base.get_have_truecolor()
+        termcolor24bit(io, value, category)
+    else
+        termcolor8bit(io, value, category)
     end
 end
 
@@ -420,8 +413,9 @@ function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
             return print(io, HTML_FGBG.foreground)
         end
     end
+    rgb = if color.value isa RGBTuple color.value else get(FACES.basecolors, color.value, UNRESOLVED_COLOR_FALLBACK) end
     print(io, '#')
-    bytes2hex(io, rgbcolor(color))
+    bytes2hex(io, rgb)
 end
 
 # Indexed as `ATTRIBUTES.weights` and `ATTRIBUTES.underlines`

@@ -457,7 +457,7 @@ Obtain the final merged face from `faces`, an iterator of
 function getface(faces)
     cdefault = getface()
     isempty(faces) && return cdefault
-    merge(cdefault, mapfoldl(_mergedface, merge, faces)::Face)
+    finalcolours(merge(cdefault, mapfoldl(_mergedface, merge, faces)::Face), cdefault)
 end
 
 """
@@ -481,6 +481,7 @@ end
     getface(face::Face, cache = FACES.cache[]) -> Face
 
 Obtain `face` resolved against the current definitions and the default face, via `cache`.
+Its colours are resolved to their final values: an `RGBTuple` or a base colour face.
 """
 function getface(face::Face, cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[])
     mixed = UInt(pointer_from_objref(face)) * 0x9e3779b97f4a7c15 # 64-bit golden ratio factor
@@ -490,7 +491,12 @@ function getface(face::Face, cache::AtomicMemory{Pair{Face, Face}} = FACES.cache
     slot2 = @atomic cache[j]
     slot2.first === face && return slot2.second
     current = FACES.current[]
-    resolved = merge(get(current, STANDARD_FACES.default, STANDARD_FACES.default), get(current, face, face))
+    resolved = if face === STANDARD_FACES.default
+        finalcolours(get(current, face, face), face)
+    else
+        default = getface(STANDARD_FACES.default, cache)
+        finalcolours(merge(default, get(current, face, face)), default)
+    end
     at = if slot1.first === UNCACHED || slot2.first !== UNCACHED && isodd(mixed >> 40) i else j end
     @atomic cache[at] = face => resolved
     resolved
@@ -503,7 +509,7 @@ getface(face::Symbol) = getface(lookmakeface(face))
 
 Obtain the default face.
 """
-getface() = get(FACES.current[], STANDARD_FACES.default, STANDARD_FACES.default)
+getface() = getface(STANDARD_FACES.default)
 
 ## Face/AnnotatedString integration ##
 
@@ -886,6 +892,19 @@ function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
             face.f.foreground === fg && return fg
         end
     end
+end
+
+# `face` with its colours followed to their final values. Those shared with the resolved
+# `default` are final already, an unset one is the default's, and one that cannot be resolved is kept.
+function finalcolours(face::Face, default::Face)
+    final(c, dc) = if isnothingflavour(c) dc elseif c isa Face && c !== dc something(finalcolor(c), c) else c end
+    (; font, foreground, background, underline, height, weight, slant,
+     underline_style, strikethrough, inverse, inherit) = face.f
+    fg = final(foreground, default.f.foreground)
+    bg = final(background, default.f.background)
+    ul = final(underline, default.f.underline)
+    fg === foreground && bg === background && ul === underline && return face
+    Face(FaceDef(font, fg, bg, ul, height, weight, slant, underline_style, strikethrough, inverse, inherit))
 end
 
 function finalcolor(color::SimpleColor)

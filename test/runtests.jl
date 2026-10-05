@@ -318,6 +318,11 @@ end
     @test getface(face"red").font == "custom"
     resetfaces!(face"default")
     @test getface().font == "monospace"
+    # A colour the default face leaves unset is the standard default's
+    setface!(face"default" => convert(Face, Dict{String, Any}("background" => "inherit")))
+    @test getface().background == SimpleColor(face"background")
+    resetfaces!(face"default")
+    @test getface() === face"default"
     with_terminfo(vt100) do
         setface!(face"default" => Face(weight=:bold))
         @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "\e[1mx\e[22my"
@@ -1227,7 +1232,7 @@ end
     with_terminfo(vt100) do
         # A colour that chains to the default foreground, or cannot be resolved, resets
         chain = Face(foreground=Face(foreground=face"foreground"))
-        @test sprint(print, styled"{red:a}{$chain:b}c", context = :color => true) == "\e[31ma\e[39mb\e[39mc"
+        @test sprint(print, styled"{red:a}{$chain:b}c", context = :color => true) == "\e[31ma\e[39mbc"
         unresolvable = Face(foreground=Face())
         @test sprint(print, styled"{red:a}{$unresolvable:b}c", context = :color => true) == "\e[31ma\e[39mb\e[39mc"
         # A customised colour face is still its colour
@@ -1324,7 +1329,7 @@ end
 @testset "HTML encoding" begin
     @test sprint(StyledStrings.htmlcolor, SimpleColor(face"black")) == "#1c1a23"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(face"green")) == "#25a268"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(face"warning")) == "#e5a509"
+    @test sprint(StyledStrings.htmlcolor, getface(face"warning").foreground) == "#e5a509"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(Face())) == "#ff00ff"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
@@ -1366,6 +1371,12 @@ end
     # A link sits inside the styling of its region
     @test sprint(show, MIME("text/html"), styled"{red,link={https://x}:t}") ==
         "<span style=\"color: #a51c2c\"><a href=\"https://x\">t</a></span>"
+    # Inverse text in a default face with no background of its own shows as with the standard default
+    let standard = sprint(show, MIME("text/html"), styled"{inverse:x}")
+        setface!(face"default" => convert(Face, Dict{String, Any}("background" => "inherit")))
+        @test sprint(show, MIME("text/html"), styled"{inverse:x}") == standard
+        resetfaces!(face"default")
+    end
     # The default face's colours are the page's own
     setface!(face"default" => Face(background=0x101010))
     @test sprint(show, MIME("text/html"), styled"{(bg=#101010):x}{(bg=#202020):y}") ==
