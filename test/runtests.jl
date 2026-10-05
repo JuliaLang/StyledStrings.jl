@@ -1162,6 +1162,9 @@ struct CallableWriter end
     @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, :n, 1)]), context = :color => true) == "x"
     # A styled char shows in HTML as a one-character string would
     @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
+    # Regions whose face is unchanged add no span
+    @test sprint(show, MIME("text/html"), styled"{red:a{link={https://x}:b}c}") ==
+        "<span style=\"color: #a51c2c\">a<a href=\"https://x\">b</a>c</span>"
     # A link whose value is not a string is skipped
     oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1)])
     @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"

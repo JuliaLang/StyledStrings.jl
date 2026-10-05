@@ -520,6 +520,7 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         if face == getface()
             print(buf, "</span>" ^ stylestackdepth)
             stylestackdepth = 0
+        elseif face == lastface
         elseif (lastface.f.inverse, lastface.f.foreground, lastface.f.background) !==
                 (face.f.inverse, face.f.foreground, face.f.background) ||
             (lastface.f.underline_style < NO_UNDERLINE || lastface.strikethrough === true) &&
