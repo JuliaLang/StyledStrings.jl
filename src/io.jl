@@ -55,9 +55,9 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
     # component to 95, then takes 4 steps of 40 to reach 255.
     function cdistsq(r2, g2, b2) # The squared "redmean" colour distance function
         rr = (r + r2) / 2
-        (2 + r/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
+        (2 + rr/256) * (r - r2)^2 + 4 * (g - g2)^2 + (2 + (255 - rr)/256) * (b - b2)^2
     end
-    to6cube(value) = (value - 35) ÷ 40
+    to6cube(value) = if value < 48 0 elseif value < 115 1 else (value - 35) ÷ 40 end # Nearest of 0, 95, 135, 175, 215, 255
     from6cube(r6, g6, b6) = 16 + 6^2 * r6 + 6^1 * g6 + 6^0 * b6
     sixcube = (0, 95:40:255...)
     r6cube, g6cube, b6cube = to6cube(r), to6cube(g), to6cube(b)
@@ -68,8 +68,9 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
         # There aren't many greys in the 6x6x6 colour cube, so the remaining
         # space in the 256-colour range not taken up by the 16 "named" 4-bit
         # colours and the 6 colour cube is used for 24 shades of grey (`8:10:238`).
-        grey = sum((r, g, b)) ÷ 3
-        grey_level = min(23, (grey - 3) ÷ 10)
+        # `cdistsq` weights green, so the grey nearest the mean may not be the nearest
+        mean_level = min(23, (sum(Int, (r, g, b)) ÷ 3 - 3) ÷ 10)
+        grey_level = argmin(l -> cdistsq(8 + 10l, 8 + 10l, 8 + 10l), max(0, mean_level - 1):min(23, mean_level + 1))
         greynear = 8 + 10 * grey_level
         if cdistsq(greynear, greynear, greynear) <= cdistsq(rnear, gnear, bnear)
             16 + 6^3 + grey_level

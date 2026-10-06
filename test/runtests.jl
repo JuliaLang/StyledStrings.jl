@@ -488,11 +488,13 @@ end
     @test StyledStrings.ansi_4bit(
         StyledStrings.ANSI_4BIT_COLORS[:bright_cyan], true) == 106
     # 8-bit color
-    @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;26m"
-    @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;28m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;62m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;64m"
     @test sprint(StyledStrings.termcolor8bit, (r=0x95, g=0x58, b=0xb2), '3') == "\e[38;5;97m"
-    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;5;160m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;5;167m"
     @test sprint(StyledStrings.termcolor8bit, (r=0xee, g=0xee, b=0xee), '3') == "\e[38;5;255m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x46, g=0x46, b=0xeb), '3') == "\e[38;5;63m" # 0x46 is nearer 95 than 0
+    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0xc4, b=0xd2), '3') == "\e[38;5;251m"
     # 24-bit color
     @test sprint(StyledStrings.termcolor24bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;2;64;99;216m"
     @test sprint(StyledStrings.termcolor24bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;2;56;152;38m"
@@ -514,8 +516,8 @@ end
         @test ansi_change(weight=:extrabold) == ("\e[1m", "\e[22m")
         @test ansi_change(inverse=true) == ("\e[7m", "\e[27m")
         # Reduced-capability behaviours
-        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;26m", "\e[39m")
-        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;26m", "\e[49m")
+        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;62m", "\e[39m")
+        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;62m", "\e[49m")
         @test ansi_change(weight=:light) == ("", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
@@ -557,7 +559,7 @@ end
             "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[4mbuilds\
              \e[1m\e[24m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \
              \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide \
-             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;26m\e[1mstyling\e[39m\e[49m\e[22m \
+             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;62m\e[1mstyling\e[39m\e[49m\e[22m \
              system, suitable for \e[7mterminal\e[27m and graphical displays."
     end
     with_terminfo(fancy_term) do
