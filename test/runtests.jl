@@ -518,6 +518,9 @@ end
         # Reduced-capability behaviours
         @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;62m", "\e[39m")
         @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;62m", "\e[49m")
+        # An explicit colour is kept, even when it matches the default's
+        @test startswith(first(ansi_change(foreground=FACES.basecolors[:foreground])), "\e[38;5;")
+        @test startswith(first(ansi_change(background=FACES.basecolors[:background])), "\e[48;5;")
         @test ansi_change(weight=:light) == ("", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")

@@ -112,12 +112,12 @@ If `color` is unknown, no output is produced.
 """
 function termcolor(io::IO, color::SimpleColor, category::Char)
     if category == '4'
-        if color.value ∈ (:background, FACES.basecolors[:background])
+        if color.value == :background
             return print(io, "\e[", category, "9m")
         elseif color.value == :foreground
             return print(io, "\e[47m") # Technically not quite, but close enough
         end
-    elseif color.value ∈ (:foreground, FACES.basecolors[:foreground])
+    elseif color.value == :foreground
         return print(io, "\e[", category, "9m")
     elseif category == '3' && color.value == :background
         return print(io, "\e[30m") # Technically not quite, but close enough
