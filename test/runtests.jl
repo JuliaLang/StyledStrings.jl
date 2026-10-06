@@ -53,6 +53,7 @@ choppkg(s::String) = chopprefix(s, "StyledStrings.")
     @test tryparse(SimpleColor, "#010203") == SimpleColor(0x010203)
     @test tryparse(SimpleColor, "#12345g") === nothing
     @test tryparse(SimpleColor, "!not a color") === nothing
+    @test Face(foreground = SubString("#010203", 1)) == Face(foreground = 0x010203)
     @test parse(SimpleColor, "blue") == SimpleColor(:blue)
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
     @test sprint(show, SimpleColor(:blue)) |> choppkg ==

@@ -36,7 +36,7 @@ Base.convert(::Type{SimpleColor}, namedcolor::Symbol) = SimpleColor(namedcolor)
 Base.convert(::Type{SimpleColor}, rgb::UInt32) = SimpleColor(rgb)
 
 """
-    tryparse(::Type{SimpleColor}, rgb::String)
+    tryparse(::Type{SimpleColor}, rgb::AbstractString)
 
 Attempt to parse `rgb` as a `SimpleColor`. If `rgb` starts with
 `#` and has a length of 7, it is converted into a `RGBTuple`-backed `SimpleColor`.
@@ -57,7 +57,7 @@ SimpleColor(#9558b2)
 julia> tryparse(SimpleColor, "#nocolor")
 ```
 """
-function Base.tryparse(::Type{SimpleColor}, rgb::String)
+function Base.tryparse(::Type{SimpleColor}, rgb::AbstractString)
     if ncodeunits(rgb) == 7 && first(rgb) == '#' &&
         all(∈(('#',) ∪ ('0':'9') ∪ ('a':'f') ∪ ('A':'F')), rgb)
         SimpleColor(parse(UInt8, rgb[2:3], base=16),
@@ -71,12 +71,12 @@ function Base.tryparse(::Type{SimpleColor}, rgb::String)
 end
 
 """
-    parse(::Type{SimpleColor}, rgb::String)
+    parse(::Type{SimpleColor}, rgb::AbstractString)
 
-An analogue of `tryparse(SimpleColor, rgb::String)` (which see),
+An analogue of `tryparse(SimpleColor, rgb::AbstractString)` (which see),
 that raises an error instead of returning `nothing`.
 """
-function Base.parse(::Type{SimpleColor}, rgb::String)
+function Base.parse(::Type{SimpleColor}, rgb::AbstractString)
     color = tryparse(SimpleColor, rgb)
     !isnothing(color) ||
         throw(ArgumentError("invalid color \"$rgb\""))
