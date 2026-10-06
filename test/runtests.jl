@@ -1118,6 +1118,18 @@ end
     @test_throws MalformedStylingMacro styled("{(inherit=):x}")
     @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{(bg=):x}"))
     @test_throws MalformedStylingMacro styled("{face=red:x}")
+    @test_throws MalformedStylingMacro styled("{=v:x}")
+    # One problem is reported once, where it is
+    markuperror(f) = try f(); nothing catch err err end
+    let err = markuperror(() -> styled("{red bold:x}"))
+        @test only(err.problems).position == 5 && occursin("Expected ',' or ':'", String(only(err.problems).message))
+    end
+    @test length(markuperror(() -> styled("{red")).problems) == 1
+    @test annotations(styled("{red , bold :x}")) == annotations(styled("{red,bold:x}"))
+    let err = markuperror(() -> macroexpand(@__MODULE__, Meta.parse("styled\"{red:\$}\"")))
+        @test only(err.problems).position == 6 && occursin("unexpected `}`", String(only(err.problems).message))
+    end
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{k=v,=w:x}"))
     @test_throws MalformedStylingMacro styled("{(fg=#ff000):}")
     @test_throws MalformedStylingMacro styled("{(strikethrough=maybe):}")
     @test_throws MalformedStylingMacro styled("{(underline=(red, curly)")
@@ -1128,6 +1140,12 @@ end
         @test only(annotations(styled"{(fg=$hex):x}")).value == Face(foreground = 0x010203)
         @test_throws ArgumentError styled"{(fg=$notname):x}"
     end
+    # Errors point at the value at fault
+    problemat(s) = try styled(s) catch err; s[nextind(s, only(err.problems).position):end] end
+    @test problemat("{(fg=#):x}") == "#):x}"
+    @test problemat("{(inverse=maybe):x}") == "maybe):x}"
+    @test problemat("{(weight=heavy):x}") == "heavy):x}"
+    @test problemat("{(fg=red, fg=blue):x}") == "fg=blue):x}"
     # Test the error printing too
     aio = AnnotatedIOBuffer()
     try

@@ -326,8 +326,19 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
         return "", pos
     end
     expr, nextpos = Meta.parseatom(state.content, pos)
+    if Meta.isexpr(expr, (:error, :incomplete))
+        detail = expr.args[1].detail
+        if detail isa Base.JuliaSyntax.ParseError && !isempty(detail.diagnostics)
+            (; message, first_byte) = first(detail.diagnostics)
+            styerr!(state, "Invalid expression$after: $message",
+                    prevind(state.content, min(first_byte, lastindex(state.content))), "right here")
+        else
+            styerr!(state, "Invalid expression$after", prevind(state.content, prevind(state.content, pos)), "starting here")
+        end
+    end
     nchars = length(state.content[pos:prevind(state.content, nextpos)])
     for _ in 1:nchars
+        after = if state.content[prevind(state.content, pos)] == '$' " after \$" else "" end # Not for `font=` or `height=`
         isempty(state.s) && break
         popfirst!(state.s)
     end
@@ -415,7 +426,7 @@ Close of the most recent active style in `state`, making it a pending style.
 """
 function end_style!(state::State, i::Int, char::Char)
     if isempty(state.activestyles)
-        styerr!(state, "Contains extraneous style terminations", -2, "right here")
+        styerr!(state, "Contains extraneous style terminations", prevind(state.content, i), "right here")
         return
     end
     _, inds = pop!(state.activestyles)
@@ -459,6 +470,7 @@ function read_annotation!(state::State, i::Int, char::Char)
     else
         read_face_or_keyval!(state, i, char)
     end
+    skipwhitespace!(state)
     isempty(state.s) && return false
     nextchar = last(peek(state.s))
     if nextchar == ','
@@ -466,11 +478,8 @@ function read_annotation!(state::State, i::Int, char::Char)
         true
     elseif nextchar == ':'
         true
-    elseif nextchar ∈ (' ', '\t', '\n', '\r')
-        skipwhitespace!(state)
-        true
     else
-        styerr!(state, "Malformed styled string construct", -1)
+        styerr!(state, "Expected ',' or ':' after an annotation", prevind(state.content, first(peek(state.s))), "right here")
         false
     end
 end
@@ -491,7 +500,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         if color == "nothing"
         elseif startswith(color, '#') || startswith(color, "0x")
             rgb = tryparse(SimpleColor, color)
-            isnothing(rgb) && styerr!(state, "Invalid colour '$color', should be #rrggbb or 0xrrggbb", -length(color) - 1)
+            isnothing(rgb) && styerr!(state, "Invalid colour '$color', should be #rrggbb or 0xrrggbb", -length(color) - 2)
             rgb
         else
             resolveface(state, color)
@@ -539,7 +548,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                                                 [(26:25+ncodeunits(ustyle_word), :face, FACES.pool[:warning])
                                                  (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
                                                   :face, FACES.pool[:light])]),
-                                -length(ustyle_word) - 3)
+                                -length(ustyle_word) - 2)
                     end
                     ustyle = Symbol(ustyle_word)
                     lastchar = nextnonwhitespace!(state, lastchar)
@@ -625,6 +634,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     needseval = false
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
+        keypos = if isempty(state.s) lastindex(state.content) else prevind(state.content, first(peek(state.s))) end
         str_key, lastchar = readalph!(state, lastchar)
         # If we have actually reached the end but there is a trailing
         # comma/whitespace, we find out here and abort.
@@ -634,7 +644,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         if lastchar != '='
             skipwhitespace!(state)
             if isempty(state.s) || last(peek(state.s)) != '='
-                styerr!(state, "Keyword argument has no value", -3)
+                styerr!(state, "Keyword argument has no value", keypos)
                 break
             end
             popfirst!(state.s)
@@ -676,7 +686,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 invalid = rstrip(∈((' ', '\t', '\n', '\r', ',', ')')), state.content[start:prevind(state.content, stop)])
                 styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
                                                 [(17:16+ncodeunits(invalid), :face, FACES.pool[:warning])]),
-                        -3)
+                        prevind(state.content, start))
             end
         elseif key ∈ (:weight, :slant)
             v, lastchar = readalph!(state, lastchar)
@@ -686,14 +696,14 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                                                 [(17:16+ncodeunits(v), :face, FACES.pool[:warning]),
                                                  (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
                                                   :face, FACES.pool[:light])]),
-                        -3)
+                        -length(v) - 2)
             elseif key == :slant && v ∉ VALID_SLANTS
                 valid_options = join(VALID_SLANTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
                                                 [(16:15+ncodeunits(v), :face, FACES.pool[:warning]),
                                                  (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
                                                   :face, FACES.pool[:light])]),
-                        -3)
+                        -length(v) - 2)
             end
             Symbol(v) |> if ismacro(state) QuoteNode else identity end
         elseif key ∈ (:foreground, :background)
@@ -706,7 +716,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             elseif flag == "false"
                 false
             else
-                styerr!(state, "Invalid $key value '$flag', should be true or false", -length(flag) - 1)
+                styerr!(state, "Invalid $key value '$flag', should be true or false", -length(flag) - 2)
             end
         elseif key == :underline
             ul, lastchar, needseval = read_underline!(state, lastchar, needseval)
@@ -732,7 +742,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             else
                 styerr!(state, AnnotatedString("Contains repeated face key '$key'",
                                                 [(29:28+ncodeunits(String(key)), :face, FACES.pool[:warning])]),
-                        -length(str_key) - 2)
+                        keypos)
             end
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
@@ -887,6 +897,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
     skipwhitespace!(state)
     if isempty(state.s)
     elseif last(peek(state.s)) == '='
+        key isa String && isempty(key) && styerr!(state, "Missing key before '='", prevind(state.content, first(peek(state.s))), "right here")
         popfirst!(state.s)
         skipwhitespace!(state)
         nextchar = if !isempty(state.s) last(peek(state.s)) else '\0' end
@@ -951,9 +962,6 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         addannot!(state, i,
                   if ismacro(state) QuoteNode(:face) else :face end,
                   face)
-    end
-    if isempty(state.s) || last(peek(state.s)) ∉ (' ', '\t', '\n', '\r', ',', ':')
-        styerr!(state, "Incomplete annotation declaration", prevind(state.content, i), "starts here")
     end
 end
 
