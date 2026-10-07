@@ -70,14 +70,36 @@ end
 
 const UNCACHED = copy(EMPTY_FACE) # Marks an empty cache slot; nothing else can reference this face
 
-function emptycache!(cache::AtomicMemory{Pair{Face, Face}})
-    for i in eachindex(cache)
-        @atomic cache[i] = UNCACHED => UNCACHED
+# Slot `s` resolves `keys[s]` to `defs[s]`, under the seqlock `versions[s]` (odd while written)
+mutable struct FaceCache # Mutable, so reading `FACES.cache[]` doesn't allocate
+    const versions::AtomicMemory{UInt}
+    const keys::Memory{Face}
+    const defs::Memory{FaceDef}
+end
+
+function emptycache!(cache::FaceCache)
+    for slot in eachindex(cache.versions)
+        writeslot!(cache, slot, UNCACHED, EMPTY_FACE.f)
     end
     cache
 end
 
-emptycache() = emptycache!(AtomicMemory{Pair{Face, Face}}(undef, 256))
+function emptycache()
+    versions = AtomicMemory{UInt}(undef, 256)
+    foreach(slot -> @atomic(:monotonic, versions[slot] = 0), eachindex(versions))
+    emptycache!(FaceCache(versions, Memory{Face}(undef, 256), Memory{FaceDef}(undef, 256)))
+end
+
+function writeslot!(cache::FaceCache, slot::Int, face::Face, def::FaceDef)
+    version = @atomic :monotonic cache.versions[slot]
+    isodd(version) && return
+    (; success) = @atomicreplace :acquire_release :monotonic cache.versions[slot] version => version + 1
+    success || return
+    Core.Intrinsics.atomic_fence(:release, :system) # Keeps the stores below after the odd version
+    cache.keys[slot] = face
+    cache.defs[slot] = def
+    @atomic :release cache.versions[slot] = version + 2
+end
 
 """
 Globally named [`Face`](@ref)s.
@@ -465,27 +487,29 @@ foreignface(name::Symbol) = lookmakeface(name)
 Obtain the final merged face from `faces`, an iterator of
 [`Face`](@ref)s, face name `Symbol`s, and lists thereof.
 """
-function getface(faces)
-    cdefault = getface()
-    isempty(faces) && return cdefault
-    finalcolours(merge(cdefault, mapfoldl(_mergedface, merge, faces)::Face), cdefault)
+getface(faces) = if isempty(faces) getface() else Face(resolvedef(faces)) end
+
+function resolvedef(faces)
+    default = resolvedef(STANDARD_FACES.default)
+    merged = mapfoldl(face -> _mergedface(face).f, merge, faces)::FaceDef
+    finalcolours(merge(default, merged), default)
 end
 
 """
-    getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
+    resolvedef(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
 
-Combine all of the `:face` annotations with `getfaces`.
+Combine all of the `:face` annotations, as with [`getface`](@ref), into a `FaceDef`.
 """
-function getface(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}},
-                 cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[]) where {V}
+function resolvedef(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}},
+                     cache::FaceCache = FACES.cache[]) where {V}
     faces = (ann.value for ann in annotations if ann.label === :face)
     face = nothing # A single `Face`, the usual case, is resolved without the fold
-    for ann in annotations
+    for ann in annotations # Rather than over `faces`, which is measurably slower
         ann.label === :face || continue
-        isnothing(face) && ann.value isa Face || return getface(faces)
+        isnothing(face) && ann.value isa Face || return resolvedef(faces)
         face = ann.value::Face
     end
-    if isnothing(face) getface() else getface(face, cache) end
+    if isnothing(face) resolvedef(STANDARD_FACES.default, cache) else resolvedef(face, cache) end
 end
 
 """
@@ -494,23 +518,36 @@ end
 Obtain `face` resolved against the current definitions and the default face, via `cache`.
 Its colours are resolved to their final values: an `RGBTuple` or a base colour face.
 """
-function getface(face::Face, cache::AtomicMemory{Pair{Face, Face}} = FACES.cache[])
+function getface(face::Face, cache::FaceCache = FACES.cache[])
+    def = resolvedef(face, cache)
+    if def === face.f face else Face(def) end # Keeps an unchanged face's identity, and so its name
+end
+
+# Inlined, so a hit isn't copied out of a call
+@inline function resolvedef(face::Face, cache::FaceCache = FACES.cache[])
     mixed = UInt(pointer_from_objref(face)) * 0x9e3779b97f4a7c15 # 64-bit golden ratio factor
     i, j = Int(mixed >> 56) + 1, Int(mixed >> 48 & 0xff) + 1
-    slot1 = @atomic cache[i]
-    slot1.first === face && return slot1.second
-    slot2 = @atomic cache[j]
-    slot2.first === face && return slot2.second
-    current = FACES.current[]
-    resolved = if face === STANDARD_FACES.default
-        finalcolours(get(current, face, face), face)
-    else
-        default = getface(STANDARD_FACES.default, cache)
-        finalcolours(merge(default, get(current, face, face)), default)
+    for slot in (i, j)
+        version = @atomic :acquire cache.versions[slot]
+        cache.keys[slot] === face || continue
+        def = cache.defs[slot]
+        Core.Intrinsics.atomic_fence(:acquire, :system) # Completes the copy before the recheck
+        iseven(version) && version === @atomic(:monotonic, cache.versions[slot]) && return def
     end
-    at = if slot1.first === UNCACHED || slot2.first !== UNCACHED && isodd(mixed >> 40) i else j end
-    @atomic cache[at] = face => resolved
-    resolved
+    resolvemiss(face, cache, i, j, isodd(mixed >> 40))
+end
+
+@noinline function resolvemiss(face::Face, cache::FaceCache, i::Int, j::Int, prefer_i::Bool)
+    current = FACES.current[]
+    def = if face === STANDARD_FACES.default
+        finalcolours(get(current, face, face).f, face.f)
+    else
+        default = resolvedef(STANDARD_FACES.default, cache)
+        finalcolours(merge(default, get(current, face, face).f), default)
+    end
+    at = if cache.keys[i] === UNCACHED || cache.keys[j] !== UNCACHED && prefer_i i else j end
+    writeslot!(cache, at, face, def)
+    def
 end
 
 getface(face::Symbol) = getface(lookmakeface(face))
@@ -537,7 +574,7 @@ getface(s::AnnotatedString, i::Integer) =
 
 Get the merged [`Face`](@ref) that applies to `c`.
 """
-getface(c::AnnotatedChar) = getface(c.annotations)
+getface(c::AnnotatedChar) = getface([value for (; label, value) in c.annotations if label === :face])
 
 """
     face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
@@ -908,15 +945,15 @@ end
 
 # `face` with its colours followed to their final values. Those shared with the resolved
 # `default` are final already, an unset one is the default's, and one that cannot be resolved is kept.
-function finalcolours(face::Face, default::Face)
+function finalcolours(face::FaceDef, default::FaceDef)
     final(c, dc) = if isnothingflavour(c) dc elseif c isa Face && c !== dc something(finalcolor(c), c) else c end
     (; font, foreground, background, underline, height, weight, slant,
-     underline_style, strikethrough, inverse, inherit) = face.f
-    fg = final(foreground, default.f.foreground)
-    bg = final(background, default.f.background)
-    ul = final(underline, default.f.underline)
+     underline_style, strikethrough, inverse, inherit) = face
+    fg = final(foreground, default.foreground)
+    bg = final(background, default.background)
+    ul = final(underline, default.underline)
     fg === foreground && bg === background && ul === underline && return face
-    Face(FaceDef(font, fg, bg, ul, height, weight, slant, underline_style, strikethrough, inverse, inherit))
+    FaceDef(font, fg, bg, ul, height, weight, slant, underline_style, strikethrough, inverse, inherit)
 end
 
 function finalcolor(color::SimpleColor)

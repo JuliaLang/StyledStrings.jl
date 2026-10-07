@@ -23,6 +23,7 @@ StyledStrings.foreignface
 StyledStrings.override
 StyledStrings.relayer!
 StyledStrings.getface
+StyledStrings.resolvedef
 StyledStrings.load_customisations!
 StyledStrings.loadface!
 StyledStrings.loaduserfaces!

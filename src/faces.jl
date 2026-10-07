@@ -370,11 +370,14 @@ function Face(; font::Union{Nothing, String} = nothing,
     Face(f)
 end
 
-Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function Base.getproperty(face::Face, attr::Symbol)
-    attr == :f && return getfield(face, :f)
-    val = getfield(getfield(face, :f), attr)
-    if attr == :underline # In the form that the constructor takes
-        style = getfield(getfield(face, :f), :underline_style)
+Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate Base.getproperty(face::Face, attr::Symbol) =
+    if attr == :f getfield(face, :f) else faceproperty(getfield(face, :f), attr) end
+
+# The `attr` of `def`, in the form that the `Face` constructor takes
+Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function faceproperty(def::FaceDef, attr::Symbol)
+    val = getfield(def, attr)
+    if attr == :underline
+        style = getfield(def, :underline_style)
         if style == NO_UNDERLINE
             false
         elseif isnothingflavour(style)

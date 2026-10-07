@@ -1277,8 +1277,8 @@ end
     function ansi_change(; attrs...)
         face = getface(Face(; attrs...))
         dface = getface()
-        sprint(StyledStrings.termstyle, face, dface),
-        sprint(StyledStrings.termstyle, dface, face)
+        sprint(StyledStrings.termstyle, face.f, dface.f),
+        sprint(StyledStrings.termstyle, dface.f, face.f)
     end
     with_terminfo(vt100) do
         @test ansi_change(foreground=face"cyan") == ("\e[36m", "\e[39m")
@@ -1305,7 +1305,7 @@ end
             sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, "https://x")]), context = :color => true)
         resetfaces!(face"default")
         # The underline that stands in for italics is kept
-        @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)), getface(Face(underline=true))) == "\e[4m"
+        @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)).f, getface(Face(underline=true)).f) == "\e[4m"
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
         @test ansi_change(underline=face"green") == ("\e[4m", "\e[24m")
         @test ansi_change(strikethrough=true) == ("", "")
@@ -1367,7 +1367,7 @@ end
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
         face = getface(Face(; attrs...))
-        sprint(StyledStrings.htmlstyle, face)
+        sprint(StyledStrings.htmlstyle, face.f)
     end
     @test html_change(foreground=face"cyan") == "<span style=\"color: #0097a7\">"
     @test html_change(background=face"cyan") == "<span style=\"background-color: #0097a7\">"
@@ -1392,7 +1392,7 @@ end
     @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
     @test html_change(underline=(face"red", :curly), strikethrough=true) ==
         "<span style=\"text-decoration: #a51c2c wavy underline line-through\">"
-    @test sprint(StyledStrings.htmlstyle, getface(Face()), getface(Face(underline=true))) == "<span style=\"text-decoration: none\">"
+    @test sprint(StyledStrings.htmlstyle, getface(Face()).f, getface(Face(underline=true)).f) == "<span style=\"text-decoration: none\">"
     setface!(face"default" => Face(height=1.5))
     @test html_change(height=2.0) == "<span style=\"font-size: 200%\">"
     @test sprint(show, MIME("text/html"), styled"{(height=2.0):a}{bold:b}") ==
