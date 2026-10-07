@@ -295,6 +295,9 @@ function safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::
     end
 end
 
+# The characters other than letters and digits that a URI may hold as they are
+const URI_SPECIAL_CHARS = map(UInt8, Tuple("-_.!~*'():@&=+\$,%/?#[];"))
+
 """
     uriformat(link::String)
 
@@ -313,7 +316,7 @@ function uriformat(link::String)
         if isalphnum(b) || b ∈ map(UInt8, ('+', '-', '.'))
             i += 1
         elseif b == UInt8(':') && (i > 2 || get(bytes, i+1, 0x00) ∉ (UInt8('\\'), UInt8('/'))) # Skip Windows drive letters
-            return safeuri(link, bytes, ((UInt8(c) for c in "-_.!~*'():@&=+\$,%/?#[]@")...,))
+            return safeuri(link, bytes, URI_SPECIAL_CHARS)
         else
             break
         end
@@ -501,39 +504,58 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     raw = first(Base.unwrapcontext(io))
     buf = if raw isa IOBuffer raw else IOBuffer() end
-    lastface::Face = getface()
-    stylestackdepth = 0
+    # As faces appear in CSS, where inverse swaps the colours
+    appearance = (face -> face.f.font, face -> face.f.height, face -> face.f.weight, face -> face.f.slant,
+                  face -> if face.f.inverse == 0x1 face.f.background else face.f.foreground end,
+                  face -> if face.f.inverse == 0x1 face.f.foreground else face.f.background end,
+                  face -> if face.f.underline_style < NO_UNDERLINE # A plain underline has the colour of its text
+                      if face.f.underline !== FGBG_FACES.foreground face.f.underline
+                      elseif face.f.inverse == 0x1 face.f.background else face.f.foreground end
+                  end,
+                  face -> face.f.underline_style, face -> face.f.strikethrough)
+    default = getface()
+    spans = Face[]
+    link, linkdepth = nothing, 0
     cache = FACES.cache[]
     for (str, styles) in eachregion(s)
         face = getface(styles, cache)
-        link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
-            if !isnothing(idx)
-                uriformat(String(styles[idx].value::AbstractString))
+        newlink = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
+            if !isnothing(idx) # A link without a scheme is relative to the page
+                href = String(styles[idx].value::AbstractString)
+                safeuri(href, codeunits(href), URI_SPECIAL_CHARS)
             end
         end
-        if face == getface()
-            print(buf, "</span>" ^ stylestackdepth)
-            stylestackdepth = 0
-        elseif face == lastface
-        elseif (lastface.f.inverse, lastface.f.foreground, lastface.f.background) !==
-                (face.f.inverse, face.f.foreground, face.f.background) ||
-            (lastface.f.underline_style < NO_UNDERLINE || lastface.strikethrough === true) &&
-                (lastface.f.underline, lastface.f.underline_style, lastface.f.strikethrough) !==
-                (face.f.underline, face.f.underline_style, face.f.strikethrough)
-            # We can't un-inherit colors or text decorations, so we just need to reset and apply
-            print(buf, "</span>" ^ stylestackdepth)
-            htmlstyle(buf, face, getface())
-            stylestackdepth = 1
-        else
-            htmlstyle(buf, face, lastface)
-            stylestackdepth += 1
+        # What a span sets cannot be unset within it
+        keep = 0
+        for span in spans
+            parent = if keep == 0 default else spans[keep] end
+            all(attr -> attr(span) === attr(parent) || attr(span) === attr(face), appearance) || break
+            keep += 1
         end
-        !isnothing(link) && print(buf, "<a href=\"", link, "\">")
+        if !isnothing(link) && (newlink != link || keep < linkdepth)
+            print(buf, "</span>" ^ (length(spans) - linkdepth), "</a>")
+            resize!(spans, linkdepth)
+            link = nothing
+        end
+        keep = min(keep, length(spans))
+        print(buf, "</span>" ^ (length(spans) - keep))
+        resize!(spans, keep)
+        if isnothing(link) && !isnothing(newlink)
+            print(buf, "<a href=\"", htmlescape(newlink), "\">")
+            link, linkdepth = newlink, keep
+        end
+        base = if isempty(spans) default else last(spans) end
+        if !all(attr -> attr(base) === attr(face), appearance)
+            htmlstyle(buf, face, base)
+            push!(spans, face)
+        end
         print(buf, htmlescape(str))
-        !isnothing(link) && print(buf, "</a>")
-        lastface = face
     end
-    print(buf, "</span>" ^ stylestackdepth)
+    if !isnothing(link)
+        print(buf, "</span>" ^ (length(spans) - linkdepth), "</a>")
+        resize!(spans, linkdepth)
+    end
+    print(buf, "</span>" ^ length(spans))
     buf === raw || write(io, take!(buf))
     nothing
 end

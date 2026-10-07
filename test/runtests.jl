@@ -1236,6 +1236,7 @@ end
     # Link formatting
     @test StyledStrings.uriformat("https://x.y/z w") == "https://x.y/z%20w"
     @test StyledStrings.uriformat("a:b") == "a:b"
+    @test StyledStrings.uriformat("https://x.y/a;b=c") == "https://x.y/a;b=c"
     @test startswith(StyledStrings.uriformat("C:\\Users\\x"), "file://")
     # 4-bit color
     @test StyledStrings.ansi_4bit(
@@ -1395,15 +1396,32 @@ end
     setface!(face"default" => Face(height=1.5))
     @test html_change(height=2.0) == "<span style=\"font-size: 200%\">"
     @test sprint(show, MIME("text/html"), styled"{(height=2.0):a}{bold:b}") ==
-        "<span style=\"font-size: 200%\">a<span style=\"font-size: 50%; font-weight: 700\">b</span></span>"
+        "<span style=\"font-size: 200%\">a</span><span style=\"font-weight: 700\">b</span>"
     resetfaces!(face"default")
     # Text decorations cannot be removed within a nested span
     @test sprint(show, MIME("text/html"), styled"{underline:a}{bold:b}") ==
         "<span style=\"text-decoration: underline\">a</span><span style=\"font-weight: 700\">b</span>"
-    # A link sits inside the styling of its region
+    # A plain underline has the colour of its text, so a change of colour within it is a new span
+    @test sprint(show, MIME("text/html"), styled"{underline:a {red:b}}") ==
+        "<span style=\"text-decoration: underline\">a </span><span style=\"color: #a51c2c; text-decoration: underline\">b</span>"
+    # A link without a scheme is relative to the page, and only escaped
+    for (link, href) in ("#sec" => "#sec", "../a b.html" => "../a%20b.html", "//cdn.example/x" => "//cdn.example/x",
+                         "a\"b" => "a%22b", "https://x.y/z w" => "https://x.y/z%20w")
+        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, link)])) ==
+            "<a href=\"$href\"><span style=\"color: #a51c2c\">t</span></a>"
+    end
+    # One link across styled regions
     @test sprint(show, MIME("text/html"), styled"{red,link={https://x}:t}") ==
-        "<span style=\"color: #a51c2c\"><a href=\"https://x\">t</a></span>"
-    # Inverse text in a default face with no background of its own shows as with the standard default
+        "<a href=\"https://x\"><span style=\"color: #a51c2c\">t</span></a>"
+    @test sprint(show, MIME("text/html"), styled"{link={https://x}:{bold:a}b{italic:c}}") ==
+        "<a href=\"https://x\"><span style=\"font-weight: 700\">a</span>b<span style=\"font-style: italic\">c</span></a>"
+    @test sprint(show, MIME("text/html"), styled"{bold:a}{italic:b}{bold:c}{italic:d}") ==
+        "<span style=\"font-weight: 700\">a</span><span style=\"font-style: italic\">b</span>\
+         <span style=\"font-weight: 700\">c</span><span style=\"font-style: italic\">d</span>"
+    @test sprint(show, MIME("text/html"), styled"{red:a{bold:b}c}") ==
+        "<span style=\"color: #a51c2c\">a<span style=\"font-weight: 700\">b</span>c</span>"
+    swapped = Face(foreground = face"background", background = face"foreground", inverse = true)
+    @test sprint(show, MIME("text/html"), styled"a{$swapped:b}") == "ab"
     let standard = sprint(show, MIME("text/html"), styled"{inverse:x}")
         setface!(face"default" => convert(Face, Dict{String, Any}("background" => "inherit")))
         @test sprint(show, MIME("text/html"), styled"{inverse:x}") == standard
@@ -1424,7 +1442,7 @@ end
         <span style=\"color: #803d9b\">`</span> package"
     @test sprint(show, MIME("text/html"), fancy_string) ==
         "The <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">StyledStrings</span><span style=\"color: #803d9b\">`</span> \
-        package <span style=\"font-style: italic\">builds<span style=\"font-weight: 700; font-style: normal\"> on top</span></span> of the \
+        package <span style=\"font-style: italic\">builds</span><span style=\"font-weight: 700\"> on top</span> of the \
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
