@@ -1479,6 +1479,16 @@ end
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
     @test printstyled(aio, "f", color=208) |> isnothing
     @test annotations(read(seekstart(aio), AnnotatedString))[end].value.foreground == SimpleColor(0xff8700)
+    # A message whose value type cannot hold a face is styled all the same
+    let linked = AnnotatedString("g", [(1:1, :link, "https://example.com")]), lio = AnnotatedIOBuffer()
+        @test printstyled(lio, linked, "h", color=:red) |> isnothing
+        @test annotations(read(seekstart(lio), AnnotatedString)) ==
+            [(region = 1:1, label = :link, value = "https://example.com"), (region = 1:2, label = :face, value = Face(foreground = face"red"))]
+    end
+    let plain = AnnotatedString("i") # The faces are added to a copy, not to the caller's string
+        printstyled(AnnotatedIOBuffer(), plain, bold = true)
+        @test isempty(annotations(plain))
+    end
     # A faulty faces.toml is reported once, and printing still works
     mktempdir() do depot
         mkpath(joinpath(depot, "config"))
