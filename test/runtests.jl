@@ -451,6 +451,20 @@ end
         resetfaces!()
         cleanup_hacky_faces!()
     end
+    # Inheritance that would loop back to a face is refused
+    let loopa = hacky_addface!(:loopa, copy(Face())), loopb = hacky_addface!(:loopb, copy(Face()))
+        setface!(loopa => Face(inherit = loopb, weight = :bold))
+        @test_throws ArgumentError setface!(loopb => Face(inherit = loopa))
+        @test_throws ArgumentError setface!(loopa => Face(inherit = loopa))
+        @test_throws ArgumentError withfaces(() -> nothing, loopb => Face(inherit = loopa))
+        @test_throws ArgumentError withfaces(face"red" => face"blue") do
+            setface!(loopb => Face(inherit = loopa))
+        end
+        @test getface(loopb).weight == :normal
+        @test getface(loopa).weight == :bold
+        resetfaces!()
+        cleanup_hacky_faces!()
+    end
     # Equality/hashing equivalence
     let testfaces = [Face(foreground=face"blue"),
                      Face(background=face"blue"),

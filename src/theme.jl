@@ -140,6 +140,16 @@ end
 
 ## Adding and resetting faces ##
 
+# Throw when `def`, as the definition of `face`, inherits from `face` by way of `current`.
+# A loop rather than `any`, as recursing through a closure is uninferrable, which breaks trimming.
+function checkinherit(current::IdDict{Face, Face}, face::Face, def::Face)
+    for parent in def.f.inherit
+        parent === face && throw(ArgumentError( # By name, as showing a face does not trim
+            "Face '$(get(FACES.names, face, :unnamed))' cannot inherit from itself, directly or through other faces"))
+        checkinherit(current, face, get(current, parent, parent))
+    end
+end
+
 """
     override(base::Face, mods::Face)
 
@@ -355,6 +365,7 @@ function withfaces(f, keyvals_itr)
         else
             delete!(newfaces, face)
         end
+        checkinherit(newfaces, face, get(newfaces, face, face))
     end
     @with(FACES.current => newfaces, FACES.cache => emptycache(), f())
 end
@@ -577,6 +588,7 @@ function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
         isactive = theme ∈ (:base, FACES.current_theme[])
         RECOLORING[] && !isactive && return # Hooks run again on each theme change
         current = FACES.current[]
+        checkinherit(current, original, update)
         if FACES.current.default === current # Only save top-level modifications
             layer = if RECOLORING[] FACES.recolors else FACES.modifications[theme] end
             prior = get(layer, original, nothing)
