@@ -1453,14 +1453,16 @@ end
     @test Legacy.legacy_color(:blue) == SimpleColor(face"blue")
     @test Legacy.legacy_color(:light_blue) == SimpleColor(face"bright_blue")
     @test Legacy.legacy_color(-1) === nothing
-    @test Legacy.legacy_color(0) == SimpleColor(0x000000)
+    @test Legacy.legacy_color(0) == SimpleColor(face"black")
+    @test Legacy.legacy_color(11) == SimpleColor(face"bright_yellow")
+    @test Legacy.legacy_color(16) == SimpleColor(0x000000)
     @test Legacy.legacy_color(44) == SimpleColor(0x00d7d7)
     @test Legacy.legacy_color(255) == SimpleColor(0xeeeeee)
     @test Legacy.legacy_color(256) === nothing
     @test Legacy.legacy_color("blue") == SimpleColor(face"blue")
     @test Legacy.legacy_color("light_blue") == SimpleColor(face"bright_blue")
     @test Legacy.legacy_color("-1") === nothing
-    @test Legacy.legacy_color("0") == SimpleColor(0x000000)
+    @test Legacy.legacy_color("0") == SimpleColor(face"black")
     @test Legacy.legacy_color("44") == SimpleColor(0x00d7d7)
     @test Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
     @test Legacy.legacy_color("256") === nothing

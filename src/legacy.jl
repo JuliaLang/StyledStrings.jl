@@ -18,13 +18,15 @@ When this is not possible, `nothing` is returned.
 function legacy_color end
 
 """
-A mapping from 256-color codes indicies to 8-bit colours.
+A mapping from 256-color codes indicies to colours. The first 16 are the base colours,
+which take their values from the terminal, and the rest are fixed 8-bit colours.
 """
 const ANSI_256_COLORS =
     map(SimpleColor,
-        [0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080,
-         0xc0c0c0, 0x808080, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff,
-         0x00ffff, 0xffffff, 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
+        [face"black", face"red", face"green", face"yellow", face"blue", face"magenta",
+         face"cyan", face"white", face"bright_black", face"bright_red", face"bright_green",
+         face"bright_yellow", face"bright_blue", face"bright_magenta", face"bright_cyan",
+         face"bright_white", 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
          0x0000ff, 0x005f00, 0x005f5f, 0x005f87, 0x005faf, 0x005fd7, 0x005fff,
          0x008700, 0x00875f, 0x008787, 0x0087af, 0x0087d7, 0x0087ff, 0x00af00,
          0x00af5f, 0x00af87, 0x00afaf, 0x00afd7, 0x00afff, 0x00d700, 0x00d75f,
