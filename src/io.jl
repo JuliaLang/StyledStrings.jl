@@ -186,17 +186,17 @@ const ANSI_STYLE_CODES = (
     end_strikethrough = "\e[29m"
 )
 
-function termstyle(io::IO, face::Face, lastface::Face=getface())
-    face.f.foreground === lastface.f.foreground ||
-        termcolor(io, face.foreground, '3')
-    face.f.background === lastface.f.background ||
-        termcolor(io, face.background, '4')
-    face.f.weight == lastface.f.weight || begin
+function termstyle(io::IO, face::FaceDef, lastface::FaceDef=resolvedef(STANDARD_FACES.default))
+    face.foreground === lastface.foreground ||
+        termcolor(io, faceproperty(face, :foreground), '3')
+    face.background === lastface.background ||
+        termcolor(io, faceproperty(face, :background), '4')
+    face.weight == lastface.weight || begin
         normal = attrbyte(:weight, :normal)
-        if lastface.f.weight != normal && face.f.weight != normal
+        if lastface.weight != normal && face.weight != normal
             print(io, ANSI_STYLE_CODES.normal_weight) # Reset before changing
         end
-        weight = face.f.weight
+        weight = face.weight
         print(io, if weight < normal
                   get(Base.current_terminfo(), :dim, "")
               elseif weight == normal || isnothingflavour(weight)
@@ -205,22 +205,22 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
                   ANSI_STYLE_CODES.bold_weight
               end)
     end
-    face.f.slant == lastface.f.slant ||
-        let slanted = face.f.slant < attrbyte(:slant, :normal) # italic or oblique
+    face.slant == lastface.slant ||
+        let slanted = face.slant < attrbyte(:slant, :normal) # italic or oblique
             if haskey(Base.current_terminfo(), :enter_italics_mode)
                 print(io, ifelse(slanted, ANSI_STYLE_CODES.start_italics, ANSI_STYLE_CODES.end_italics))
-            elseif slanted && face.f.underline_style >= NO_UNDERLINE
+            elseif slanted && face.underline_style >= NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.start_underline)
-            elseif !slanted && lastface.f.underline_style >= NO_UNDERLINE
+            elseif !slanted && lastface.underline_style >= NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.end_underline)
             end
         end
     # Kitty fancy underlines, see <https://sw.kovidgoyal.net/kitty/underlines>
     # Supported in Kitty, VTE, iTerm2, Alacritty, and Wezterm.
-    (face.f.underline === lastface.f.underline && face.f.underline_style == lastface.f.underline_style) ||
+    (face.underline === lastface.underline && face.underline_style == lastface.underline_style) ||
         if haskey(Base.current_terminfo(), :set_underline_style) || get(Base.current_terminfo(), :can_style_underline, false)
-            ul, ulstyle = face.f.underline, face.f.underline_style
-            lastul, lastulstyle = lastface.f.underline, lastface.f.underline_style
+            ul, ulstyle = face.underline, face.underline_style
+            lastul, lastulstyle = lastface.underline, lastface.underline_style
             # The named styles come before `NO_UNDERLINE`, and the nothing bytes after it
             if ulstyle != lastulstyle && ulstyle < NO_UNDERLINE
                 if lastulstyle >= NO_UNDERLINE && ulstyle == attrbyte(:underline, :straight)
@@ -234,17 +234,17 @@ function termstyle(io::IO, face::Face, lastface::Face=getface())
             if ulstyle >= NO_UNDERLINE && lastulstyle < NO_UNDERLINE
                 print(io, ANSI_STYLE_CODES.end_underline)
             end
-        elseif face.f.underline_style < NO_UNDERLINE
+        elseif face.underline_style < NO_UNDERLINE
             print(io, ANSI_STYLE_CODES.start_underline)
-        elseif haskey(Base.current_terminfo(), :enter_italics_mode) || face.f.slant >= attrbyte(:slant, :normal) # Not standing in for italics
+        elseif haskey(Base.current_terminfo(), :enter_italics_mode) || face.slant >= attrbyte(:slant, :normal) # Not standing in for italics
             print(io, ANSI_STYLE_CODES.end_underline)
         end
-    face.f.strikethrough == lastface.f.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
-        print(io, ifelse(face.f.strikethrough == 0x1,
+    face.strikethrough == lastface.strikethrough || !haskey(Base.current_terminfo(), :smxx) ||
+        print(io, ifelse(face.strikethrough == 0x1,
                          ANSI_STYLE_CODES.start_strikethrough,
                          ANSI_STYLE_CODES.end_strikethrough))
-    face.f.inverse == lastface.f.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
-        print(io, ifelse(face.f.inverse == 0x1,
+    face.inverse == lastface.inverse || !haskey(Base.current_terminfo(), :enter_reverse_mode) ||
+        print(io, ifelse(face.inverse == 0x1,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
 end
@@ -332,11 +332,11 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         raw = first(Base.unwrapcontext(io))
         buf = if raw isa IOBuffer && !raw.append raw else IOBuffer() end # `position` is where an appending buffer reads
         start = position(buf)
-        lastface::Face = STANDARD_FACES.default
+        lastface = STANDARD_FACES.default.f
         lastlink::Union{String, Nothing} = nothing
         cache = FACES.cache[]
         for (str, styles) in eachregion(s)
-            face = getface(styles, cache)
+            face = resolvedef(styles, cache)
             link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
                 if !isnothing(idx) String(styles[idx].value::AbstractString) end
             end
@@ -350,7 +350,7 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
             lastface = face
         end
         isnothing(lastlink) || write(buf, "\e]8;;\e\\")
-        termstyle(buf, STANDARD_FACES.default, lastface)
+        termstyle(buf, STANDARD_FACES.default.f, lastface)
         bytes = position(buf) - start
         buf === raw || write(io, seekstart(buf))
         bytes
@@ -394,23 +394,33 @@ AnnotatedDisplay.awrite(::Styled, io::IO, ::MIME"text/html", s::Union{<:Annotate
 # End AnnotatedDisplay hooks
 # ------------
 
+const HTML_ESCAPES = ('&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
+const CSS_FONT_ESCAPES = ('\\' => "\\\\", '\'' => "\\'", '&' => "&amp;", '"' => "&quot;", '<' => "&lt;") # For CSS, then HTML
+
+function writeescaped(io::IO, str::AbstractString, escapes::Tuple{Vararg{Pair{Char, String}}})
+    for c in str
+        i = findfirst(e -> first(e) == c, escapes)
+        if isnothing(i) print(io, c) else print(io, last(escapes[i])) end
+    end
+end
+
 const HTML_FGBG = (
     foreground = "#000000",
     background = "#ffffff"
 )
 
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
-    default = getface()
-    if color.value === FGBG_FACES.background || color.value == default.f.background
+    default = resolvedef(STANDARD_FACES.default)
+    if color.value === FGBG_FACES.background || color.value == default.background
         if background
             return print(io, "initial")
-        elseif default.f.background === FGBG_FACES.background
+        elseif default.background === FGBG_FACES.background
             return print(io, HTML_FGBG.background)
         end
-    elseif color.value === FGBG_FACES.foreground || color.value == default.f.foreground
+    elseif color.value === FGBG_FACES.foreground || color.value == default.foreground
         if !background
             return print(io, "initial")
-        elseif default.f.foreground === FGBG_FACES.foreground
+        elseif default.foreground === FGBG_FACES.foreground
             return print(io, HTML_FGBG.foreground)
         end
     end
@@ -423,7 +433,7 @@ end
 const HTML_WEIGHTS = (100, 200, 300, 300, 400, 500, 600, 700, 800, 900)
 const HTML_UNDERLINE_STYLES = ("solid", "double", "wavy", "dotted", "dashed")
 
-function cssattrs(io::IO, face::Face, lastface::Face=getface())
+function cssattrs(io::IO, face::FaceDef, lastface::FaceDef=resolvedef(STANDARD_FACES.default))
     priorattr = Ref(false)
     function printattr(io, attr, valparts...)
         if priorattr[]
@@ -433,13 +443,13 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         end
         print(io, attr, ": ", valparts...)
     end
-    if face.font != lastface.font
+    if faceproperty(face, :font) != faceproperty(lastface, :font)
         printattr(io, "font-family", '\'') # Escaped for CSS, then for HTML
-        replace(io, face.font, '\\' => "\\\\", '\'' => "\\'", '&' => "&amp;", '"' => "&quot;", '<' => "&lt;")
+        writeescaped(io, faceproperty(face, :font), CSS_FONT_ESCAPES)
         print(io, '\'')
     end
-    if face.f.height !== lastface.f.height
-        height, lastheight = face.height, lastface.height
+    if face.height !== lastface.height
+        height, lastheight = faceproperty(face, :height), faceproperty(lastface, :height)
         if height isa Integer
             points, tenths = divrem(height, 10)
             if iszero(tenths)
@@ -452,18 +462,16 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
             printattr(io, "font-size", round(Int, 100 * relheight), "%")
         end
     end
-    face.f.weight == lastface.f.weight ||
-        printattr(io, "font-weight", get(HTML_WEIGHTS, face.f.weight + 1, 400))
-    face.f.slant == lastface.f.slant ||
-        printattr(io, "font-style", String(get(ATTRIBUTES.slants, face.f.slant + 1, :normal)))
-    foreground, background =
-        ifelse(face.inverse === true,
-               (face.background, face.foreground),
-               (face.foreground, face.background))
-    lastforeground, lastbackground =
-        ifelse(lastface.inverse === true,
-               (lastface.background, lastface.foreground),
-               (lastface.foreground, lastface.background))
+    face.weight == lastface.weight ||
+        printattr(io, "font-weight", get(HTML_WEIGHTS, face.weight + 1, 400))
+    face.slant == lastface.slant ||
+        printattr(io, "font-style", String(get(ATTRIBUTES.slants, face.slant + 1, :normal)))
+    function cssfgbg(def::FaceDef)
+        fg, bg = faceproperty(def, :foreground), faceproperty(def, :background)
+        if def.inverse == 0x1 (bg, fg) else (fg, bg) end
+    end
+    foreground, background = cssfgbg(face)
+    lastforeground, lastbackground = cssfgbg(lastface)
     if foreground != lastforeground
         printattr(io, "color")
         htmlcolor(io, foreground)
@@ -472,9 +480,9 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
         printattr(io, "background-color")
         htmlcolor(io, background, true)
     end
-    if face.f.underline !== lastface.f.underline || face.f.underline_style != lastface.f.underline_style ||
-        face.f.strikethrough != lastface.f.strikethrough
-        color, style = face.f.underline, face.f.underline_style
+    if face.underline !== lastface.underline || face.underline_style != lastface.underline_style ||
+        face.strikethrough != lastface.strikethrough
+        color, style = face.underline, face.underline_style
         parts = String[]
         if style < NO_UNDERLINE
             if !isnothingflavour(color)
@@ -484,39 +492,39 @@ function cssattrs(io::IO, face::Face, lastface::Face=getface())
             style != attrbyte(:underline, :straight) && push!(parts, HTML_UNDERLINE_STYLES[style + 1])
             push!(parts, "underline")
         end
-        face.f.strikethrough == 0x1 && push!(parts, "line-through")
+        face.strikethrough == 0x1 && push!(parts, "line-through")
         printattr(io, "text-decoration", if isempty(parts) "none" else join(parts, ' ') end)
     end
 end
 
-function htmlstyle(io::IO, face::Face, lastface::Face=getface())
+function htmlstyle(io::IO, face::FaceDef, lastface::FaceDef=resolvedef(STANDARD_FACES.default))
     print(io, "<span style=\"")
     cssattrs(io, face, lastface)
     print(io, "\">")
+end
+
+# How `face` appears in CSS, where inverse swaps the colours and a plain underline has the colour of its text
+function cssappearance(face::FaceDef)
+    fg, bg = if face.inverse == 0x1 face.background, face.foreground else face.foreground, face.background end
+    ul = if face.underline_style < NO_UNDERLINE
+        if face.underline !== FGBG_FACES.foreground face.underline else fg end
+    end
+    (face.font, face.height, face.weight, face.slant, fg, bg, ul, face.underline_style, face.strikethrough)
 end
 
 function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedString}})
     # We need to make sure that the customisations are loaded
     # before we start outputting any styled content.
     load_customisations!()
-    htmlescape(str) = replace(str, '&' => "&amp;", '<' => "&lt;", '>' => "&gt;")
     raw = first(Base.unwrapcontext(io))
     buf = if raw isa IOBuffer raw else IOBuffer() end
-    # As faces appear in CSS, where inverse swaps the colours
-    appearance = (face -> face.f.font, face -> face.f.height, face -> face.f.weight, face -> face.f.slant,
-                  face -> if face.f.inverse == 0x1 face.f.background else face.f.foreground end,
-                  face -> if face.f.inverse == 0x1 face.f.foreground else face.f.background end,
-                  face -> if face.f.underline_style < NO_UNDERLINE # A plain underline has the colour of its text
-                      if face.f.underline !== FGBG_FACES.foreground face.f.underline
-                      elseif face.f.inverse == 0x1 face.f.background else face.f.foreground end
-                  end,
-                  face -> face.f.underline_style, face -> face.f.strikethrough)
-    default = getface()
-    spans = Face[]
+    default = resolvedef(STANDARD_FACES.default)
+    spans = FaceDef[]
     link, linkdepth = nothing, 0
     cache = FACES.cache[]
     for (str, styles) in eachregion(s)
-        face = getface(styles, cache)
+        face = resolvedef(styles, cache)
+        look = cssappearance(face)
         newlink = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
             if !isnothing(idx) # A link without a scheme is relative to the page
                 href = String(styles[idx].value::AbstractString)
@@ -526,8 +534,9 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         # What a span sets cannot be unset within it
         keep = 0
         for span in spans
-            parent = if keep == 0 default else spans[keep] end
-            all(attr -> attr(span) === attr(parent) || attr(span) === attr(face), appearance) || break
+            spanlook = cssappearance(span)
+            parentlook = cssappearance(if keep == 0 default else spans[keep] end)
+            all(i -> spanlook[i] === parentlook[i] || spanlook[i] === look[i], eachindex(look)) || break
             keep += 1
         end
         if !isnothing(link) && (newlink != link || keep < linkdepth)
@@ -539,15 +548,17 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
         print(buf, "</span>" ^ (length(spans) - keep))
         resize!(spans, keep)
         if isnothing(link) && !isnothing(newlink)
-            print(buf, "<a href=\"", htmlescape(newlink), "\">")
+            print(buf, "<a href=\"")
+            writeescaped(buf, newlink, HTML_ESCAPES)
+            print(buf, "\">")
             link, linkdepth = newlink, keep
         end
         base = if isempty(spans) default else last(spans) end
-        if !all(attr -> attr(base) === attr(face), appearance)
+        if cssappearance(base) !== look
             htmlstyle(buf, face, base)
             push!(spans, face)
         end
-        print(buf, htmlescape(str))
+        writeescaped(buf, str, HTML_ESCAPES)
     end
     if !isnothing(link)
         print(buf, "</span>" ^ (length(spans) - linkdepth), "</a>")
