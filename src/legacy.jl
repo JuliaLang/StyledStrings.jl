@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, FACES, Face, @face_str, setface!, face!, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, FACES, Face, @face_str, setface!, face!, AnnotatedString, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -127,7 +127,8 @@ end
 
 # Part of the inference barrier around `Base.printstyled`
 function Base.AnnotatedDisplay.styled_print(io::AnnotatedIOBuffer, @nospecialize(msg::Tuple), @nospecialize(kwargs::Base.Pairs))
-    str = annotatedstring(msg...)
+    widenface(s::AnnotatedString{S, V}) where {S, V} = AnnotatedString{S, Union{V, Face}}(s) # A copy, as `s` may be the caller's
+    str = widenface(annotatedstring(msg...))
     for attr in (:bold, :italic, :underline)
         get(kwargs, attr, false)::Bool && face!(str, attr)
     end
