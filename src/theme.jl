@@ -843,7 +843,7 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
         recoloring() do
             for hook in recolor_hooks
                 try
-                    hook()
+                    Base.invokelatest(hook)
                 catch err
                     @error "Recolor hook failed" hook exception = (err, catch_backtrace())
                 end
