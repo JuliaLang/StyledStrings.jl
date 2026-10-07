@@ -1703,6 +1703,14 @@ end
         @test_logs (:error, "Recolor hook failed") setcolors!(darkfbg)
         @test ran[] == 2 && FACES.current_theme[] === :dark
         deleteat!(StyledStrings.recolor_hooks, nhooks+1:nhooks+2)
+        # A hook defined after the task that changes the colours still runs
+        late, go = Ref(0), Channel{Nothing}(1)
+        changer = @async (take!(go); setcolors!(darkfbg))
+        recolor(@eval () -> $late[] += 1)
+        put!(go, nothing)
+        wait(changer)
+        @test late[] == 2
+        pop!(StyledStrings.recolor_hooks)
         # Customisations first loaded by a hook as it is registered are not taken for its recolours
         tomlface = hacky_addface!(:tomlface, copy(Face()))
         mktempdir() do depot
