@@ -129,6 +129,17 @@ end
 
 ## Adding and resetting faces ##
 
+# Throw when `def`, as the definition of `face`, inherits from `face` by way of the faces in
+# `current`, or as they would be under the theme `current` names.
+# A loop rather than `any`, as recursing through a closure is uninferrable, which breaks trimming.
+function checkinherit(current::Union{IdDict{Face, Face}, Symbol}, face::Face, def::Face)
+    for parent in def.f.inherit
+        parent === face && throw(ArgumentError( # By name, as showing a face does not trim
+            "Face '$(get(FACES.names, face, :unnamed))' cannot inherit from itself, directly or through other faces"))
+        checkinherit(current, face, if current isa Symbol layered(parent, current) else get(current, parent, parent) end)
+    end
+end
+
 """
     override(base::Face, mods::Face)
 
@@ -342,6 +353,7 @@ function withfaces(f, keyvals_itr)
         else
             delete!(newfaces, face)
         end
+        checkinherit(newfaces, face, get(newfaces, face, face))
     end
     @with(FACES.current => newfaces, FACES.cache => emptycache(), f())
 end
@@ -566,7 +578,13 @@ function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
         isactive = theme ∈ (:base, FACES.current_theme[])
         RECOLORING[] && !isactive && return # Hooks run again on each theme change
         current = FACES.current[]
+        isactive && checkinherit(current, original, update)
         if FACES.current.default === current # Only save top-level modifications
+            # Also each inactive theme the change reaches, but not for recolours, which are redone on a switch
+            for other in (:light, :dark)
+                !RECOLORING[] && other !== FACES.current_theme[] && theme ∈ (:base, other) &&
+                    checkinherit(other, original, update)
+            end
             layer = if RECOLORING[] FACES.recolors else FACES.modifications[theme] end
             prior = get(layer, original, nothing)
             layer[original] = if isnothing(prior) update else override(prior, update) end
@@ -763,23 +781,24 @@ Recompute the current definition of `face` from its layers. The caller clears th
 face cache once its batch is done.
 """
 function relayer!(face::Face)
-    theme = FACES.current_theme[]
     current = FACES.current.default
-    replacement = get(FACES.displacements, face, nothing)
-    if isnothing(replacement)
-        delete!(current, face)
-    else
-        current[face] = Face(inherit = replacement)
-    end
-    function layer!(table)
+    def = layered(face, FACES.current_theme[])
+    if def === face delete!(current, face) else current[face] = def end
+end
+
+# The definition of `face` under `theme` from the layers that apply there, or `face` itself if none do
+function layered(face::Face, theme::Symbol)
+    function layer(def, table)
         update = get(table, face, nothing)
-        isnothing(update) && return
-        current[face] = override(get(current, face, face), update)
+        if isnothing(update) def else override(def, update) end
     end
-    theme === :base || layer!(FACES.themes[theme])
-    layer!(FACES.recolors)
-    layer!(FACES.modifications.base)
-    theme === :base || layer!(FACES.modifications[theme])
+    replacement = get(FACES.displacements, face, nothing)
+    def = if isnothing(replacement) face else Face(inherit = replacement) end
+    theme === :base || (def = layer(def, FACES.themes[theme]))
+    def = layer(def, FACES.recolors)
+    def = layer(def, FACES.modifications.base)
+    theme === :base || (def = layer(def, FACES.modifications[theme]))
+    def
 end
 
 function relayer!()
