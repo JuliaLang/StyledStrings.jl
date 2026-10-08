@@ -249,12 +249,8 @@ Reset the current global face dictionary to the default value.
 function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
-        if current === FACES.current.default # Only when top-level
-            foreach(empty!, values(FACES.modifications))
-            relayer!()
-        else
-            empty!(current)
-        end
+        current === FACES.current.default && foreach(empty!, values(FACES.modifications)) # Only when top-level
+        relayer!(current, modified = false)
         emptycache!(FACES.cache[])
         current
     end
@@ -284,14 +280,16 @@ end
     resetfaces!(face::Face, theme::Symbol = :all)
 
 Reset the face `face` to its default value, undoing the changes made for `theme` (`:base`,
-`:light`, or `:dark`), or for every theme with `:all`.
+`:light`, or `:dark`), or for every theme with `:all`. Within [`withfaces`](@ref), only
+the scope's view of `face` is reset, to its default for the current theme.
 
 If the face is not registered, nothing is done.
 """
 function resetfaces!(face::Face, theme::Symbol = :all)
     @lock FACES.lock begin
-        delete!(FACES.current[], face)
-        if FACES.current.default === FACES.current[] # Only when top-level
+        current = FACES.current[]
+        toplevel = current === FACES.current.default
+        if toplevel
             if theme === :all
                 for mode in values(FACES.modifications)
                     delete!(mode, face)
@@ -299,8 +297,8 @@ function resetfaces!(face::Face, theme::Symbol = :all)
             else
                 delete!(FACES.modifications[theme], face)
             end
-            relayer!(face)
         end
+        relayer!(face, current, modified = toplevel)
         emptycache!(FACES.cache[])
     end
     nothing
@@ -812,19 +810,18 @@ function recolor(f::F) where {F <: Function} # Specialised, so a hook registered
 end
 
 """
-    relayer!(face::Face)
+    relayer!(face::Face, current = FACES.current.default; modified = true)
 
-Recompute the current definition of `face` from its layers. The caller clears the
-face cache once its batch is done.
+Recompute the definition of `face` in `current` from its layers, leaving out the
+modifications unless `modified`. The caller clears the face cache once its batch is done.
 """
-function relayer!(face::Face)
-    current = FACES.current.default
-    def = layered(face, FACES.current_theme[])
+function relayer!(face::Face, current::IdDict{Face, Face} = FACES.current.default; modified::Bool = true)
+    def = layered(face, FACES.current_theme[]; modified)
     if def === face delete!(current, face) else current[face] = def end
 end
 
 # The definition of `face` under `theme` from the layers that apply there, or `face` itself if none do
-function layered(face::Face, theme::Symbol)
+function layered(face::Face, theme::Symbol; modified::Bool = true)
     function layer(def, table)
         update = get(table, face, nothing)
         if isnothing(update) def else override(def, update) end
@@ -833,16 +830,17 @@ function layered(face::Face, theme::Symbol)
     def = if isnothing(replacement) face else Face(inherit = replacement) end
     theme === :base || (def = layer(def, FACES.themes[theme]))
     def = layer(def, FACES.recolors)
+    modified || return def
     def = layer(def, FACES.modifications.base)
     theme === :base || (def = layer(def, FACES.modifications[theme]))
     def
 end
 
-function relayer!()
-    empty!(FACES.current.default)
+function relayer!(current::IdDict{Face, Face} = FACES.current.default; modified::Bool = true)
+    empty!(current)
     # Every face with a layer, as `relayer!(face)` picks the layers that apply
     for table in (FACES.themes..., FACES.recolors, FACES.modifications..., FACES.displacements)
-        foreach(relayer!, keys(table))
+        foreach(face -> relayer!(face, current; modified), keys(table))
     end
 end
 

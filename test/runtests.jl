@@ -1726,6 +1726,17 @@ end
         setface!(face"region" => Face(font="modified"))
         resetfaces!()
         @test getface(face"region").background == FACES.themes.light[face"region"].background
+        @test withfaces(face"bold" => face"bold") do
+            resetfaces!() # Within a scope too
+            getface(face"region").background
+        end == FACES.themes.light[face"region"].background
+        setface!(face"region" => Face(font = "modified"))
+        let scoped = withfaces(() -> (resetfaces!(face"region"); getface(face"region")), face"bold" => face"bold")
+            @test scoped.background == FACES.themes.light[face"region"].background
+            @test scoped.font != "modified"
+        end
+        @test getface(face"region").font == "modified" # Only the scope's view is reset
+        resetfaces!(face"region")
         # Registering a palette refreshes a resolution cached before it
         @eval module TestPaletteLate
             using StyledStrings
