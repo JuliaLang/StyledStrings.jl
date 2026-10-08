@@ -1227,16 +1227,16 @@ styled = '{', ws, annotations, ':', content, '}' ;
 content = { interpolated | plain | escaped | styled } ;
 annotations = annotation | annotations, ws, ',', ws, annotation ;
 annotation = face | inlineface | keyvalue ;
-ws = { ' ' | '\\t' | '\\n' } ; (* whitespace *)
+ws = { ' ' | '\\t' | '\\n' | '\\r' } ; (* whitespace *)
 
 face = facename | interpolated ;
 facename = name, { '.', name } ;
-name = [A-Za-z0-9_]+ ;
+name = ? identifier ? ;
 
 inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
 faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
 
-keyvalue = key, ws, '=', ws, value ;
+keyvalue = ( 'face', ws, '=', ws, interpolated ) | ( key, ws, '=', ws, value ) ;
 key = ( [^\\0\${}=,:], [^\\0=,:]* ) | interpolated ;
 value = simplevalue | curlybraced | interpolated ;
 curlybraced = '{' { escaped | plain } '}' ;
@@ -1250,10 +1250,10 @@ The above grammar for `inlineface` is simplified, as the actual implementation
 is a bit more sophisticated. The full behaviour is given below.
 
 ```ebnf
-faceprop = ( 'font', ws, '=', ws, ( ? string ? | interpolated ) ) |
-           ( 'height', ws, '=', ws, ( ? number ? | interpolated ) ) |
-           ( 'weight', ws, '=', ws, ( symbol | interpolated ) ) |
-           ( 'slant', ws, '=', ws, ( symbol | interpolated ) ) |
+faceprop = ( 'font', ws, '=', ws, ( ? string ? | [^,)]+ | interpolated ) ) |
+           ( 'height', ws, '=', ws, ( ? positive number ? | interpolated ) ) |
+           ( 'weight', ws, '=', ws, ( weight | interpolated ) ) |
+           ( 'slant', ws, '=', ws, ( slant | interpolated ) ) |
            ( ( 'foreground' | 'fg' | 'background' | 'bg' ),
                ws, '=', ws, ( simplecolor | interpolated ) ) |
            ( 'underline', ws, '=', ws, ( underline | interpolated ) ) |
@@ -1263,16 +1263,19 @@ faceprop = ( 'font', ws, '=', ws, ( ? string ? | interpolated ) ) |
 
 nothing = 'nothing' ;
 bool = 'true' | 'false' ;
-symbol = [^ ,)]+ ;
-hexcolor = ('#' | '0x'), [0-9a-f]{6} ;
-simplecolor = hexcolor | symbol | nothing ;
+weight = 'thin' | 'extralight' | 'light' | 'semilight' | 'normal'
+       | 'medium' | 'semibold' | 'bold' | 'extrabold' | 'black' ;
+slant = 'italic' | 'oblique' | 'normal' ;
+hexcolor = ('#' | '0x'), [0-9A-Fa-f]{6} ;
+simplecolor = hexcolor | facename | nothing ;
 
-underline = nothing | bool | simplecolor | underlinestyled;
+underline = nothing | bool | underlinestyle | simplecolor | underlinestyled ;
+underlinestyle = 'straight' | 'double' | 'curly' | 'dotted' | 'dashed' ;
 underlinestyled = '(', ws, ('' | nothing | simplecolor | interpolated), ws,
-                  ',', ws, ( symbol | interpolated ), ws ')' ;
+                  ',', ws, ( underlinestyle | interpolated ), ws ')' ;
 
-inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval;
-inheritval = ws, ':'?, symbol ;
+inherit = ( '[', inheritval, { ',', inheritval }, ']' ) | inheritval ;
+inheritval = ws, [ ':' ], facename, ws ;
 ```
 """
 macro styled_str(raw_content::String)
