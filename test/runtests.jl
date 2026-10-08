@@ -1707,6 +1707,10 @@ end
         setface!(face"region" => Face(font="modified"))
         resetfaces!()
         @test getface(face"region").background == FACES.themes.light[face"region"].background
+        @test withfaces(face"bold" => face"bold") do
+            resetfaces!() # Within a scope too
+            getface(face"region").background
+        end == FACES.themes.light[face"region"].background
         # Registering a palette refreshes a resolution cached before it
         @eval module TestPaletteLate
             using StyledStrings

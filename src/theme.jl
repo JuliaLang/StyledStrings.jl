@@ -259,12 +259,8 @@ Reset the current global face dictionary to the default value.
 function resetfaces!()
     @lock FACES.lock begin
         current = FACES.current[]
-        if current === FACES.current.default # Only when top-level
-            foreach(empty!, values(FACES.modifications))
-            relayer!()
-        else
-            empty!(current)
-        end
+        current === FACES.current.default && foreach(empty!, values(FACES.modifications)) # Only when top-level
+        relayer!(current, modified = false)
         emptycache!(FACES.cache[])
         current
     end
@@ -823,14 +819,13 @@ function recolor(f::Function)
 end
 
 """
-    relayer!(face::Face)
+    relayer!(face::Face, current = FACES.current.default; modified = true)
 
-Recompute the current definition of `face` from its layers. The caller clears the
-face cache once its batch is done.
+Recompute the definition of `face` in `current` from its layers, leaving out the
+modifications unless `modified`. The caller clears the face cache once its batch is done.
 """
-function relayer!(face::Face)
+function relayer!(face::Face, current::IdDict{Face, Face} = FACES.current.default; modified::Bool = true)
     theme = FACES.current_theme[]
-    current = FACES.current.default
     replacement = get(FACES.displacements, face, nothing)
     if isnothing(replacement)
         delete!(current, face)
@@ -844,15 +839,16 @@ function relayer!(face::Face)
     end
     theme === :base || layer!(FACES.themes[theme])
     layer!(FACES.recolors)
+    modified || return
     layer!(FACES.modifications.base)
     theme === :base || layer!(FACES.modifications[theme])
 end
 
-function relayer!()
-    empty!(FACES.current.default)
+function relayer!(current::IdDict{Face, Face} = FACES.current.default; modified::Bool = true)
+    empty!(current)
     # Every face with a layer, as `relayer!(face)` picks the layers that apply
     for table in (FACES.themes..., FACES.recolors, FACES.modifications..., FACES.displacements)
-        foreach(relayer!, keys(table))
+        foreach(face -> relayer!(face, current; modified), keys(table))
     end
 end
 
