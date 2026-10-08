@@ -41,7 +41,7 @@ end
 # we are unable to create circular references otherwise
 # (which are useful for defining special base faces).
 mutable struct Face
-    f::_FaceDef{Face}
+    f::_FaceDef{Face} # Replaced when its palette is evaluated again, as by Revise.jl, keeping the face's identity
     Face(f::_FaceDef{Face}) = new(f)
     global uninitialised_face() = new() # Just for `new_recursive_fg_face`
 end
@@ -370,7 +370,8 @@ function Face(; font::Union{Nothing, String} = nothing,
     Face(f)
 end
 
-Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate Base.getproperty(face::Face, attr::Symbol) =
+# Not `:foldable`, as `f` changes when a palette is evaluated again (see `redefine!`)
+Base.@constprop :aggressive Base.getproperty(face::Face, attr::Symbol) =
     if attr == :f getfield(face, :f) else faceproperty(getfield(face, :f), attr) end
 
 # The `attr` of `def`, in the form that the `Face` constructor takes

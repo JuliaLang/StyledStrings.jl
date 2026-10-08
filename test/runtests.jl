@@ -898,6 +898,25 @@ end
         @test getface(new).font == "kept"
         @test !haskey(FACES.themes.dark, new) # The variant it no longer declares is gone
         resetfaces!(new)
+        # Evaluating a palette again, as Revise.jl does, redefines its faces in place, so code that
+        # already refers to them, faces inheriting from them, and earlier uses all see the change
+        @eval module TestPaletteInPlace
+            using StyledStrings
+            @defpalette begin r = Face(weight = :bold); s = Face(inherit = r) end
+        end
+        @eval module TestPaletteInPlaceUser
+            using StyledStrings, ..TestPaletteInPlace
+            @usepalette TestPaletteInPlace
+            styledr() = styled"{r:x}"
+        end
+        let (; r, s) = TestPaletteInPlace.var"##styledstrings-defpalette-variable#".base,
+            styledr = only(annotations(TestPaletteInPlaceUser.styledr())).value
+            @test getface(s).weight == :bold
+            Core.eval(TestPaletteInPlace, :(@defpalette begin r = Face(weight = :light); s = Face(inherit = r) end))
+            Core.eval(TestPaletteInPlaceUser, :(@usepalette TestPaletteInPlace))
+            @test Core.eval(TestPaletteInPlaceUser, :(face"r")) === styledr === r
+            @test getface(styledr).weight == :light && getface(s).weight == :light
+        end
         # A face in use before its palette is registered follows each later registration of it
         early = StyledStrings.lookmakeface(Symbol(join((fullname(@__MODULE__)..., :TestPaletteLate, :r), '_')))
         latepalette(weight) = :(module TestPaletteLate

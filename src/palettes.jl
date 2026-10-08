@@ -234,6 +234,9 @@ palettes can also be referred to by their module path, as `Module.name`.
 Cyclic dependencies between faces (e.g. two faces inheriting from each other)
 are not possible, but the order of declaration is automatically determined.
 
+Evaluating a palette again, as Revise.jl does when it is edited, redefines its faces
+in place. Code that already refers to them, in any module, sees the change.
+
 # Examples
 
 ```julia
@@ -456,11 +459,13 @@ macro defpalette(pargs::Any...)
              dark = Union{Expr, LineNumberNode}[])
     # Copied, as `Face()` is shared and each palette face must be distinct
     newface(args) = Expr(:call, copy, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...)))
+    basefaces = gensym("prior")
+    baseface(name, args) = Expr(:call, redefine!, basefaces, QuoteNode(name), newface(args))
     for ((; name, theme), (; args)) in parsedordered
         # isnothing(line) || push!(decls[theme], line)
         hoistname = get(hoistfaces, name, nothing)
         if theme == :base
-            push!(decls.base, Expr(:kw, name, @something(hoistname, newface(args))))
+            push!(decls.base, Expr(:kw, name, @something(hoistname, baseface(name, args))))
         elseif name ∉ allnames
             throw(ArgumentError("A $theme variant of face '$name' is declared, without a base variant. Consider adding `$name = Face()` to the palette."))
         else
@@ -472,14 +477,13 @@ macro defpalette(pargs::Any...)
         push!(declsnt.args, Expr(:kw, theme, Expr(:tuple, Expr(:parameters, body...))))
     end
     declsnt = Expr(:tuple, declsnt)
-    if !isempty(hoistfaces)
-        fhoist = Expr[]
-        for ((; name, theme), (; args)) in parsedordered
-            theme == :base && haskey(hoistfaces, name) || continue
-            push!(fhoist, Expr(:(=), hoistfaces[name], newface(args)))
-        end
-        declsnt = Expr(:let, Expr(:block), Expr(:block, fhoist..., declsnt))
+    fhoist = Expr[]
+    for ((; name, theme), (; args)) in parsedordered
+        theme == :base && haskey(hoistfaces, name) || continue
+        push!(fhoist, Expr(:(=), hoistfaces[name], baseface(name, args)))
     end
+    holder = if isnothing(varname) __module__ else Expr(:if, :($isdefined($__module__, $(QuoteNode(varname)))), varname) end
+    declsnt = Expr(:let, Expr(:(=), basefaces, :($definedpalette($holder))), Expr(:block, fhoist..., declsnt))
     definition, palette = if isnothing(varname)
         :(const $MAGIC_DEFPALETTE_VARNAME = $declsnt), MAGIC_DEFPALETTE_VARNAME
     else
@@ -640,6 +644,7 @@ function register_palette!(palette::NamedTuple)
         old === face || isnothing(old) || register_displace!(old, face, fullname)
         FACES.pool[fullname] = face
         FACES.names[face] = fullname
+        foreach(table -> delete!(table, face), FACES.themes) # Variants of a redefinition are set anew
     end
     for theme in (:light, :dark), (name, variant) in pairs(palette[theme])
         FACES.themes[theme][palette.base[name]] = variant
@@ -647,17 +652,24 @@ function register_palette!(palette::NamedTuple)
     foreach(relayer!, values(palette.base))
 end
 
-# For a palette evaluated anew outside of precompilation, as by Revise
+# The face of `name` in `prior`, an earlier evaluation of the palette, given the definition of `face`.
+# Kept and redefined in place for Revise.jl, so code that already refers to it, in any module, sees the
+# change. `f` is not atomic (that takes a lock per read): until the caller empties the cache, a
+# concurrent reader may see a mix of the two definitions.
+function redefine!(prior, name::Symbol, face::Face)
+    old = if !isnothing(prior) get(prior.base, name, nothing) end
+    isnothing(old) && return face
+    setfield!(old, :f, face.f)
+    old
+end
+
+# For a palette evaluated anew outside of precompilation, as by Revise.jl
 function reregister_palette!(palette::NamedTuple)
     Base.generating_output() && return
-    isredefined = any(pairs(palette.base)) do (name, face)
-        registered = get(FACES.pool, registrykey("$(palette.namespace).$name"), nothing)
-        !isnothing(registered) && registered !== face
-    end
-    isredefined || return
+    isregistered = any(name -> haskey(FACES.pool, registrykey("$(palette.namespace).$name")), keys(palette.base))
     @lock FACES.lock begin
-        register_palette!(palette)
-        emptycache!(FACES.cache.default)
+        isregistered && register_palette!(palette)
+        emptycache!(FACES.cache.default) # As faces may have been redefined
     end
 end
 
