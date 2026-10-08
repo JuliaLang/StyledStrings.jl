@@ -87,7 +87,7 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `strikethrough` (a `Bool`): Whether the text should be struck through.
 - `inverse` (a `Bool`): Whether the foreground and background colors should
   be swapped.
-- `inherit` (a `Vector{Face}`, read back as a `Memory{Face}`): Faces to inherit from, with earlier faces
+- `inherit` (a `Vector{Face}`, read back as a copy): Faces to inherit from, with earlier faces
   taking priority. All faces inherit from the `default` face.
 
 # Examples
@@ -352,7 +352,13 @@ end
 
 # Not `:foldable`, as `f` changes when a palette is evaluated again (see `redefine!`)
 Base.@constprop :aggressive Base.getproperty(face::Face, attr::Symbol) =
-    if attr == :f getfield(face, :f) else faceproperty(getfield(face, :f), attr) end
+    if attr == :f
+        getfield(face, :f)
+    elseif attr == :inherit
+        Vector(getfield(face, :f).inherit) # A copy, as the face's own list must not change
+    else
+        faceproperty(getfield(face, :f), attr)
+    end
 
 # The `attr` of `def`, in the form that the `Face` constructor takes
 Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function faceproperty(def::FaceDef, attr::Symbol)
