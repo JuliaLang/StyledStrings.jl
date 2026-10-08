@@ -376,6 +376,8 @@ function withfaces(f, keyvals_itr)
     newfaces = copy(current)
     for (key, new) in keyvals_itr
         face = if key isa Symbol lookmakeface(key) else key end
+        face === EMPTY_FACE && throw(ArgumentError(
+            "`Face()` cannot be changed, as every face without attributes is it. Name a face to change with `@defpalette`."))
         if new isa Union{Face, Symbol}
             newfaces[face] = resolve(new)
         elseif new isa Vector
@@ -617,6 +619,8 @@ Face (sample)
 ```
 """
 function setface!((original, update)::Pair{Face, Face}, theme::Symbol = :base)
+    original === EMPTY_FACE && throw(ArgumentError(
+        "`Face()` cannot be changed, as every face without attributes is it. Name a face to change with `@defpalette`."))
     @lock FACES.lock begin
         isactive = theme ∈ (:base, FACES.current_theme[])
         RECOLORING[] && !isactive && return # Hooks run again on each theme change
