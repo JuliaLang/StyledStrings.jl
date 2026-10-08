@@ -32,14 +32,9 @@ struct _FaceDef{_F}
     inherit::Memory{_F}
 end
 
-# We want to intern `Face`s at runtime, and be able to
-# compare them by pointer equality for speed within
-# hot code paths. For these reasons, we have defined
-# `_FaceDef` to hold the /actual/ data, and `Face` as
-# a 'mutable' wrapper around it. The only reason why
-# the sole field of `Face` is not a `const` is because
-# we are unable to create circular references otherwise
-# (which are useful for defining special base faces).
+# `Face`s are interned and compared by identity in hot code paths, so `_FaceDef` holds the
+# data and `Face` is a mutable wrapper around it. Its field is set after creation for a face
+# that refers to itself, and replaced when the face is redefined.
 mutable struct Face
     f::_FaceDef{Face}
     Face(f::_FaceDef{Face}) = new(f)
@@ -355,7 +350,8 @@ function Face(; font::Union{Nothing, String} = nothing,
     Face(f)
 end
 
-Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate Base.getproperty(face::Face, attr::Symbol) =
+# Not `:foldable`, as `f` changes when a palette is evaluated again (see `redefine!`)
+Base.@constprop :aggressive Base.getproperty(face::Face, attr::Symbol) =
     if attr == :f getfield(face, :f) else faceproperty(getfield(face, :f), attr) end
 
 # The `attr` of `def`, in the form that the `Face` constructor takes
