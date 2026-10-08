@@ -878,7 +878,6 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
-        needseval = true
         if expr isa Symbol
             esc(expr)
         else
@@ -905,7 +904,6 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             "" # An error will be raised later for an incomplete declaration
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
-            needseval = true
             vvar = if expr isa Symbol && key != "face"
                 esc(expr)
             else
