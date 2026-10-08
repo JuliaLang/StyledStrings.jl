@@ -183,10 +183,29 @@ face"tip"
 !!! compat "Julia 1.14"
     The `face""` macro and current face naming system was introduced with Julia 1.14.
     In Julia 1.11 through to 1.13 (and the backwards compatibility package registered in General)
-    faces are named with `Symbol`s, and a global faces dictionary is used. The old API is still
-    supported for backwards compatibility, but it is strongly recommended to support the new
-    system by putting palette definitions behind a version gate if compatibility with older library
-    versions is required.
+    faces are named with `Symbol`s, and a global faces dictionary is used. Faces can still be
+    added with the old `addface!`, but `Symbol`s no longer name faces in annotations (see
+    [Applying faces](@ref stdlib-styledstrings-applying-faces)). Should compatibility with
+    older versions be required, put palette definitions behind a version gate. For example:
+
+    ```julia
+    @static if isdefined(StyledStrings, Symbol("@defpalette")) # Julia 1.14 and later
+        @defpalette begin
+            header = Face(weight = :bold)
+        end
+        __init__() = @registerpalette
+    else
+        __init__() = StyledStrings.addface!(:MyPackage_header => StyledStrings.Face(weight = :bold))
+    end
+    # A statement of its own, as the palette must exist before `face""` is expanded
+    const HEADER = @static if isdefined(StyledStrings, Symbol("@defpalette"))
+        face"header"
+    else
+        :MyPackage_header
+    end
+
+    results() = styled"{$HEADER:Results}"
+    ```
 
 ### [Palettes](@id stdlib-styledstrings-face-palettes)
 
@@ -231,24 +250,35 @@ end
 
 The ability to use a face defined within a module, like `face"table_header"`, is
 specific to that module. Should `face"table_header"` be put in another module,
-it will not be found. In order to use faces defined in another module or
-package, we can invoke [`@usepalette`](@ref). This imports the faces defined
-by the modules provided as arguments.
+it will not be found. A face of another module can always be named by its
+module path, as `face"MyColors.burgundy"`, and [`@usepalette`](@ref) uses the
+palettes of other modules much as `using` uses their names:
 
 ```julia
-@usepalette MyColors
-
-face"burgundy" # defined in MyColors
+@usepalette MyColors                     # `burgundy`, and by its namespace
+@usepalette MyColors: MyColors as MC     # Only as `MC.burgundy`
+@usepalette MyColors: burgundy as wine   # Only `wine`
 ```
+
+A palette used whole also names its faces by the namespace it registers them
+under: its module's path, or one it declares, as JuliaSyntaxHighlighting does
+with `@defpalette namespace = :julia begin ... end` for `julia.keyword`. Each
+use adds to the module's earlier ones, and a name that more than one used
+palette provides is an error where it is used: qualify it, or use one of the
+palettes under another name. A module's own faces come first, then those of the
+palettes it uses, then the standard faces.
+
+A module can also define further palettes by name, as `@defpalette extra begin
+... end`, which are registered with `@registerpalette extra`, and used as
+`MyColors.extra`.
 
 !!! note "Declare and import faces before using them"
     Face resolution with `face""` is performed at macro-expansion (compile) time.
     A consequence of this is that faces must be defined and imported with `@defpalette`
     and `@usepalette` before any `face""` calls referencing those faces.
-    
-It is also possible to specify a color provided by another module using a
-qualified name, of the form `face"<module path>.<name>`. In our example,
-`face"MyColors.burgundy"` could be used if `@usepalette` wasn't called.
+
+Evaluating a palette again, as Revise does when it is edited, redefines its
+faces in place, so code that already refers to them sees the change.
 
 ### [Dynamic face theming](@id stdlib-styledstrings-theming)
 
@@ -295,16 +325,16 @@ This capability is most valuable when reaching for colors in-between those offer
     - iTerm2 with Tmux (doesn't report anything)
     - Wezterm via WSL (doesn't report anything)
 
-### Applying faces to a `AnnotatedString`
+### [Applying faces to a `AnnotatedString`](@id stdlib-styledstrings-applying-faces)
 
 By convention, the `:face` attributes of a [`AnnotatedString`](@ref
 Base.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
 that currently apply. 
 
 !!! compat "Julia 1.14"
-    Faces used to be given by either a single `Face`, a `Symbol` naming a face, or a vector
-    of `Face`s/`Symbol`s. As of version 1.14 this is deprecated and only supported for
-    backwards compatibility. This should not be used in any new code.
+    Before Julia 1.14, a face could also be given by a `Symbol` naming it, or by a vector
+    of `Face`s and `Symbol`s. These are no longer styled: give a single `Face` instead,
+    such as `face"bold"` for `:bold`, or a `Face` that inherits from several faces.
 
 The `show(::IO, ::MIME"text/plain", ::AnnotatedString)` and `show(::IO,
 ::MIME"text/html", ::AnnotatedString)` methods both look at the `:face` attributes
