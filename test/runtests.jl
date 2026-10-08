@@ -1001,6 +1001,7 @@ end
     @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=true))])
     @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=face"cyan"))])
     @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :curly)))])
+    @test styled"{(underline=(cyan,$(:dashed))):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :dashed)))])
     @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, :face, Face(strikethrough=true))])
     @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face, Face(inverse=true))])
     @test stylazy"{(inherit=bface):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=bface))])
@@ -1117,6 +1118,9 @@ end
     plain = "x"
     @test styled"{bold:a $plain}$plain{italic:c}" ==
         AnnotatedString("a xxc", [(1:3, :face, face"bold"), (5:5, :face, face"italic")])
+    # Assignments within interpolations reach the caller, as they would outside the macro
+    assigns() = (styled"$(q = 7){(fg=$(c = 0xff0000)):x}{key=$(v = 1):y}"; (q, c, v))
+    @test assigns() == (7, 0xff0000, 1)
     # Interpolated variables cannot clash with the macro's own names for them
     lineof(offset, name) = styled"line $offset: $name"
     @test lineof(styled"{red:1}", styled"{bold:x}") ==

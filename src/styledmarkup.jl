@@ -105,6 +105,7 @@ end
 mutable struct MacroOutput
     const mod::Module
     const lets::Vector{Union{Expr, LineNumberNode}}
+    const binds::Vector{Pair{Union{Symbol, Expr}, Expr}} # The user's expressions, bound first so that their assignments reach the caller
     const strs::Vector{Union{String, Symbol, Expr}}
     const rfaces::Dict{Symbol, Union{Face, Symbol}}
     const annots::Vector{@NamedTuple{
@@ -142,7 +143,7 @@ function State(content::String, mod::Union{Module, Nothing}=nothing)
     output = if isnothing(mod)
         FnOutput([], [], Dict())
     else
-        MacroOutput(mod, [], [], Dict(), [], [], nothing, nothing)
+        MacroOutput(mod, [], [], [], Dict(), [], [], nothing, nothing)
     end
     State(content, Vector{UInt8}(content), # content, bytes
           Iterators.Stateful(pairs(content)), strict, # s, strict
@@ -290,7 +291,7 @@ function interpolated!(state::State{MacroOutput}, i::Int, _)
         expr
     else
         isym = gensym(:interp)
-        push!(state.out.lets, esc(:($isym = $expr)))
+        push!(state.out.binds, esc(isym) => esc(expr))
         isym
     end
     reref = if expr isa Symbol
@@ -311,6 +312,15 @@ function interpolated!(state::State{MacroOutput}, i::Int, _)
     offadd!(state, :(ncodeunits($istr)))
 end
 
+# Bind the user's `expr` in the bindings of the generated `let`, rather than its body, so that
+# assignments within it reach the caller as they would outside the macro
+function bindexpr!(state::State, expr)
+    expr isa Symbol && return esc(expr) # A variable, with nothing to evaluate
+    var = gensym(:interp)
+    push!(state.out.binds, var => esc(expr))
+    var
+end
+
 """
     readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
 
@@ -328,6 +338,7 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     expr, nextpos = Meta.parseatom(state.content, pos)
     if Meta.isexpr(expr, (:error, :incomplete))
         detail = expr.args[1].detail
+        after = if state.content[prevind(state.content, pos)] == '$' " after \$" else "" end # Not for `font=` or `height=`
         if detail isa Base.JuliaSyntax.ParseError && !isempty(detail.diagnostics)
             (; message, first_byte) = first(detail.diagnostics)
             styerr!(state, "Invalid expression$after: $message",
@@ -338,7 +349,6 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     end
     nchars = length(state.content[pos:prevind(state.content, nextpos)])
     for _ in 1:nchars
-        after = if state.content[prevind(state.content, pos)] == '$' " after \$" else "" end # Not for `font=` or `height=`
         isempty(state.s) && break
         popfirst!(state.s)
     end
@@ -524,13 +534,13 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 isempty(state.s) && return nothing, lastchar, needseval
                 lastchar = last(popfirst!(state.s))
                 needseval = true
-                :($interpattr($(esc(expr)), $(state.out.mod), $(state.strict)))
+                :($interpattr($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             else
                 word, lastchar = readsymbol!(state, lastchar)
                 parsecolor(word)
             end
             lastchar = nextnonwhitespace!(state, lastchar)
-            ustyle = :straight
+            ustyle = QuoteNode(:straight)
             if !isempty(state.s) && lastchar == ','
                 skipwhitespace!(state)
                 if isnextchar(state, '$') && ismacro(state)
@@ -538,7 +548,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                     isempty(state.s) && return nothing, lastchar, needseval
                     lastchar = last(popfirst!(state.s))
                     needseval = true
-                    ustyle = esc(expr)
+                    ustyle = bindexpr!(state, expr)
                 else
                     ustyle_word, lastchar = readalph!(state, lastchar)
                     if ustyle_word ∉ VALID_UNDERLINE_STYLES
@@ -550,7 +560,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                                                   :face, FACES.pool[:light])]),
                                 -length(ustyle_word) - 2)
                     end
-                    ustyle = Symbol(ustyle_word)
+                    ustyle = QuoteNode(Symbol(ustyle_word))
                     lastchar = nextnonwhitespace!(state, lastchar)
                 end
                 if lastchar == ')'
@@ -565,9 +575,9 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                         -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
             end
             if ismacro(state)
-                Expr(:tuple, ucolor, if ustyle isa Symbol QuoteNode(ustyle) else ustyle end)
+                Expr(:tuple, ucolor, ustyle)
             else
-                (ucolor, ustyle)
+                (ucolor, ustyle.value)
             end
         else
             word, lastchar = readsymbol!(state, lastchar)
@@ -660,13 +670,13 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             isempty(state.s) || (lastchar = last(popfirst!(state.s)))
             needseval = true
             if key ∈ (:foreground, :background) # Look up face names as written ones are
-                :($interpattr($(esc(expr)), $(state.out.mod), $(state.strict)))
+                :($interpattr($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             elseif key == :inherit
-                :($interpface($(esc(expr)), $(state.out.mod), $(state.strict)))
+                :($interpface($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             elseif key == :underline
-                :($interpunderline($(esc(expr)), $(state.out.mod), $(state.strict)))
+                :($interpunderline($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             else
-                esc(expr)
+                bindexpr!(state, expr)
             end
         elseif key == :font
             if isnextchar(state, '"')
@@ -881,9 +891,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         if expr isa Symbol
             esc(expr)
         else
-            kvar = gensym(:key)
-            push!(state.out.lets, :($kvar = $(esc(expr))))
-            kvar
+            bindexpr!(state, expr)
         end
     else
         chars = Char[]
@@ -909,9 +917,9 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             else
                 vsym = gensym(:value)
                 value = if key == "face"
-                    :($interpfacevalue($(esc(expr)), $(state.out.mod), $(state.strict)))
+                    :($interpfacevalue($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
                 else
-                    esc(expr)
+                    bindexpr!(state, expr)
                 end
                 push!(state.out.lets, :($vsym = $value))
                 vsym
@@ -1303,7 +1311,14 @@ macro styled_str(raw_content::String)
         newavar = spliceinterps!(state, :annots)
         aexp = :($AnnotatedString($astr, $newavar))
     end
-    Expr(:let, Expr(:block), Expr(:block, state.out.lets..., aexp))
+    # One destructuring binding, as only the first of several is evaluated in the caller's scope,
+    # with each expression in a block, as an assignment in a tuple would make it a named tuple
+    binding = if isempty(state.out.binds)
+        Expr(:block)
+    else
+        Expr(:(=), Expr(:tuple, first.(state.out.binds)...), Expr(:tuple, (Expr(:block, last(b)) for b in state.out.binds)...))
+    end
+    Expr(:let, binding, Expr(:block, state.out.lets..., aexp))
 end
 
 """
