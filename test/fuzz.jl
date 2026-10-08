@@ -123,13 +123,13 @@ const facename = identifier
 const face = facename #| interpolated
 
 const key = (@composed function k(
-                 start=filter(c -> !(c in "\0\${},:"), anychar),
-                 next=Data.Text(filter(c -> !(c in "\0=,:"), anychar); max_len=20))
+                 start=filter(c -> !(c in "\0\${},: \t\n\r"), anychar),
+                 next=Data.Text(filter(c -> !(c in "\0=,: \t\n\r"), anychar); max_len=20))
                  start*next
              end) #| interpolated
 
 const curlybraced = map(Data.Vectors(escaped | plain; max_size=10)) do str
-    join('{', str, '}')
+    '{' * join(str) * '}'
 end
 
 const simplevalue =
@@ -137,7 +137,7 @@ const simplevalue =
                post=Data.Text(filter(c -> !(c in ",:"), anychar); max_len=20)) ->
     pre*post
 
-const value = simplevalue #| curlybraced #| interpolated
+const value = simplevalue | curlybraced #| interpolated
 
 const keyvalue =
     @composed (k=key,ws1=whitespace,ws2=whitespace,v=value) ->
