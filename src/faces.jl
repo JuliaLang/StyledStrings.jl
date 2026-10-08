@@ -372,7 +372,13 @@ end
 
 # Not `:foldable`, as `f` changes when a palette is evaluated again (see `redefine!`)
 Base.@constprop :aggressive Base.getproperty(face::Face, attr::Symbol) =
-    if attr == :f getfield(face, :f) else faceproperty(getfield(face, :f), attr) end
+    if attr == :f
+        getfield(face, :f)
+    elseif attr == :inherit
+        Vector(getfield(face, :f).inherit) # A copy, as the face's own list must not change
+    else
+        faceproperty(getfield(face, :f), attr)
+    end
 
 # The `attr` of `def`, in the form that the `Face` constructor takes
 Base.@constprop :aggressive Base.@assume_effects :foldable :notaskstate function faceproperty(def::FaceDef, attr::Symbol)

@@ -134,7 +134,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             if !isempty(face.inherit)
                 if isfirst; isfirst = false else print(io, ", ") end
                 print(io, "inherit = ")
-                show(IOContext(io, :typeinfo => Memory{Face}), face.inherit)
+                show(IOContext(io, :typeinfo => Vector{Face}), face.inherit)
             end
             print(io, ')')
         end

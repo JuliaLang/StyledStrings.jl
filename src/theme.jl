@@ -929,7 +929,7 @@ function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
     for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
         fg = face.f.foreground
         if isnothingflavour(fg)
-            for iface in face.inherit
+            for iface in face.f.inherit
                 irgb = finalcolor(iface, s - 1)
                 !isnothing(irgb) && return irgb
             end
