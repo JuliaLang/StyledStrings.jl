@@ -202,12 +202,12 @@ named face for each distinct purpose. This benefits three sets of people:
     It is _strongly_ recommended that packages should take care to use and introduce
     semantic faces (like `code` and `table_header`) over direct colors and styles (like `cyan`). 
     
-Sets of named faces are created with the [`@defpalette!`](@ref) macro. Simply
+Sets of named faces are created with the [`@defpalette`](@ref) macro. Simply
 wrap a series of `<name> = Face(...)` statements in a `begin ... end` block and
 declare all the faces you want to create. For example:
 
 ```julia
-@defpalette! begin
+@defpalette begin
     table_header = Face(weight = :bold, underline = true)
     table_row_even = Face(background = bright_black)
     table_row_odd = Face(background = black)
@@ -215,40 +215,40 @@ declare all the faces you want to create. For example:
 end
 ```
 
-All faces defined by [`@defpalette!`](@ref) are recognised by [`face""`](@ref
+All faces defined by [`@defpalette`](@ref) are recognised by [`face""`](@ref
 @face_str). In our table example, this means that `face"table_header"` will work
 just as `face"cyan"` does.
 
 To support face customisation, along with other runtime features, it is
-necessary that whenever `@defpalette!` is used a call to `@registerpalette!` is
+necessary that whenever `@defpalette` is used a call to `@registerpalette` is
 put in the module's `__init__` function.
 
 ```julia
 function __init__()
-    @registerpalette!
+    @registerpalette
 end
 ```
 
 The ability to use a face defined within a module, like `face"table_header"`, is
 specific to that module. Should `face"table_header"` be put in another module,
 it will not be found. In order to use faces defined in another module or
-package, we can invoke [`@usepalettes!`](@ref). This imports the faces defined
+package, we can invoke [`@usepalette`](@ref). This imports the faces defined
 by the modules provided as arguments.
 
 ```julia
-@usepalettes! MyColors
+@usepalette MyColors
 
 face"burgundy" # defined in MyColors
 ```
 
 !!! note "Declare and import faces before using them"
     Face resolution with `face""` is performed at macro-expansion (compile) time.
-    A consequence of this is that faces must be defined and imported with `@defpalette!`
-    and `@usepalettes!` before any `face""` calls referencing those faces.
+    A consequence of this is that faces must be defined and imported with `@defpalette`
+    and `@usepalette` before any `face""` calls referencing those faces.
     
 It is also possible to specify a color provided by another module using a
 qualified name, of the form `face"<module path>.<name>`. In our example,
-`face"MyColors.burgundy"` could be used if `@usepalettes!` wasn't called.
+`face"MyColors.burgundy"` could be used if `@usepalette` wasn't called.
 
 ### [Dynamic face theming](@id stdlib-styledstrings-theming)
 
@@ -256,10 +256,10 @@ When trying to create well-designed content for the terminal, only being able to
 
 By hooking into `REPL` initialisation, `StyledStrings` is able to query the terminal state and determine what the actual colors used by the terminal are. This allows for simplistic light/dark detection, as well as more sophisticated color blending.
 
-Light and dark variants of a face can be embedded in the `@defpalette!` call that defines the faces, by using `.light` and `.dark` suffixes. For example:
+Light and dark variants of a face can be embedded in the `@defpalette` call that defines the faces, by using `.light` and `.dark` suffixes. For example:
 
 ```julia
-@defpalette! begin
+@defpalette begin
     table_highlight = Face(background = 0xc2990b) # A muddy yellow. Not great but often legible
     table_highlight.light = Face(background = 0xffda90) # A pale yellow for light themes
     table_highlight.dark = Face(background = 0x876804) # A dull yellow for dark themes
@@ -267,7 +267,7 @@ end
 ```
 
 Users can customise the light and dark face variants, even if no variants are
-declared in `@defpalette!`. At runtime, the light and dark variants will
+declared in `@defpalette`. At runtime, the light and dark variants will
 automatically be applied when a light/dark terminal theme is detected.
 
 This helps us avoid the worst case of illegible content, but we can still do better. People are still using odd themes which make it hard to pick shades and hues that are completely reliable, and it's easy to clash with the color hues already used in the terminal color theme (for example, if the particular green you pick clashes). To produce the best experience, we can _blend_ the colors already used in the terminal theme to produce the best hue and shade. This is done with three key functions:
@@ -524,9 +524,9 @@ without modifying the underlying string data.
 StyledStrings.@styled_str
 StyledStrings.styled
 StyledStrings.@face_str
-StyledStrings.@defpalette!
-StyledStrings.@registerpalette!
-StyledStrings.@usepalettes!
+StyledStrings.@defpalette
+StyledStrings.@registerpalette
+StyledStrings.@usepalette
 StyledStrings.Face
 StyledStrings.remapfaces
 StyledStrings.withfaces
