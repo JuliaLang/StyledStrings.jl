@@ -9,7 +9,7 @@ using Base.ScopedValues: ScopedValue, with, @with
 export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring
 
 export @styled_str, @face_str, Face
-export @defpalette!, @usepalettes!, @registerpalette!
+export @defpalette, @usepalette, @registerpalette
 public withfaces, remapfaces, styled, SimpleColor, blend, recolor, setface!
 
 include("faces.jl")

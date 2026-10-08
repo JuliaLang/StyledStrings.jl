@@ -48,7 +48,7 @@ module StyledMarkup
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor,
     ATTRIBUTES,
-    lookupface, lookmakeface, faceref, pathface, similarface, registrykey, heightbits,
+    lookupface, lookmakeface, faceref, pathface, similarface, isambiguous, registrykey, heightbits,
     UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
@@ -802,7 +802,7 @@ function resolveface(state::State, facename::String)
         @something(faceref(state.out.mod, name), Expr(:call, lookmakeface, state.out.mod, QuoteNode(name)))
     end
     face isa Exception || return face
-    nameerror!(if face isa UnknownFaceError
+    nameerror!(if face isa UnknownFaceError && !isambiguous(state.out.mod, face.name)
         suggestion = similarface(state.out.mod, name)
         hint = if isnothing(suggestion) "" else " (did you mean '$suggestion'?)" end
         "Unknown face '$facename'$hint"

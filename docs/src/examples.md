@@ -50,15 +50,15 @@ colour. The ANSI printer knows to handle the ANSI named colors specially, but
 you can create more "named colors" simply by defining new faces in a palette.
 
 ```@repl examples
-@defpalette! begin
+@defpalette begin
     orange = Face(foreground = 0xff7700)
 end
-@registerpalette!
+@registerpalette
 styled"{orange:this is orange text}"
 ```
 
 !!! note "Face naming"
-    In a package, `@registerpalette!` belongs in `__init__`, and the palette is
+    In a package, `@registerpalette` belongs in `__init__`, and the palette is
     namespaced by the module: `orange` in a package `MyColors` is registered as
     `MyColors_orange`, which is the name used when customising it.
 
@@ -108,16 +108,16 @@ the `Foobar` package's palette registers as `Foobar_important`.
 ```@repl examples
 module Foobar
     using StyledStrings
-    @defpalette! begin
+    @defpalette begin
         important = Face(weight = :bold, inherit = emphasis)
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
 end
 styled"this is some {Foobar.important:rather important} content"
 ```
 
 Other packages that interact with `Foobar` can also re-use the face for
-consistent styling, as `important` after `@usepalettes! Foobar`, or as
+consistent styling, as `important` after `@usepalette Foobar`, or as
 `Foobar.important`. Consider this styled content as an example:
 
 ```@repl examples

@@ -546,66 +546,66 @@ end
 # A palette declared out of dependency order, with a theme variant.
 module TestPalette
     using StyledStrings
-    @defpalette! begin
+    @defpalette begin
         topic = Face(foreground = sub, underline = (heading, :curly))
         sub = Face(inherit = heading, slant = :italic)
         heading = Face(weight = :bold)
         topic.dark = Face(foreground = heading)
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const heading, sub, topic = face"heading", face"sub", face"topic"
 end
 
 # A variant referring to a sibling face that no base face depends on.
 module TestPaletteVariant
     using StyledStrings
-    @defpalette! begin
+    @defpalette begin
         spot = Face(weight = :bold)
         mark = Face()
         mark.dark = Face(foreground = spot)
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const spot, mark = face"spot", face"mark"
 end
 
 module TestPaletteUser
     using StyledStrings
     using ..TestPalette
-    @usepalettes! TestPalette
+    @usepalette TestPalette
 end
 
 # Two palettes sharing a face name, one namespaced explicitly and referring across modules.
 module TestPaletteA
     using StyledStrings
-    @defpalette! begin
+    @defpalette begin
         shared = Face(weight = :bold)
         onlya = Face(slant = :italic)
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const shared, onlya = face"shared", face"onlya"
 end
 
 module TestPaletteB
     using StyledStrings
     using ..TestPaletteA
-    @defpalette! namespace = :custom begin
+    @defpalette namespace = :custom begin
         shared = Face(weight = :light)
         cross = Face(foreground = TestPaletteA.shared)
         std = Face(fg = red, bg = $(StyledStrings.SimpleColor(0x123456)), font = $(uppercase("mono")))
         chain = Face(inherit = [shared, cross])
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const shared, cross, std, chain = face"shared", face"cross", face"std", face"chain"
 end
 
 # Literal colours and unset attributes need no escaping.
 module TestPaletteLiterals
     using StyledStrings
-    @defpalette! begin
+    @defpalette begin
         hex = Face(foreground = 0xff0000, background = "#00ff00", underline = 0x0000ff)
         none = Face(foreground = nothing, underline = (nothing, :curly))
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const hex, none = face"hex", face"none"
 end
 
@@ -613,10 +613,10 @@ end
 module TestPaletteNamespaced
     using StyledStrings
     using ..TestPaletteA
-    @defpalette! namespace = TestPaletteA begin
+    @defpalette namespace = TestPaletteA begin
         nsface = Face()
     end
-    __init__() = @registerpalette!
+    __init__() = @registerpalette
     const nsface = face"nsface"
 end
 
@@ -624,11 +624,51 @@ end
 module TestPaletteImporter
     using StyledStrings
     using ..TestPaletteA, ..TestPaletteB
-    @defpalette! begin
+    @defpalette begin
         shared = Face(inverse = true)
     end
-    @usepalettes! TestPaletteA TestPaletteB
+    @usepalette TestPaletteA, TestPaletteB
     const own, qualified, imported = face"shared", face"TestPaletteA.shared", face"onlya"
+    const declared = face"custom.shared"
+    declaredstyled() = styled"{custom.shared:x}"
+end
+
+# Palettes used as `using` uses modules: under another name over two uses, in part, and together
+module TestPaletteAliased
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @usepalette TestPaletteA: TestPaletteA as PA
+    @usepalette TestPaletteB
+    const aliased, direct = face"PA.shared", face"shared"
+    aliasedstyled() = styled"{PA.shared:x}"
+end
+
+module TestPaletteSelective
+    using StyledStrings
+    using ..TestPaletteA
+    @usepalette TestPaletteA: onlya as only, shared, TestPaletteA as TA
+    const only, shared = face"only", face"shared"
+end
+
+module TestPaletteAmbiguous
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @usepalette TestPaletteA, TestPaletteB
+    @usepalette TestPaletteA: TestPaletteA as P
+    @usepalette TestPaletteB: TestPaletteB as P
+end
+
+# Used palettes that clash over a standard face's name, one with a namespace a binding also has
+module TestPaletteClash
+    using StyledStrings
+    module W1; using StyledStrings; @defpalette namespace = :w1 begin warning = Face(weight = :bold) end; end
+    module W2
+        using StyledStrings
+        @defpalette namespace = :w2 begin warning = Face(weight = :light) end
+        const warning = face"warning"
+    end
+    @usepalette W1, W2
+    const w2 = nothing
 end
 
 @testset "Palettes" begin
@@ -640,7 +680,7 @@ end
     @test FACES.pool[Symbol(join(fullname(TestPalette), '_'), "_topic")] === topic
     @test FACES.themes.dark[topic] == Face(foreground = heading)
     @test FACES.themes.dark[TestPaletteVariant.mark].foreground.value === TestPaletteVariant.spot
-    @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette! begin x.dark = Face(weight = :bold) end))
+    @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette begin x.dark = Face(weight = :bold) end))
     @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
     @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
     @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
@@ -717,7 +757,7 @@ end
     @test FACES.recolors[fresh].font == "recoloured" && !haskey(FACES.recolors, recoloured)
     delete!(FACES.recolors, fresh)
     @testset "Declaration errors" begin
-        declerror(decl) = macroexpand(TestPalette, :(@defpalette! $decl))
+        declerror(decl) = macroexpand(TestPalette, :(@defpalette $decl))
         @test_throws r"Cyclic face dependencies" declerror(:(begin a = Face(inherit = b); b = Face(foreground = a) end))
         @test_throws r"theme must be light or dark" declerror(:(begin a = Face(); a.blue = Face() end))
         @test_throws r"Duplicate" declerror(:(begin a = Face(); a = Face() end))
@@ -729,14 +769,14 @@ end
         @test_throws r"must be a face name, a color literal" declerror(:(begin a = Face(foreground = 255) end))
         @test_throws r"underline color value" declerror(:(begin a = Face(underline = 255) end))
         @test_throws r"`forground = red`, as `forground` is not one of" declerror(:(begin a = Face(forground = red) end))
-        @test Core.eval(TestPalette, :(@defpalette! emptyinherit begin a = Face(inherit = []) end)).var"##styledstrings-defpalette-variable#".base.a.inherit == Face[]
-        @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette! namespace = 1 begin a = Face() end))
-        @test_throws r"namespace must be a Symbol or Module" macroexpand(TestPalette, :(@defpalette! namespace = "ns" begin a = Face() end))
+        @test Core.eval(TestPalette, :(@defpalette emptyinherit begin a = Face(inherit = []) end)).var"##styledstrings-defpalette-variable#".base.a.inherit == Face[]
+        @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette namespace = 1 begin a = Face() end))
+        @test_throws r"namespace must be a Symbol or Module" macroexpand(TestPalette, :(@defpalette namespace = "ns" begin a = Face() end))
         # Every face referred to must be known when the palette is defined
         @test_throws r"Unknown face 'zzz_undefined'" declerror(:(begin a = Face(inherit = zzz_undefined) end))
         @test_throws r"Did you mean 'heading'" declerror(:(begin a = Face(foreground = headng) end))
         @test_throws r"Unknown face 'custom_shared'" declerror(:(begin a = Face(inherit = custom_shared) end))
-        @test_throws r"`TestPaletteA` has no face named 'nope'" macroexpand(TestPaletteB, :(@defpalette! begin a = Face(inherit = TestPaletteA.nope) end))
+        @test_throws r"`TestPaletteA` has no face named 'nope'" macroexpand(TestPaletteB, :(@defpalette begin a = Face(inherit = TestPaletteA.nope) end))
     end
     @testset "References" begin
         (; shared, cross, std, chain) = TestPaletteB
@@ -761,33 +801,73 @@ end
         @test own.inverse === true # The module's own palette shadows the imported face
         @test qualified === TestPaletteA.shared
         @test imported === TestPaletteA.onlya
+        # A used palette's faces are also named by the namespace it declares
+        @test TestPaletteImporter.declared === TestPaletteB.shared
+        @test only(annotations(TestPaletteImporter.declaredstyled())).value === TestPaletteB.shared
+        # As with `using`, a palette under another name is named only through it, uses add up,
+        # and a list after `:` selects and names faces
+        (; aliased, direct) = TestPaletteAliased
+        @test aliased === TestPaletteA.shared && direct === TestPaletteB.shared
+        @test StyledStrings.facename(TestPaletteAliased, aliased) == Symbol("PA.shared")
+        # A name the module's own palette shadows is not given to a used face
+        @eval module TestPaletteShadow
+            using StyledStrings, ..TestPaletteB
+            @defpalette begin shared = Face(inverse = true) end
+            @usepalette TestPaletteB
+        end
+        @test StyledStrings.facename(TestPaletteShadow, TestPaletteB.shared) == Symbol("custom.shared")
+        @test only(annotations(TestPaletteAliased.aliasedstyled())).value === TestPaletteA.shared
+        @test_throws r"Unknown face 'onlya'" Core.eval(TestPaletteAliased, :(face"onlya"))
+        @test TestPaletteSelective.only === TestPaletteA.onlya && TestPaletteSelective.shared === TestPaletteA.shared
+        @test Core.eval(TestPaletteSelective, :(face"TA.onlya")) === TestPaletteA.onlya # The palette, in the same list
+        @test_throws r"Unknown face 'onlya'" Core.eval(TestPaletteSelective, :(face"onlya"))
+        # A name that more than one used palette provides is ambiguous where it is used
+        @test_throws r"'shared' is ambiguous" Core.eval(TestPaletteAmbiguous, :(face"shared"))
+        @test_throws r"'shared' is ambiguous" macroexpand(TestPaletteAmbiguous, :(styled"{shared:x}"))
+        @test_throws r"'P.shared' is ambiguous" Core.eval(TestPaletteAmbiguous, :(face"P.shared"))
+        @test Core.eval(TestPaletteAmbiguous, :(face"P.onlya")) === TestPaletteA.onlya
+        @test Core.eval(TestPaletteAmbiguous, :(face"onlya")) === TestPaletteA.onlya
+        @test Core.eval(TestPaletteAmbiguous, :(face"custom.shared")) === TestPaletteB.shared
+        # An ambiguous name is not taken to be the standard face, and a used name is not hidden by a binding
+        @test_throws r"'warning' is ambiguous" Core.eval(TestPaletteClash, :(face"warning"))
+        @test_throws r"'warning' is ambiguous" macroexpand(TestPaletteClash, :(styled"{warning:x}"))
+        @test_throws r"'warning' is ambiguous" Core.eval(TestPaletteClash, :(let f = :warning; styled"{$f:x}" end))
+        @test Core.eval(TestPaletteClash, :(face"w2.warning")) === TestPaletteClash.W2.warning
+        @test_throws r"separated by commas" macroexpand(TestPaletteUser, :(@usepalette TestPalette TestPalette))
+        @test_throws r"followed by a name" macroexpand(TestPaletteUser, :(@usepalette TestPalette as))
+        @test_throws r"follows the only module" macroexpand(TestPaletteUser, :(@usepalette TestPalette, TestPalette: heading))
+        @test_throws r"renames a module" macroexpand(TestPaletteUser, :(@usepalette TestPalette as T))
+        @test_throws r"has no face 'nope'" @eval module TestUseMissingFace
+            using StyledStrings, ..TestPaletteA
+            @usepalette TestPaletteA: nope
+        end
         @test StyledStrings.facename(TestPaletteImporter, imported) == :onlya
         unknown = sprint(showerror, StyledStrings.UnknownFaceError(TestPaletteImporter, :nope))
         @test occursin("shared", unknown) && occursin("TestPaletteA", unknown) && occursin("TestPaletteB", unknown)
         @test occursin("Only the standard faces are available, as Main defines no palette and uses none",
                        sprint(showerror, StyledStrings.UnknownFaceError(Main, :nope)))
         # Only modules and named palettes with a palette can be used
-        @test_throws r"needs at least one module" macroexpand(TestPaletteUser, :(@usepalettes!))
+        @test_throws r"needs at least one module" macroexpand(TestPaletteUser, :(@usepalette))
         @test_throws r"has no palette to use" @eval module TestUseNoPalette
             using StyledStrings
-            @usepalettes! Base
+            @usepalette Base
         end
         @test (@eval module TestUseStandard
             using StyledStrings
-            @usepalettes! StyledStrings
+            @usepalette StyledStrings
             const region = face"region"
         end).region === face"region"
     end
     @testset "Registration" begin
         @test_logs (:warn, r"without a corresponding palette") @eval module TestNoPalette
             using StyledStrings
-            @registerpalette!
+            @registerpalette
         end
         # Re-evaluating a palette module carries customisations over to the new faces
         reeval = :(module TestPaletteReeval
             using StyledStrings
-            @defpalette! begin r = Face(weight = :bold) end
-            @registerpalette!
+            @defpalette begin r = Face(weight = :bold) end
+            @registerpalette
             const r = face"r"
         end)
         Core.eval(@__MODULE__, reeval)
@@ -803,15 +883,15 @@ end
         # Evaluating a changed palette again, as Revise does, registers it without `__init__`
         @eval module TestPaletteRevised
             using StyledStrings
-            @defpalette! begin
+            @defpalette begin
                 r = Face(weight = :bold)
                 r.dark = Face(font = "dark")
             end
-            __init__() = @registerpalette!
+            __init__() = @registerpalette
         end
         old = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
         setface!(old => Face(font = "kept"))
-        Core.eval(@eval(TestPaletteRevised), :(@defpalette! begin r = Face(weight = :light) end))
+        Core.eval(@eval(TestPaletteRevised), :(@defpalette begin r = Face(weight = :light) end))
         new = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
         @test FACES.pool[Symbol(join(fullname(@eval TestPaletteRevised), '_'), "_r")] === new
         @test getface(new).weight == :light
@@ -822,8 +902,8 @@ end
         early = StyledStrings.lookmakeface(Symbol(join((fullname(@__MODULE__)..., :TestPaletteLate, :r), '_')))
         latepalette(weight) = :(module TestPaletteLate
             using StyledStrings
-            @defpalette! begin r = Face(weight = $(QuoteNode(weight))) end
-            @registerpalette!
+            @defpalette begin r = Face(weight = $(QuoteNode(weight))) end
+            @registerpalette
         end)
         Core.eval(@__MODULE__, latepalette(:bold))
         @test getface(early).weight == :bold
@@ -832,11 +912,11 @@ end
         # A module with only named palettes registers them by name
         @test_logs @eval module TestNamedPalettes
             using StyledStrings
-            @defpalette! extra begin
+            @defpalette extra begin
                 thing = Face(font = "extra")
                 thing.dark = Face(font = "dark")
             end
-            @registerpalette! extra
+            @registerpalette extra
         end
         named = (@eval TestNamedPalettes.extra).var"##styledstrings-defpalette-variable#".base.thing
         @test FACES.pool[Symbol(join(fullname(@eval TestNamedPalettes), '_'), "_extra_thing")] === named
@@ -1518,7 +1598,7 @@ end
     StyledStrings.loadface!(:zzz_blank => Face(weight = :bold))
     @test getface(FACES.pool[:zzz_blank]).weight == :bold && getface(Face()).weight == :normal
     StyledStrings.loadface!(:zzz_blank => nothing)
-    @test Core.eval(TestPalette, :(@defpalette! blank begin b = Face(foreground = nothing) end)).var"##styledstrings-defpalette-variable#".base.b !== Face()
+    @test Core.eval(TestPalette, :(@defpalette blank begin b = Face(foreground = nothing) end)).var"##styledstrings-defpalette-variable#".base.b !== Face()
     @test FACES.pool[:zzz_legacy] === legacy && getface(legacy).slant == :italic
     @test StyledStrings.addface!(:zzz_legacy => Face(font = "first"), :light) isa Face
     @test StyledStrings.addface!(:zzz_legacy => Face(font = "second"), :light) === nothing
@@ -1607,12 +1687,12 @@ end
         # Registering a palette refreshes a resolution cached before it
         @eval module TestPaletteLate
             using StyledStrings
-            @defpalette! begin late = Face(weight = :bold); late.light = Face(slant = :italic) end
+            @defpalette begin late = Face(weight = :bold); late.light = Face(slant = :italic) end
             const late = face"late"
         end
         setcolors!(lightfbg)
         @test getface(TestPaletteLate.late).slant == :normal
-        Core.eval(TestPaletteLate, :(@registerpalette!))
+        Core.eval(TestPaletteLate, :(@registerpalette))
         @test getface(TestPaletteLate.late).slant == :italic
         # Modifications and theme variants layer over the base face
         setface!(face"red" => Face(font="always"))
@@ -1655,11 +1735,11 @@ end
         # A palette registered after the last recolour has its variants applied at once
         @eval module ZzzLatePalette
             using StyledStrings
-            @defpalette! begin
+            @defpalette begin
                 late = Face(font = "base")
                 late.dark = Face(font = "dark")
             end
-            @registerpalette!
+            @registerpalette
             const late = face"late"
         end
         @test getface(@eval ZzzLatePalette.late).font == "dark"
@@ -1884,12 +1964,15 @@ end
             __init__() = StyledStrings.addface!(:zzz_pkglegacy => Face(foreground = 0x00ff00))""")
         package(palette..., [styledstrings], """
             using StyledStrings
-            @defpalette! begin accent = Face(foreground = 0xff0000) end
-            __init__() = @registerpalette!
+            @defpalette begin accent = Face(foreground = 0xff0000) end
+            __init__() = @registerpalette
             const accent = face"accent\"""")
         package("PkgUser", "6c4b5d0e-0000-4000-8000-000000000003", [styledstrings, legacy, palette], """
             using StyledStrings, PkgLegacy, PkgPalette
+            @usepalette PkgPalette: PkgPalette as PP
+            @usepalette PkgPalette
             legacy() = styled"{zzz_pkglegacy:x}"
+            used() = (styled"{accent:x}", styled"{PP.accent:x}")
             accent() = styled"{PkgPalette.accent:x}\"""")
         depot = mkpath(joinpath(dir, "depot", "config"))
         write(joinpath(depot, "faces.toml"), """
@@ -1905,12 +1988,13 @@ end
             accent = only(Base.annotations(PkgUser.accent())).value
             print(legacy === FACES.pool[:zzz_pkglegacy], ' ', getface(legacy).weight, ' ',
                   accent === PkgPalette.accent, ' ', getface(accent).weight, ' ',
-                  rgbcolor(getface(face"shadow").foreground) == (r = 0xff, g = 0x00, b = 0x00))
+                  rgbcolor(getface(face"shadow").foreground) == (r = 0xff, g = 0x00, b = 0x00), ' ',
+                  all(s -> only(Base.annotations(s)).value === PkgPalette.accent, PkgUser.used()))
             """
         pathsep = if Sys.iswindows() ';' else ':' end
         loadpath = join([pkgdir(StyledStrings), map(name -> joinpath(dir, name), ["PkgLegacy", "PkgPalette", "PkgUser"])..., "@stdlib"], pathsep)
         cmd = addenv(`$(Base.julia_cmd()) --startup-file=no -e $script`,
                      "JULIA_LOAD_PATH" => loadpath, "JULIA_DEPOT_PATH" => dirname(depot) * pathsep)
-        @test readchomp(cmd) == "true bold true bold true"
+        @test readchomp(cmd) == "true bold true bold true true"
     end
 end

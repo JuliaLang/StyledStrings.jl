@@ -210,9 +210,9 @@ The `theme` should be either `:base`, `:light`, or `:dark`.
 
 Should the face `name` already exist, `nothing` is returned.
 
-!!! warning Deprecated
+!!! warning "Deprecated"
     `addface!` is deprecated and will be removed in a future release. Please
-    define faces with [`@defpalette!`](@ref) and [`@registerpalette!`](@ref) instead.
+    define faces with [`@defpalette`](@ref) and [`@registerpalette`](@ref) instead.
 
 # Examples
 
@@ -225,7 +225,7 @@ Face mypkg_myface (sample)
 """
 function addface!((name, default)::Pair{Symbol, Face}, theme::Symbol = :base)
     # Base.depwarn("`addface!` is deprecated as of v1.14 and will be removed in a future release. \
-    #               Please define faces with `@defpalette!` and `@registerpalette!` instead.",
+    #               Please define faces with `@defpalette` and `@registerpalette` instead.",
     #                :addface!)
     @lock FACES.lock begin
         face = if theme === :base

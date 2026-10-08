@@ -60,7 +60,7 @@ Faces control how text is displayed in the terminal, and possibly other
 places too.
 
 Most of the time, a [`Face`](@ref) will be given a name in a palette (see
-[`@defpalette!`](@ref)) and be referred to by that name with [`face""`](@ref @face_str).
+[`@defpalette`](@ref)) and be referred to by that name with [`face""`](@ref @face_str).
 
 # Attributes
 
