@@ -2,22 +2,26 @@
 
 module StyledStrings
 
-using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring, eachregion
+using Base: AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring, eachregion, AnnotatedDisplay
 using Base.ScopedValues: ScopedValue, with, @with
 
 # While these are imported from Base, we claim them as part of the `StyledStrings` API.
 export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!, annotatedstring
 
-export @styled_str
-public Face, addface!, withfaces, styled, SimpleColor, blend, recolor
+export @styled_str, @face_str, Face
+export @defpalette, @usepalette, @registerpalette
+public withfaces, remapfaces, styled, SimpleColor, blend, recolor, setface!
 
 include("faces.jl")
 include("theme.jl")
+include("palettes.jl")
 include("io.jl")
 include("styledmarkup.jl")
 include("legacy.jl")
 
 using .StyledMarkup
+
+include("show.jl")
 
 HAVE_LOADED_CUSTOMISATIONS = false
 
@@ -36,15 +40,20 @@ Unless `force` is set, customisations are only applied when this function is
 called for the first time, and subsequent calls are a no-op.
 """
 function load_customisations!(; force::Bool=false)
+    Base.generating_output() && return # To avoid baking customisations into the precompiled image
     !force && HAVE_LOADED_CUSTOMISATIONS && return
     (function ()
          @noinline
+         global HAVE_LOADED_CUSTOMISATIONS = true # First, so that a faulty file is reported once
          if !isempty(DEPOT_PATH)
              userfaces = joinpath(first(DEPOT_PATH), "config", "faces.toml")
-             isfile(userfaces) && loaduserfaces!(userfaces)
+             try
+                 isfile(userfaces) && loaduserfaces!(userfaces)
+             catch err
+                 @error "Could not load the face customisations in $userfaces" exception = (err, catch_backtrace())
+             end
          end
          Legacy.load_env_colors!()
-         global HAVE_LOADED_CUSTOMISATIONS = true
      end)()
     nothing
 end

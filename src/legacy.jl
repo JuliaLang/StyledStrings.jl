@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, Face, loadface!, face!, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, FACES, Face, @face_str, setface!, face!, AnnotatedString, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -18,13 +18,15 @@ When this is not possible, `nothing` is returned.
 function legacy_color end
 
 """
-A mapping from 256-color codes indicies to 8-bit colours.
+A mapping from 256-color codes indicies to colours. The first 16 are the base colours,
+which take their values from the terminal, and the rest are fixed 8-bit colours.
 """
 const ANSI_256_COLORS =
     map(SimpleColor,
-        [0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080,
-         0xc0c0c0, 0x808080, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff,
-         0x00ffff, 0xffffff, 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
+        [face"black", face"red", face"green", face"yellow", face"blue", face"magenta",
+         face"cyan", face"white", face"bright_black", face"bright_red", face"bright_green",
+         face"bright_yellow", face"bright_blue", face"bright_magenta", face"bright_cyan",
+         face"bright_white", 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
          0x0000ff, 0x005f00, 0x005f5f, 0x005f87, 0x005faf, 0x005fd7, 0x005fff,
          0x008700, 0x00875f, 0x008787, 0x0087af, 0x0087d7, 0x0087ff, 0x00af00,
          0x00af5f, 0x00af87, 0x00afaf, 0x00afd7, 0x00afff, 0x00d700, 0x00d75f,
@@ -87,10 +89,12 @@ const RENAMED_COLORS = Dict{Symbol, Symbol}(
     :light_cyan    => :bright_cyan,
     :light_white   => :bright_white)
 
-legacy_color(color::Symbol) =
+function legacy_color(color::Symbol)
     if color in NAMED_COLORS
-        SimpleColor(get(RENAMED_COLORS, color, color))
+        name = get(RENAMED_COLORS, color, color)
+        SimpleColor(FACES.pool[name])
     end
+end
 
 function legacy_color(color::String)
     namedcolours = map(String, NAMED_COLORS)
@@ -110,14 +114,14 @@ Try to emulate the effect of the various `*_color()` functions of `Base`, by
 loading any specified colours as foregrounds of the relevant faces.
 """
 function load_env_colors!()
-    for (fname, envkey) in ((:error,     "JULIA_ERROR_COLOR"),
-                            (:warn,      "JULIA_WARN_COLOR"),
-                            (:info,      "JULIA_INFO_COLOR"),
-                            (:log_debug, "JULIA_DEBUG_COLOR"))
+    for (face, envkey) in ((face"error",     "JULIA_ERROR_COLOR"),
+                           (face"warn",      "JULIA_WARN_COLOR"),
+                           (face"info",      "JULIA_INFO_COLOR"),
+                           (face"log_debug", "JULIA_DEBUG_COLOR"))
         if haskey(ENV, envkey)
             ecolor = legacy_color(ENV[envkey])
             if !isnothing(ecolor)
-                loadface!(fname => Face(foreground = ecolor))
+                setface!(face => Face(foreground = ecolor))
             end
         end
     end
@@ -125,12 +129,13 @@ end
 
 # Part of the inference barrier around `Base.printstyled`
 function Base.AnnotatedDisplay.styled_print(io::AnnotatedIOBuffer, @nospecialize(msg::Tuple), @nospecialize(kwargs::Base.Pairs))
-    str = annotatedstring(msg...)
+    widenface(s::AnnotatedString{S, V}) where {S, V} = AnnotatedString{S, Union{V, Face}}(s) # A copy, as `s` may be the caller's
+    str = widenface(annotatedstring(msg...))
     for attr in (:bold, :italic, :underline)
         get(kwargs, attr, false)::Bool && face!(str, attr)
     end
     get(kwargs, :reverse, false)::Bool && face!(str, :inverse)
-    color = get(kwargs, :color, :normal)::Symbol
+    color = get(kwargs, :color, :normal)::Union{Symbol, Int}
     color !== :normal && face!(str, Face(foreground=legacy_color(color)))
     write(io, str)
     nothing

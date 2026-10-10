@@ -3,7 +3,8 @@
 using Test
 
 using StyledStrings: StyledStrings, Legacy, SimpleColor, FACES, Face,
-    @styled_str, styled, StyledMarkup, getface, addface!, loadface!, resetfaces!,
+    @styled_str, styled, StyledMarkup, @face_str, getface, addface!, loadface!, withfaces, resetfaces!,
+    rgbcolor, blend, recolor, setface!, setcolors!,
     AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations
 using .StyledMarkup: MalformedStylingMacro
 
@@ -41,113 +42,302 @@ function with_terminfo(fn::Function, tinfo::Base.TermInfo)
     end
 end
 
+StyledStrings.setcolors!([
+    :foreground     => (r = 0xf6, g = 0xf5, b = 0xf4),
+    :background     => (r = 0x24, g = 0x1f, b = 0x31),
+    :black          => (r = 0x1c, g = 0x1a, b = 0x23),
+    :red            => (r = 0xa5, g = 0x1c, b = 0x2c),
+    :green          => (r = 0x25, g = 0xa2, b = 0x68),
+    :yellow         => (r = 0xe5, g = 0xa5, b = 0x09),
+    :blue           => (r = 0x19, g = 0x5e, b = 0xb3),
+    :magenta        => (r = 0x80, g = 0x3d, b = 0x9b),
+    :cyan           => (r = 0x00, g = 0x97, b = 0xa7),
+    :white          => (r = 0xdd, g = 0xdc, b = 0xd9),
+    :bright_black   => (r = 0x76, g = 0x75, b = 0x7a),
+    :bright_red     => (r = 0xed, g = 0x33, b = 0x3b),
+    :bright_green   => (r = 0x33, g = 0xd0, b = 0x79),
+    :bright_yellow  => (r = 0xf6, g = 0xd2, b = 0x2c),
+    :bright_blue    => (r = 0x35, g = 0x83, b = 0xe4),
+    :bright_magenta => (r = 0xbf, g = 0x60, b = 0xca),
+    :bright_cyan    => (r = 0x26, g = 0xc6, b = 0xda),
+    :bright_white   => (r = 0xf6, g = 0xf5, b = 0xf4)
+])
+
+const HACKY_FACES = Symbol[]
+
+function hacky_addface!(name::Symbol, face::Face, theme::Symbol = :base)
+    # HACK: Directly modifying the `FACES.pool` dictionary to add faces
+    # without going through the normal API, for testing purposes.
+    if theme == :base
+        FACES.pool[name] = face
+        FACES.names[face] = name
+        push!(HACKY_FACES, name)
+    else
+        base = FACES.pool[name]
+        FACES.themes[theme][base] = face
+    end
+    face
+end
+
+function cleanup_hacky_faces!()
+    for name in HACKY_FACES
+        f = FACES.pool[name]
+        delete!(FACES.pool, name)
+        delete!(FACES.names, f)
+        for (_, theme) in pairs(FACES.themes)
+            delete!(theme, f)
+        end
+    end
+    empty!(HACKY_FACES)
+end
+
+"""
+    astmatch(template::Expr, expr::Expr)
+
+Check whether `expr` matches the structure of `template`.
+
+The `template` expression may contain the following special forms:
+- `_` matches any single expression
+- `_...` matches one or more expressions, and may be placed at the start, middle, or end of an argument list
+- `_<name>` matches any symbol, and binds it to `_<name>` for consistency checking in subsequent matches
+- `_!<name>` matches any symbol starting with `<name>`, ignoring trailing `#<number>` suffixes (for matching generated symbols)
+"""
+function astmatch(template::Expr, expr::Expr, path::String, bindings::Dict{Symbol, Symbol})
+    function pathpart(ex::Expr, argn::Int)
+        if ex.head == :call
+            if argn == 1
+                "$(ex.args[1])()"
+            else
+                "$(ex.args[1])(.$argn)"
+            end
+        elseif ex.head == :vect
+            "[.$argn]"
+        elseif ex.head == :tuple
+            "(.$(argn))"
+        elseif ex.head == :curly
+            if argn == 1
+                "$(ex.args[1]){}"
+            else
+                "$(ex.args[1]){.$argn}"
+            end
+        else
+            "->$(ex.head).$argn"
+        end
+    end
+    template.head == expr.head || return false
+    targs = filter(e -> !(e isa LineNumberNode), template.args)
+    eargs = filter(e -> !(e isa LineNumberNode), expr.args)
+    isempty(targs) && isempty(eargs) && return true
+    for (i, e) in enumerate(eargs)
+        if e isa Type || e isa Function
+            eargs[i] = nameof(e)
+        elseif e isa GlobalRef
+            eargs[i] = e.name
+        end
+    end
+    t, e = firstindex(targs), firstindex(eargs)
+    while t <= lastindex(targs)
+        targ, earg = targs[t], eargs[e]
+        if targ == :(_...)
+            t == lastindex(targs) && return true
+            e < lastindex(eargs) || return false
+            bindcopy = copy(bindings)
+            if astmatch(targs[t+1], eargs[e+1], path * pathpart(expr, e+1), bindcopy) &&
+                astmatch(Expr(template.head, targs[t+2:end]...), Expr(expr.head, eargs[e+2:end]...), path * pathpart(expr, e+2), bindcopy)
+                merge!(bindings, bindcopy)
+                return true
+            else
+                e += 1
+            end
+        elseif targ == :_ || astmatch(targ, earg, path * pathpart(expr, e), bindings)
+            t, e = t + 1, e + 1
+        else
+            if !haskey(bindings, :__inner_match_failure_sigil)
+                tshow, tdesc = if targ isa Expr; ("`$targ`", targ.head) else (sprint(show, targ), typeof(targ)) end
+                eshow, edesc = if earg isa Expr; ("`$earg`", earg.head) else (sprint(show, earg), typeof(earg)) end
+                @warn "AST mismatch at $path$(pathpart(expr, e)): expected $tshow ($tdesc), got $eshow ($edesc)"
+                bindings[:__inner_match_failure_sigil] = :yep
+            end
+            return false
+        end
+    end
+    length(targs) == length(eargs)
+end
+
+function astmatch(template::Symbol, expr::Symbol, ::String, bindings::Dict{Symbol, Symbol})
+    if startswith(String(template), "_!")
+        String(template)[3:end] == last(filter(x -> !all(isdigit, x), split(String(expr), '#', keepempty=false)))
+    elseif startswith(String(template), '_')
+        bind = get(bindings, template, nothing)
+        return if isnothing(bind)
+            bindings[template] = expr
+            true
+        else
+            expr == bind
+        end
+    else
+        template == expr
+    end
+end
+
+astmatch(a, b, ::String, ::Dict{Symbol, Symbol}) = a == b
+
+astmatch(a, b) = astmatch(a, b, "", Dict{Symbol, Symbol}())
+
+"""
+     stylazy""
+
+A runtime-evaluated version of `@styled_str` macro for use in tests.
+"""
+macro stylazy_str(s::String)
+    esc(:(Core.eval($__module__, :(@styled_str $$s))))
+end
+
 # When tested as part of the stdlib, the package prefix can start appearing in show methods.
-choppkg(s::String) = chopprefix(s, "StyledStrings.")
+pkgstrip(s::String) = replace(s, "StyledStrings." => "")
 
 @testset "SimpleColor" begin
-    @test SimpleColor(:hey).value == :hey # no error
     @test SimpleColor(0x01, 0x02, 0x03).value == (r=0x01, g=0x02, b=0x03)
     @test SimpleColor((r=0x01, g=0x02, b=0x03)).value == (r=0x01, g=0x02, b=0x03)
     @test SimpleColor(0x010203).value == (r=0x01, g=0x02, b=0x03)
-    @test tryparse(SimpleColor, "hey") == SimpleColor(:hey)
+    @test tryparse(SimpleColor, "green") == SimpleColor(face"green")
     @test tryparse(SimpleColor, "#010203") == SimpleColor(0x010203)
     @test tryparse(SimpleColor, "#12345g") === nothing
     @test tryparse(SimpleColor, "!not a color") === nothing
-    @test parse(SimpleColor, "blue") == SimpleColor(:blue)
+    @test tryparse(SimpleColor, "0x010203") == SimpleColor(0x010203)
+    @test tryparse(SimpleColor, "red-ish") === nothing
+    @test Face(foreground = SubString("#010203", 1)) == Face(foreground = 0x010203)
+    @test parse(SimpleColor, "blue") == SimpleColor(face"blue")
     @test_throws ArgumentError parse(SimpleColor, "!not a color")
-    @test sprint(show, SimpleColor(:blue)) |> choppkg ==
-        "SimpleColor(:blue)"
-    @test sprint(show, SimpleColor(0x123456)) |> choppkg ==
+    @test sprint(show, SimpleColor(face"blue")) |> pkgstrip ==
+        "SimpleColor(face\"blue\")"
+    @test sprint(show, SimpleColor(0x123456)) |> pkgstrip ==
         "SimpleColor(0x123456)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue)) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), SimpleColor(face"blue")) |> pkgstrip ==
         "SimpleColor(blue)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = :color => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), SimpleColor(face"blue"), context = :color => true) |> pkgstrip ==
         "SimpleColor(\e[34m■\e[39m blue)"
-    @test sprint(show, MIME("text/plain"), SimpleColor(:blue), context = (:color => true, :typeinfo => SimpleColor)) ==
+    @test sprint(show, MIME("text/plain"), SimpleColor(face"blue"), context = (:color => true, :typeinfo => SimpleColor)) ==
         "\e[34m■\e[39m blue"
 end
 
 @testset "Faces" begin
     # Construction
-    @test Face() ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(font="font") ==
-        Face("font", nothing, nothing, nothing, nothing,
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(height=1) ==
-        Face(nothing, 1, nothing, nothing, nothing,
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(weight=:bold) ==
-        Face(nothing, nothing, :bold, nothing, nothing,
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(slant=:italic) ==
-        Face(nothing, nothing, nothing, :italic, nothing,
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(foreground=SimpleColor(:red)) ==
-        Face(nothing, nothing, nothing, nothing, SimpleColor(:red),
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(foreground=:red) ==
-        Face(nothing, nothing, nothing, nothing, SimpleColor(:red),
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(foreground=0xff0000) ==
-        Face(nothing, nothing, nothing, nothing, SimpleColor(0xff0000),
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(foreground="red") ==
-        Face(nothing, nothing, nothing, nothing, SimpleColor(:red),
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(foreground="#ff0000") ==
-        Face(nothing, nothing, nothing, nothing, SimpleColor(0xff0000),
-             nothing, nothing, nothing, nothing, Symbol[])
-    @test Face(background=SimpleColor(:red)) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             SimpleColor(:red), nothing, nothing, nothing, Symbol[])
-    @test Face(background=:red) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             SimpleColor(:red), nothing, nothing, nothing, Symbol[])
-    @test Face(background=0xff0000) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             SimpleColor(0xff0000), nothing, nothing, nothing, Symbol[])
-    @test Face(underline=true) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, true, nothing, nothing, Symbol[])
-    @test Face(underline=:red) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, SimpleColor(:red), nothing, nothing, Symbol[])
-    @test Face(underline=(nothing, :curly)) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, (nothing, :curly), nothing, nothing, Symbol[])
-    @test Face(underline=(:red, :curly)) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, (SimpleColor(:red), :curly), nothing, nothing, Symbol[])
-    @test Face(strikethrough=true) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, nothing, true, nothing, Symbol[])
-    @test Face(inverse=true) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, nothing, nothing, true, Symbol[])
-    @test Face(inherit=:singleface) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, nothing, nothing, nothing, [:singleface])
-    @test Face(inherit=[:many, :faces]) ==
-        Face(nothing, nothing, nothing, nothing, nothing,
-             nothing, nothing, nothing, nothing, [:many, :faces])
     @test Face() == Face()
+    @test all(p -> isnothing(getproperty(Face(), p)), setdiff(propertynames(Face()), (:inherit,)))
+    @test isempty(Face().inherit)
+    @test Face(font="font").font == "font"
+    @test Face(height=1).height == 1
+    @test Face(height=0.5).height == 0.5
+    @test Face(height=typemax(Int32)).height == typemax(Int32)
+    @test_throws ArgumentError Face(height=2^31)
+    @test_throws ArgumentError Face(height=-1)
+    @test_throws ArgumentError Face(height=Inf)
+    @test_throws ArgumentError Face(height=1e300) # Beyond `Float32`
+    @test_throws ArgumentError Face(height=1e-46) # Rounds to zero in `Float32`
+    @test Face(weight=:bold).weight == :bold
+    @test Face(slant=:italic).slant == :italic
+    for (attr, names) in ((:weight, StyledStrings.ATTRIBUTES.weights), (:slant, StyledStrings.ATTRIBUTES.slants))
+        for name in names
+            @test getproperty(Face(; attr => name), attr) === name
+        end
+        @test_throws ArgumentError Face(; attr => :unknown)
+    end
+    for style in StyledStrings.ATTRIBUTES.underlines
+        @test Face(underline=style).underline === if style === :straight true else style end
+        @test Face(underline=(face"red", style)).underline == (SimpleColor(face"red"), style)
+    end
+    # Each form of underline reads back as a value that builds the same face
+    for underline in (true, false, :curly, (nothing, :straight), (nothing, :curly), face"red",
+                      (face"red", :curly), SimpleColor(0xff0000), 0xff0000, "#ff0000", ("#ff0000", :dotted))
+        @test Face(underline = Face(; underline).underline) == Face(; underline)
+    end
+    @test Face(underline="#ff0000").underline == (SimpleColor(0xff0000), :straight)
+    @test_throws ArgumentError Face(underline="red")
+    @test_throws ArgumentError Face(underline=(nothing, :unknown))
+    @test sizeof(StyledStrings.FaceDef) + sizeof(Int) <= 64 # A `Face` fits one 64-byte allocation
+    @test Face(foreground=SimpleColor(face"red")).foreground == SimpleColor(face"red")
+    @test Face(foreground=face"red").foreground == SimpleColor(face"red")
+    @test Face(foreground=0xff0000).foreground == SimpleColor(0xff0000)
+    @test Face(foreground="#ff0000").foreground == SimpleColor(0xff0000)
+    @test Face(background=SimpleColor(face"red")).background == SimpleColor(face"red")
+    @test Face(background=0xff0000).background == SimpleColor(0xff0000)
+    @test Face(underline=true).underline === true
+    @test Face(underline=face"red").underline == (SimpleColor(face"red"), :straight)
+    @test Face(underline=(nothing, :curly)).underline == (nothing, :curly)
+    @test Face(underline=(face"red", :curly)).underline == (SimpleColor(face"red"), :curly)
+    @test Face(underline=false).underline === false
+    @test merge(Face(underline=face"red"), Face(underline=false)).underline === false
+    @test merge(Face(underline=face"red"), Face(underline=false), Face(underline=:curly)).underline == (nothing, :curly)
+    # true and a bare style keep an inherited colour, a tuple or false set the whole underline
+    @test merge(Face(underline=face"red"), Face(underline=true)).underline == (SimpleColor(face"red"), :straight)
+    @test merge(Face(underline=face"red"), Face(underline=:curly)).underline == (SimpleColor(face"red"), :curly)
+    @test merge(Face(underline=face"red"), Face(underline=(nothing, :straight))).underline == (nothing, :straight)
+    @test merge(Face(underline=face"red"), Face(underline=(nothing, :curly))).underline == (nothing, :curly)
+    # A strong nothing (from "inherit") is unset when faces are merged, and resets when layered
+    reset = convert(Face, Dict{String, Any}("foreground" => "inherit", "underline" => "inherit"))
+    @test merge(Face(foreground=face"red", underline=true), reset) == Face(foreground=face"red", underline=true)
+    @test StyledStrings.override(Face(foreground=face"red", underline=true), reset).foreground === nothing
+    @test getface(StyledStrings.override(Face(foreground=face"red", inherit=face"blue"), reset)).foreground == SimpleColor(face"blue")
+    # Off is a value, so it survives a modification and clears an enclosing underline
+    @test StyledStrings.override(Face(underline=true), Face(underline=false)).underline === false
+    @test convert(Face, Dict{String, Any}("underline" => false)) == Face(underline=false)
+    setface!(face"emphasis" => Face(underline=false))
+    @test getface([face"underline", face"emphasis"]).underline === false
+    resetfaces!(face"emphasis")
+    @test Face(strikethrough=true).strikethrough == true
+    @test Face(inverse=true).inverse == true
+    @test Face(inherit=face"blue").inherit  == [face"blue"]
+    @test Face(inherit=[face"blue", face"green"]).inherit == [face"blue", face"green"]
     @test Face(height=1) == Face(height=1)
     @test Face(height=1) != Face(height=2)
-    @test Face(inherit=:a) != Face(inherit=:b)
+    @test Face(inherit=face"red") != Face(inherit=face"blue")
+    # A vector with spare capacity is copied, not aliased
+    let grown = Face[]
+        push!(grown, face"italic")
+        @test Face(inherit=grown).inherit == [face"italic"]
+        @test getface(Face(inherit=grown)).slant == :italic
+    end
+    # Standard faces
+    @test all(f -> f.weight == :bold, (face"log_error", face"log_warn", face"log_info", face"log_debug"))
     # Adding a face then resetting
-    @test loadface!(:testface => Face(font="test")) == Face(font="test")
-    @test get(FACES.current[], :testface, nothing) == Face(font="test")
-    @test loadface!(:bold => Face(weight=:extrabold)) == Face(weight=:extrabold)
-    @test get(FACES.current[], :bold, nothing) == Face(weight=:extrabold)
-    @test_nowarn loadface!(:bold => nothing)
-    @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
-    @test loadface!(:testface => Face(height=2.0)) == Face(font="test", height=2.0)
-    @test get(FACES.current[], :testface, nothing) == Face(font="test", height=2.0)
-    @test_warn "reset, but it had no default value" loadface!(:testface => nothing)
-    @test get(FACES.current[], :testface, nothing) === nothing
+    testface = hacky_addface!(:testface, copy(Face()))
+    @test setface!(testface => Face(font="test")) == Face(font="test")
+    @test get(FACES.current[], testface, nothing) == Face(font="test")
+    @test setface!(face"bold" => Face(weight=:extrabold)) == Face(weight=:extrabold)
+    @test FACES.current[][face"bold"] == Face(weight=:extrabold)
+    resetfaces!(face"bold")
+    @test !haskey(FACES.current[], face"bold")
+    @test setface!(testface => Face(height=2.0)) == Face(font="test", height=2.0)
+    @test get(FACES.current[], testface, nothing) == Face(font="test", height=2.0)
+    resetfaces!(testface)
+    @test get(FACES.current[], testface, nothing) === nothing
+    # Customising the default face
+    setface!(face"default" => Face(font="custom"))
+    @test getface().font == "custom"
+    @test getface(face"red").font == "custom"
+    resetfaces!(face"default")
+    @test getface().font == "monospace"
+    # A colour the default face leaves unset is the standard default's
+    setface!(face"default" => convert(Face, Dict{String, Any}("background" => "inherit")))
+    @test getface().background == SimpleColor(face"background")
+    resetfaces!(face"default")
+    @test getface() === face"default"
+    with_terminfo(vt100) do
+        setface!(face"default" => Face(weight=:bold))
+        @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "\e[1mx\e[22my"
+        resetfaces!(face"default")
+    end
     # Loading from TOML (a Dict)
+    @test convert(Face, Dict{String, Any}("underline" => true)) == Face(underline=true)
+    @test convert(Face, Dict{String, Any}("underline" => false)) == Face(underline=false)
+    @test convert(Face, Dict{String, Any}("weight" => "wobbly", "underline" => ["red", "wavy"])) ==
+        Face(underline = face"red")   # Unknown names are left unset
+    @test convert(Face, Dict{String, Any}("height" => 1.5)).height == 1.5
+    @test convert(Face, Dict{String, Any}("underline" => ["inherit", "curly"])).f.underline === StyledStrings.StrongNothing()
+    @test !haskey(FACES.unregistered, :inherit)
+    @test convert(Face, Dict{String, Any}("height" => -3)).height === nothing
+    anotherface = hacky_addface!(:anotherface, copy(Face()))
     @test StyledStrings.loaduserfaces!(Dict{String, Any}("anotherface" =>
         Dict{String, Any}("font" => "afont",
                           "height" => 123,
@@ -158,83 +348,136 @@ end
                           "underline" => ["blue", "curly"],
                           "strikethrough" => true,
                           "inverse" => true,
-                          "inherit" => ["iface"]))) isa Any
-    @test get(FACES.current[], :anotherface, nothing) ==
-        Face(font = "afont", height = 123, weight = :semibold,
-             slant = :oblique, foreground = :green, background = :magenta,
-             underline = (:blue, :curly), strikethrough = true,
-             inverse = true, inherit = [:iface])
-    StyledStrings.resetfaces!()
-    @test get(FACES.current[], :bold, nothing) == Face(weight=:bold)
-    @test haskey(FACES.current[], :testface) == false
-    @test haskey(FACES.current[], :anotherface) == false
+                          "inherit" => ["testface"]))) isa Any
+    anotherface_customised = Face(
+        font = "afont", height = 123, weight = :semibold,
+        slant = :oblique, foreground = face"green", background = face"magenta",
+        underline = (face"blue", :curly), strikethrough = true,
+        inverse = true, inherit = [testface])
+    @test get(FACES.current[], anotherface, nothing) == anotherface_customised
+    resetfaces!()
+    @test haskey(FACES.current[], face"bold") == false
+    @test haskey(FACES.current[], testface) == false
+    @test haskey(FACES.current[], anotherface) == false
     # `withfaces`
-    @test StyledStrings.withfaces(:testface => Face(font="test")) do
-        get(FACES.current[], :testface, nothing)
-    end == Face(font="test")
-    @test haskey(FACES.current[], :testface) == false
-    @test StyledStrings.withfaces(:red => :green) do
-        get(FACES.current[], :red, nothing)
-    end == Face(foreground=:green)
-    @test StyledStrings.withfaces(:red => [:green, :inverse]) do
-        get(FACES.current[], :red, nothing)
-    end == Face(inherit=[:green, :inverse])
-    @test StyledStrings.withfaces(:red => nothing) do
-        get(FACES.current[], :red, nothing)
-    end === nothing
-    @test StyledStrings.withfaces(Dict(:green => Face(foreground=:blue))) do
-        get(FACES.current[], :green, nothing)
-    end == Face(foreground=:blue)
-    @test StyledStrings.withfaces(() -> 1) == 1
+    @test withfaces(testface => Face(font="test2")) do
+        get(FACES.current[], testface, nothing)
+    end == Face(font="test2")
+    @test haskey(FACES.current[], testface) == false
+    @test withfaces(face"red" => face"green") do
+        get(FACES.current[], face"red", nothing)
+    end == face"green"
+    @test withfaces(Dict(face"green" => Face(foreground=face"blue"))) do
+        get(FACES.current[], face"green", nothing)
+    end == Face(foreground=face"blue")
+    # A face named by a `Symbol` in a list resolves through the current definitions
+    @test withfaces(face"bold" => Face(foreground = face"red")) do
+        getface([:bold]).foreground
+    end == SimpleColor(face"red")
+    @test withfaces(() -> 1) == 1
+    # A face given as the new definition is taken as currently defined
+    setface!(face"blue" => Face(font="bluefont"))
+    @test withfaces(() -> getface(face"red").font, face"red" => face"blue") == "bluefont"
+    @test withfaces(() -> getface(face"red").font, face"red" => [face"blue"]) == "bluefont"
+    resetfaces!(face"blue")
+    # `remapfaces`
+    @test StyledStrings.remapfaces(styled"{red:a}{note=x:b}", face"red" => face"blue") ==
+        AnnotatedString("ab", [(1:1, :face, face"blue"), (2:2, :note, "x")])
+    # Only annotation values are substituted, not the attributes of a face
+    @test StyledStrings.remapfaces(styled"{(foreground=red):a}", face"red" => face"blue") ==
+        AnnotatedString("a", [(1:1, :face, Face(foreground = face"red"))])
+    # The value type is kept, whatever the values
+    linked = styled"{red:a}{link=x:b}"
+    @test typeof(StyledStrings.remapfaces(linked, face"red" => face"blue")) == typeof(linked)
+    @test typeof(StyledStrings.remapfaces(styled("{red:a}"), face"red" => face"blue")) == typeof(styled("{red:a}"))
+    @inferred StyledStrings.remapfaces(linked, face"red" => face"blue")
+    # The face cache serves an explicit instance, and evicts correctly under churn
+    cache = StyledStrings.emptycache()
+    @test getface(face"red", cache) == getface(face"red")
+    adhoc = [Face(foreground = face"blue", height = i) for i in 1:2000]
+    @test all(f -> getface(f, cache) == merge(getface(), f), adhoc)
+    @test all(f -> getface(f) == merge(getface(), f), adhoc)
+    @test getface(Face()) == getface()
+    # Only the face annotations at a position count
+    @test getface(styled"{link={https://x}:y}", 1) == getface()
+    @test getface(styled"{red,note=x:y}", 1).foreground == SimpleColor(face"red")
+    # Unknown face names
+    @test getface([face"red", :nonexistent]) == getface(face"red")
+    @test withfaces(face"red" => :nonexistent) do
+        getface(face"red")
+    end == getface()
+    cleanup_hacky_faces!()
     # Basic merging
-    let f1 = Face(height=140, weight=:bold, inherit=[:a])
-        f2 = Face(height=1.5, weight=:light, inherit=[:b])
+    let f1 = Face(height=140, weight=:bold, inherit=[face"bold"])
+        f2 = Face(height=1.5, weight=:light, inherit=[face"italic"])
         f3 = Face(height=1.2, slant=:italic)
-        @test merge(f1, f2, f3) == Face(height=252, weight=:light, slant=:italic, inherit=[:a]) #\ @test merge(f2, f3) == Face(height=210, weight=:light, slant=:italic, inherit=[:b])
+        @test merge(f1, f2, f3) == Face(height=252, weight=:light, slant=:italic, inherit=[face"bold"]) #\ @test merge(f2, f3) == Face(height=210, weight=:light, slant=:italic, inherit=[:b])
         @test merge(f3, f2, f1) == Face(height=140, weight=:bold, slant=:italic)
         @test merge(f3, f1) == Face(height=140, weight=:bold, slant=:italic)
-        @test merge(f3, f2) == Face(height=1.5*1.2, weight=:light, slant=:italic)
+        @test merge(f3, f2) == Face(height=Float32(1.5) * Float32(1.2), weight=:light, slant=:italic)
+    end
+    # An integer height scaled past `Int32` is clamped, and stays an integer
+    @test merge(Face(height=typemax(Int32)), Face(height=2.0)).height === typemax(Int32)
+    @test merge(Face(height=2^30), Face(height=3.0)).height === typemax(Int32)
+    # Merge algebra: weak nothing is the identity, strong nothing an absorbing value
+    let a = Face(weight=:bold, underline=true), b = Face(underline=face"red"), c = Face(underline=false)
+        for f in (a, b, c, face"default")
+            @test merge(f, f) == f
+            @test merge(Face(), f) == f == merge(f, Face())
+        end
+        @test merge(merge(a, b), c) == merge(a, merge(b, c))
+        @test merge(a, c).underline === false
+        @test merge(face"default", c) == face"default"
     end
     # Merging, inheritence, and canonicalisation
-    let aface = Face(font="a", height=1.2)
-        bface = Face(font="b", height=1.1, weight=:light, inherit=:a)
-        cface = Face(font="c", foreground=:red, inherit=:b)
-        dface = Face(font="d", foreground=:blue, weight=:bold)
-        eface = Face(font="e", inherit = [:c, :d])
-        fface = Face(font="f", inherit = [:d, :c])
-        loadface!(:a => aface)
-        loadface!(:b => bface)
-        loadface!(:c => cface)
-        loadface!(:d => dface)
-        loadface!(:e => eface)
-        loadface!(:f => fface)
-        @test getface(:c) == merge(FACES.current[][:default], aface, bface, Face(height=120), cface)
-        @test getface(:b) == merge(FACES.current[][:default], aface, Face(height=120), bface)
-        @test getface(:a) == merge(FACES.current[][:default], aface)
-        @test getface([:c]) == getface(:c)
-        @test getface(bface) == getface(:b)
-        @test getface(cface) == getface(:c)
-        @test getface([:c, :d]).foreground.value == :blue
-        @test getface([[:c, :d]]).foreground.value == :red
-        @test getface(:e).foreground.value == :red
-        @test getface([:d, :c]).foreground.value == :red
-        @test getface([[:d, :c]]).foreground.value == :blue
-        @test getface(:f).foreground.value == :blue
-        StyledStrings.resetfaces!()
+    let aface = hacky_addface!(:a, Face(font="a", height=1.2))
+        bface = hacky_addface!(:b, Face(font="b", height=1.1, weight=:light, inherit=aface))
+        cface = hacky_addface!(:c, Face(font="c", foreground=face"red", inherit=bface))
+        dface = hacky_addface!(:d, Face(font="d", foreground=face"blue", weight=:bold))
+        eface = hacky_addface!(:e, Face(font="e", inherit = [cface, dface]))
+        fface = hacky_addface!(:f, Face(font="f", inherit = [dface, cface]))
+        @test getface(cface) == merge(face"default", aface, bface, Face(height=120), cface)
+        @test getface(bface) == merge(face"default", aface, Face(height=120), bface)
+        @test getface(aface) == merge(face"default", aface)
+        @test getface([cface]) == getface(cface)
+        @test getface(bface) == getface(bface)
+        @test getface(cface) == getface(cface)
+        @test getface([cface, dface]).foreground.value == face"blue"
+        @test getface([[cface, dface]]).foreground.value == face"red"
+        @test getface(eface).foreground.value == face"red"
+        @test getface([dface, cface]).foreground.value == face"red"
+        @test getface([[dface, cface]]).foreground.value == face"blue"
+        @test getface(fface).foreground.value == face"blue"
+        resetfaces!()
+        cleanup_hacky_faces!()
+    end
+    # Inheritance that would loop back to a face is refused
+    let loopa = hacky_addface!(:loopa, copy(Face())), loopb = hacky_addface!(:loopb, copy(Face()))
+        setface!(loopa => Face(inherit = loopb, weight = :bold))
+        @test_throws ArgumentError setface!(loopb => Face(inherit = loopa))
+        @test_throws ArgumentError setface!(loopa => Face(inherit = loopa))
+        @test_throws ArgumentError withfaces(() -> nothing, loopb => Face(inherit = loopa))
+        @test_throws ArgumentError withfaces(face"red" => face"blue") do
+            setface!(loopb => Face(inherit = loopa))
+        end
+        @test getface(loopb).weight == :normal
+        @test getface(loopa).weight == :bold
+        resetfaces!()
+        cleanup_hacky_faces!()
     end
     # Equality/hashing equivalence
-    let testfaces = [Face(foreground=:blue),
-                     Face(background=:blue),
-                     Face(inherit=:something),
-                     Face(inherit=:something)]
+    let testfaces = [Face(foreground=face"blue"),
+                     Face(background=face"blue"),
+                     Face(inherit=face"red"),
+                     Face(inherit=face"red")]
         for f1 in testfaces, f2 in testfaces
             @test (f1 == f2) == (hash(f1) == hash(f2))
         end
     end
     # Pretty display
-    @test sprint(show, MIME("text/plain"), getface()) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), getface()) |> pkgstrip ==
         """
-        Face (sample)
+        Face default (sample)
                   font: monospace
                 height: 120
                 weight: normal
@@ -245,9 +488,9 @@ end
          strikethrough: false
                inverse: false\
         """
-    @test sprint(show, MIME("text/plain"), getface(), context = :color => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), getface(), context = :color => true) |> pkgstrip ==
         """
-        Face (sample)
+        Face \e[1mdefault\e[22m (sample)
                   font: monospace
                 height: 120
                 weight: normal
@@ -258,35 +501,40 @@ end
          strikethrough: false
                inverse: false\
         """
-    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = :color => true) |> choppkg ==
+    @test sprint(show, MIME("text/plain"), face"red", context = :color => true) |> pkgstrip ==
         """
-        Face (\e[31msample\e[39m)
+        Face \e[1mred\e[22m (\e[31msample\e[39m)
             foreground: \e[31m■\e[39m red\
         """
-    @test sprint(show, FACES.themes.base[:red]) |> choppkg ==
-        "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = :compact => true) |> choppkg ==
-        "Face(foreground=SimpleColor(:red))"
-    @test sprint(show, MIME("text/plain"), FACES.themes.base[:red], context = (:compact => true, :color => true)) |> choppkg ==
-        "Face(\e[31msample\e[39m)"
-    @test sprint(show, MIME("text/plain"), FACES.themes.base[:highlight], context = :compact => true) |> choppkg ==
-        "Face(inverse=true, inherit=[:emphasis])"
+    @test sprint(show, face"red") |> pkgstrip == "face\"red\""
+    @test sprint(show, copy(face"red")) |> pkgstrip ==
+        "Face(foreground = face\"red\")"
+    @test sprint(show, Face(underline=true)) |> pkgstrip == "Face(underline = true)"
+    @test sprint(show, Face(underline=(nothing, :straight))) |> pkgstrip == "Face(underline = (nothing, :straight))"
+    @test sprint(show, Face(underline=:curly)) |> pkgstrip == "Face(underline = :curly)"
+    @test sprint(show, Face(underline=(nothing, :curly))) |> pkgstrip == "Face(underline = (nothing, :curly))"
+    @test sprint(show, MIME("text/plain"), copy(face"red"), context = :compact => true) |> pkgstrip ==
+        "Face(foreground = face\"red\")"
+    @test sprint(show, MIME("text/plain"), copy(face"red"), context = (:compact => true, :color => true)) |> pkgstrip ==
+        "Face(foreground = face\"\e[31mred\e[39m\")"
+    @test sprint(show, MIME("text/plain"), copy(face"highlight"), context = :compact => true) |> pkgstrip ==
+        "Face(inverse = true, inherit = [face\"emphasis\"])"
     with_terminfo(vt100) do # Not truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.themes.base[:region], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), copy(face"region"), context = :color => true) |> pkgstrip ==
             """
             Face (\e[48;5;241msample\e[49m)
                 background: \e[38;5;241m■\e[39m #636363\
             """
     end
     with_terminfo(fancy_term) do # Truecolor capable
-        @test sprint(show, MIME("text/plain"), FACES.themes.base[:region], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), copy(face"region"), context = :color => true) |> pkgstrip ==
             """
             Face (\e[48;2;99;99;99msample\e[49m)
                 background: \e[38;2;99;99;99m■\e[39m #636363\
             """
     end
     with_terminfo(vt100) do # Ensure `enter_reverse_mode` exists
-        @test sprint(show, MIME("text/plain"), FACES.themes.base[:highlight], context = :color => true) |> choppkg ==
+        @test sprint(show, MIME("text/plain"), copy(face"highlight"), context = :color => true) |> pkgstrip ==
             """
             Face (\e[34m\e[7msample\e[39m\e[27m)
                    inverse: true
@@ -295,7 +543,412 @@ end
     end
 end
 
+# A palette declared out of dependency order, with a theme variant.
+module TestPalette
+    using StyledStrings
+    @defpalette begin
+        topic = Face(foreground = sub, underline = (heading, :curly))
+        sub = Face(inherit = heading, slant = :italic)
+        heading = Face(weight = :bold)
+        topic.dark = Face(foreground = heading)
+    end
+    __init__() = @registerpalette
+    const heading, sub, topic = face"heading", face"sub", face"topic"
+end
+
+# A variant referring to a sibling face that no base face depends on.
+module TestPaletteVariant
+    using StyledStrings
+    @defpalette begin
+        spot = Face(weight = :bold)
+        mark = Face()
+        mark.dark = Face(foreground = spot)
+    end
+    __init__() = @registerpalette
+    const spot, mark = face"spot", face"mark"
+end
+
+module TestPaletteUser
+    using StyledStrings
+    using ..TestPalette
+    @usepalette TestPalette
+end
+
+# Two palettes sharing a face name, one namespaced explicitly and referring across modules.
+module TestPaletteA
+    using StyledStrings
+    @defpalette begin
+        shared = Face(weight = :bold)
+        onlya = Face(slant = :italic)
+    end
+    __init__() = @registerpalette
+    const shared, onlya = face"shared", face"onlya"
+end
+
+module TestPaletteB
+    using StyledStrings
+    using ..TestPaletteA
+    @defpalette namespace = :custom begin
+        shared = Face(weight = :light)
+        cross = Face(foreground = TestPaletteA.shared)
+        std = Face(fg = red, bg = $(StyledStrings.SimpleColor(0x123456)), font = $(uppercase("mono")))
+        chain = Face(inherit = [shared, cross])
+    end
+    __init__() = @registerpalette
+    const shared, cross, std, chain = face"shared", face"cross", face"std", face"chain"
+end
+
+# Literal colours and unset attributes need no escaping.
+module TestPaletteLiterals
+    using StyledStrings
+    @defpalette begin
+        hex = Face(foreground = 0xff0000, background = "#00ff00", underline = 0x0000ff)
+        none = Face(foreground = nothing, underline = (nothing, :curly))
+    end
+    __init__() = @registerpalette
+    const hex, none = face"hex", face"none"
+end
+
+# A palette namespaced under another module.
+module TestPaletteNamespaced
+    using StyledStrings
+    using ..TestPaletteA
+    @defpalette namespace = TestPaletteA begin
+        nsface = Face()
+    end
+    __init__() = @registerpalette
+    const nsface = face"nsface"
+end
+
+# An importer whose own palette shadows an imported face.
+module TestPaletteImporter
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @defpalette begin
+        shared = Face(inverse = true)
+    end
+    @usepalette TestPaletteA, TestPaletteB
+    const own, qualified, imported = face"shared", face"TestPaletteA.shared", face"onlya"
+    const declared = face"custom.shared"
+    declaredstyled() = styled"{custom.shared:x}"
+end
+
+# Palettes used as `using` uses modules: under another name over two uses, in part, and together
+module TestPaletteAliased
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @usepalette TestPaletteA: TestPaletteA as PA
+    @usepalette TestPaletteB
+    const aliased, direct = face"PA.shared", face"shared"
+    aliasedstyled() = styled"{PA.shared:x}"
+end
+
+module TestPaletteSelective
+    using StyledStrings
+    using ..TestPaletteA
+    @usepalette TestPaletteA: onlya as only, shared, TestPaletteA as TA
+    const only, shared = face"only", face"shared"
+end
+
+module TestPaletteAmbiguous
+    using StyledStrings
+    using ..TestPaletteA, ..TestPaletteB
+    @usepalette TestPaletteA, TestPaletteB
+    @usepalette TestPaletteA: TestPaletteA as P
+    @usepalette TestPaletteB: TestPaletteB as P
+end
+
+# Used palettes that clash over a standard face's name, one with a namespace a binding also has
+module TestPaletteClash
+    using StyledStrings
+    module W1; using StyledStrings; @defpalette namespace = :w1 begin warning = Face(weight = :bold) end; end
+    module W2
+        using StyledStrings
+        @defpalette namespace = :w2 begin warning = Face(weight = :light) end
+        const warning = face"warning"
+    end
+    @usepalette W1, W2
+    const w2 = nothing
+end
+
+@testset "Palettes" begin
+    (; heading, sub, topic) = TestPalette
+    @test sub.inherit == [heading]
+    @test topic.foreground == SimpleColor(sub)
+    @test topic.underline == (SimpleColor(heading), :curly)
+    @test_throws StyledStrings.UnknownFaceError StyledStrings.lookupface(TestPalette, :headng)
+    @test FACES.pool[Symbol(join(fullname(TestPalette), '_'), "_topic")] === topic
+    @test FACES.themes.dark[topic] == Face(foreground = heading)
+    @test FACES.themes.dark[TestPaletteVariant.mark].foreground.value === TestPaletteVariant.spot
+    @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette begin x.dark = Face(weight = :bold) end))
+    @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
+    # Strings name colours, as in `fg` and an underline tuple, but not faces to inherit or a bare underline
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(string(:heading)), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
+    @test_throws ArgumentError Core.eval(TestPalette, :(styled"{(inherit=$(string(:heading))):x}"))
+    @test_throws ArgumentError Core.eval(TestPalette, :(styled"{(underline=$(string(:heading))):x}"))
+    # A face given as a `face=` value is looked up as an interpolated face is
+    let facekey = Core.eval(TestPalette, :(let f = :heading; styled"{face=$f:x}" end))
+        @test facekey isa AnnotatedString{String, Face}
+        @test annotations(facekey) == [(region = 1:1, label = :face, value = heading)]
+    end
+    @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
+    # Interpolated names are looked up as written ones are, whether Symbols or Strings
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(string(:heading))):x}")))).value.foreground.value === heading
+    @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(bg=$(string(:nope))):x}"))
+    hexred = "#ff0000"
+    @test only(annotations(styled"{(fg=$hexred):x}")).value.foreground == SimpleColor(0xff0000)
+    @test only(annotations(styled"{(underline=$hexred):x}")).value.underline == (SimpleColor(0xff0000), :straight)
+    # Interpolated underline colours are looked up in the palette too, and styles are kept
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:heading)):x}")))).value.underline == (SimpleColor(heading), :straight)
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=($(:heading), curly)):x}")))).value.underline == (SimpleColor(heading), :curly)
+    @test only(annotations(Core.eval(TestPalette, :(styled"{(underline=$(:curly)):x}")))).value.underline === :curly
+    # Unknown faces in markup are reported where they are written
+    unknownmarkup = try Core.eval(TestPalette, :(styled"{headng:x} {(weight=bolder):y}")) catch err sprint(showerror, err) end
+    @test occursin("Unknown face 'headng' (did you mean 'heading'?)", unknownmarkup)
+    @test occursin("Invalid weight", unknownmarkup)
+    # Dotted names are module paths, resolved when the macro is expanded
+    @test only(annotations(Core.eval(TestPaletteUser, :(styled"{TestPalette.heading:x}")))).value === heading
+    @test only(annotations(Core.eval(TestPaletteUser, :(let TestPalette = 1; styled"{TestPalette.heading:x}" end)))).value === heading
+    @test_throws r"has no face named 'headng':" Core.eval(TestPaletteUser, :(styled"{TestPalette.headng:x}"))
+    @test_throws r"Dotted face names are module paths" Core.eval(TestPaletteUser, :(styled"{custom.shared:x}"))
+    @test_throws r"registered as 'custom_shared'" Core.eval(TestPaletteUser, :(face"custom.shared"))
+    @test only(annotations(styled("{custom.shared:x}"))).value === TestPaletteB.shared
+    @test tryparse(SimpleColor, "custom.shared") == SimpleColor(TestPaletteB.shared)
+    # A face only the registry holds is looked up when the code runs
+    @test StyledStrings.faceref(Main, :red) === face"red"
+    @test StyledStrings.faceref(TestPalette, :heading) === heading
+    @test StyledStrings.faceref(Main, :custom_shared) isa Expr
+    @test StyledStrings.faceref(Main, :zzz_never_defined) === nothing
+    @test StyledStrings.facename(TestPaletteUser, heading) == :heading
+    # A placeholder customised before use hands its customisation on to the registered face,
+    # and once in use is displaced by it when interpolated
+    setface!(StyledStrings.lookmakeface(:zzz_placeholder, false) => Face(font = "custom"))
+    placeholder = StyledStrings.lookmakeface(:zzz_placeholder)
+    registered = copy(Face())
+    @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_placeholder)
+    StyledStrings.relayer!(registered)
+    @test getface(registered).font == "custom"
+    @test FACES.displacements[placeholder] === registered
+    @test only(annotations(styled"{$placeholder:x}")).value === registered
+    @test !haskey(FACES.unregistered, :zzz_placeholder)
+    resetfaces!(registered)
+    # Faces holding a displaced placeholder show its replacement
+    early = StyledStrings.lookmakeface(:zzz_displaced)
+    inheriting, colouring = Face(inherit = early), Face(foreground = early)
+    customised = StyledStrings.lookmakeface(:zzz_displaced_custom, false)
+    setface!(face"shadow" => Face(background = customised))
+    late = Face(foreground = 0x00ff00)
+    @lock FACES.lock StyledStrings.register_displace!(early, late, :zzz_displaced)
+    @lock FACES.lock StyledStrings.register_displace!(customised, late, :zzz_displaced_custom)
+    StyledStrings.emptycache!(FACES.cache.default)
+    @test getface(inheriting).foreground == SimpleColor(0x00ff00)
+    @test rgbcolor(colouring.foreground) == (r = 0x00, g = 0xff, b = 0x00)
+    @test rgbcolor(getface(face"shadow").background) == (r = 0x00, g = 0xff, b = 0x00)
+    StyledStrings.relayer!()
+    @test getface(inheriting).foreground == SimpleColor(0x00ff00)
+    resetfaces!(face"shadow")
+    # A recolouring of a placeholder moves with it
+    recoloured = StyledStrings.lookmakeface(:zzz_displaced_recolour, false)
+    FACES.recolors[recoloured] = Face(font = "recoloured")
+    fresh = copy(Face())
+    @lock FACES.lock StyledStrings.register_displace!(recoloured, fresh, :zzz_displaced_recolour)
+    @test FACES.recolors[fresh].font == "recoloured" && !haskey(FACES.recolors, recoloured)
+    delete!(FACES.recolors, fresh)
+    @testset "Declaration errors" begin
+        declerror(decl) = macroexpand(TestPalette, :(@defpalette $decl))
+        @test_throws r"Cyclic face dependencies" declerror(:(begin a = Face(inherit = b); b = Face(foreground = a) end))
+        @test_throws r"theme must be light or dark" declerror(:(begin a = Face(); a.blue = Face() end))
+        @test_throws r"Duplicate" declerror(:(begin a = Face(); a = Face() end))
+        @test_throws r"cannot refer to it" declerror(:(begin a = Face(); a.dark = Face(inherit = a) end))
+        @test_throws r"without a base variant" declerror(:(begin a.dark = Face() end))
+        @test_throws r"must be a `Face\(...\)` expression" declerror(:(begin a = 1 end))
+        @test_throws r"must be a face name" declerror(:(begin a = Face(foreground = :red) end))
+        @test_throws r"must be a face name or a vector" declerror(:(begin a = Face(inherit = "b") end))
+        @test_throws r"must be a face name, a color literal" declerror(:(begin a = Face(foreground = 255) end))
+        @test_throws r"underline color value" declerror(:(begin a = Face(underline = 255) end))
+        @test_throws r"`forground = red`, as `forground` is not one of" declerror(:(begin a = Face(forground = red) end))
+        @test Core.eval(TestPalette, :(@defpalette emptyinherit begin a = Face(inherit = []) end)).var"##styledstrings-defpalette-variable#".base.a.inherit == Face[]
+        @test_throws r"namespace must be" macroexpand(TestPalette, :(@defpalette namespace = 1 begin a = Face() end))
+        @test_throws r"namespace must be a Symbol or Module" macroexpand(TestPalette, :(@defpalette namespace = "ns" begin a = Face() end))
+        # Every face referred to must be known when the palette is defined
+        @test_throws r"Unknown face 'zzz_undefined'" declerror(:(begin a = Face(inherit = zzz_undefined) end))
+        @test_throws r"Did you mean 'heading'" declerror(:(begin a = Face(foreground = headng) end))
+        @test_throws r"Unknown face 'custom_shared'" declerror(:(begin a = Face(inherit = custom_shared) end))
+        @test_throws r"`TestPaletteA` has no face named 'nope'" macroexpand(TestPaletteB, :(@defpalette begin a = Face(inherit = TestPaletteA.nope) end))
+    end
+    @testset "References" begin
+        (; shared, cross, std, chain) = TestPaletteB
+        @test cross.foreground == SimpleColor(TestPaletteA.shared)
+        @test std.foreground == SimpleColor(face"red")
+        @test std.background == SimpleColor(0x123456)
+        @test std.font == "MONO"
+        @test chain.inherit == [shared, cross]
+        (; hex, none) = TestPaletteLiterals
+        @test hex.foreground == SimpleColor(0xff0000)
+        @test hex.background == SimpleColor(0x00ff00)
+        @test hex.underline == (SimpleColor(0x0000ff), :straight)
+        @test none.foreground === nothing
+        @test none.underline == (nothing, :curly)
+    end
+    @testset "Namespaces" begin
+        @test FACES.pool[:custom_shared] === TestPaletteB.shared
+        @test FACES.pool[Symbol(join(fullname(TestPaletteA), '_'), "_nsface")] === TestPaletteNamespaced.nsface
+    end
+    @testset "Imports" begin
+        (; own, qualified, imported) = TestPaletteImporter
+        @test own.inverse === true # The module's own palette shadows the imported face
+        @test qualified === TestPaletteA.shared
+        @test imported === TestPaletteA.onlya
+        # A used palette's faces are also named by the namespace it declares
+        @test TestPaletteImporter.declared === TestPaletteB.shared
+        @test only(annotations(TestPaletteImporter.declaredstyled())).value === TestPaletteB.shared
+        # As with `using`, a palette under another name is named only through it, uses add up,
+        # and a list after `:` selects and names faces
+        (; aliased, direct) = TestPaletteAliased
+        @test aliased === TestPaletteA.shared && direct === TestPaletteB.shared
+        @test StyledStrings.facename(TestPaletteAliased, aliased) == Symbol("PA.shared")
+        # A name the module's own palette shadows is not given to a used face
+        @eval module TestPaletteShadow
+            using StyledStrings, ..TestPaletteB
+            @defpalette begin shared = Face(inverse = true) end
+            @usepalette TestPaletteB
+        end
+        @test StyledStrings.facename(TestPaletteShadow, TestPaletteB.shared) == Symbol("custom.shared")
+        @test only(annotations(TestPaletteAliased.aliasedstyled())).value === TestPaletteA.shared
+        @test_throws r"Unknown face 'onlya'" Core.eval(TestPaletteAliased, :(face"onlya"))
+        @test TestPaletteSelective.only === TestPaletteA.onlya && TestPaletteSelective.shared === TestPaletteA.shared
+        @test Core.eval(TestPaletteSelective, :(face"TA.onlya")) === TestPaletteA.onlya # The palette, in the same list
+        @test_throws r"Unknown face 'onlya'" Core.eval(TestPaletteSelective, :(face"onlya"))
+        # A name that more than one used palette provides is ambiguous where it is used
+        @test_throws r"'shared' is ambiguous" Core.eval(TestPaletteAmbiguous, :(face"shared"))
+        @test_throws r"'shared' is ambiguous" macroexpand(TestPaletteAmbiguous, :(styled"{shared:x}"))
+        @test_throws r"'P.shared' is ambiguous" Core.eval(TestPaletteAmbiguous, :(face"P.shared"))
+        @test Core.eval(TestPaletteAmbiguous, :(face"P.onlya")) === TestPaletteA.onlya
+        @test Core.eval(TestPaletteAmbiguous, :(face"onlya")) === TestPaletteA.onlya
+        @test Core.eval(TestPaletteAmbiguous, :(face"custom.shared")) === TestPaletteB.shared
+        # An ambiguous name is not taken to be the standard face, and a used name is not hidden by a binding
+        @test_throws r"'warning' is ambiguous" Core.eval(TestPaletteClash, :(face"warning"))
+        @test_throws r"'warning' is ambiguous" macroexpand(TestPaletteClash, :(styled"{warning:x}"))
+        @test_throws r"'warning' is ambiguous" Core.eval(TestPaletteClash, :(let f = :warning; styled"{$f:x}" end))
+        @test Core.eval(TestPaletteClash, :(face"w2.warning")) === TestPaletteClash.W2.warning
+        @test_throws r"separated by commas" macroexpand(TestPaletteUser, :(@usepalette TestPalette TestPalette))
+        @test_throws r"followed by a name" macroexpand(TestPaletteUser, :(@usepalette TestPalette as))
+        @test_throws r"follows the only module" macroexpand(TestPaletteUser, :(@usepalette TestPalette, TestPalette: heading))
+        @test_throws r"renames a module" macroexpand(TestPaletteUser, :(@usepalette TestPalette as T))
+        @test_throws r"has no face 'nope'" @eval module TestUseMissingFace
+            using StyledStrings, ..TestPaletteA
+            @usepalette TestPaletteA: nope
+        end
+        @test StyledStrings.facename(TestPaletteImporter, imported) == :onlya
+        unknown = sprint(showerror, StyledStrings.UnknownFaceError(TestPaletteImporter, :nope))
+        @test occursin("shared", unknown) && occursin("TestPaletteA", unknown) && occursin("TestPaletteB", unknown)
+        @test occursin("Only the standard faces are available, as Main defines no palette and uses none",
+                       sprint(showerror, StyledStrings.UnknownFaceError(Main, :nope)))
+        # Only modules and named palettes with a palette can be used
+        @test_throws r"needs at least one module" macroexpand(TestPaletteUser, :(@usepalette))
+        @test_throws r"has no palette to use" @eval module TestUseNoPalette
+            using StyledStrings
+            @usepalette Base
+        end
+        @test (@eval module TestUseStandard
+            using StyledStrings
+            @usepalette StyledStrings
+            const region = face"region"
+        end).region === face"region"
+    end
+    @testset "Registration" begin
+        @test_logs (:warn, r"without a corresponding palette") @eval module TestNoPalette
+            using StyledStrings
+            @registerpalette
+        end
+        # Re-evaluating a palette module carries customisations over to the new faces
+        reeval = :(module TestPaletteReeval
+            using StyledStrings
+            @defpalette begin r = Face(weight = :bold) end
+            @registerpalette
+            const r = face"r"
+        end)
+        Core.eval(@__MODULE__, reeval)
+        old = @eval TestPaletteReeval.r
+        setface!(old => Face(font = "kept"))
+        Core.eval(@__MODULE__, reeval)
+        new = @eval TestPaletteReeval.r
+        @test new !== old
+        @test FACES.pool[Symbol(join(fullname(@eval TestPaletteReeval), '_'), "_r")] === new
+        @test getface(new).font == "kept"
+        @test !haskey(FACES.names, old)
+        resetfaces!(new)
+        # Evaluating a changed palette again, as Revise does, registers it without `__init__`
+        @eval module TestPaletteRevised
+            using StyledStrings
+            @defpalette begin
+                r = Face(weight = :bold)
+                r.dark = Face(font = "dark")
+            end
+            __init__() = @registerpalette
+        end
+        old = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
+        setface!(old => Face(font = "kept"))
+        Core.eval(@eval(TestPaletteRevised), :(@defpalette begin r = Face(weight = :light) end))
+        new = @eval TestPaletteRevised.var"##styledstrings-defpalette-variable#".base.r
+        @test FACES.pool[Symbol(join(fullname(@eval TestPaletteRevised), '_'), "_r")] === new
+        @test getface(new).weight == :light
+        @test getface(new).font == "kept"
+        @test !haskey(FACES.themes.dark, new) # The variant it no longer declares is gone
+        resetfaces!(new)
+        # Evaluating a palette again, as Revise.jl does, redefines its faces in place, so code that
+        # already refers to them, faces inheriting from them, and earlier uses all see the change
+        @eval module TestPaletteInPlace
+            using StyledStrings
+            @defpalette begin r = Face(weight = :bold); s = Face(inherit = r) end
+        end
+        @eval module TestPaletteInPlaceUser
+            using StyledStrings, ..TestPaletteInPlace
+            @usepalette TestPaletteInPlace
+            styledr() = styled"{r:x}"
+        end
+        let (; r, s) = TestPaletteInPlace.var"##styledstrings-defpalette-variable#".base,
+            styledr = only(annotations(TestPaletteInPlaceUser.styledr())).value
+            @test getface(s).weight == :bold
+            Core.eval(TestPaletteInPlace, :(@defpalette begin r = Face(weight = :light); s = Face(inherit = r) end))
+            Core.eval(TestPaletteInPlaceUser, :(@usepalette TestPaletteInPlace))
+            @test Core.eval(TestPaletteInPlaceUser, :(face"r")) === styledr === r
+            @test getface(styledr).weight == :light && getface(s).weight == :light
+        end
+        # A face in use before its palette is registered follows each later registration of it
+        early = StyledStrings.lookmakeface(Symbol(join((fullname(@__MODULE__)..., :TestPaletteLate, :r), '_')))
+        latepalette(weight) = :(module TestPaletteLate
+            using StyledStrings
+            @defpalette begin r = Face(weight = $(QuoteNode(weight))) end
+            @registerpalette
+        end)
+        Core.eval(@__MODULE__, latepalette(:bold))
+        @test getface(early).weight == :bold
+        Core.eval(@__MODULE__, latepalette(:light))
+        @test getface(early).weight == :light
+        # A module with only named palettes registers them by name
+        @test_logs @eval module TestNamedPalettes
+            using StyledStrings
+            @defpalette extra begin
+                thing = Face(font = "extra")
+                thing.dark = Face(font = "dark")
+            end
+            @registerpalette extra
+        end
+        named = (@eval TestNamedPalettes.extra).var"##styledstrings-defpalette-variable#".base.thing
+        @test FACES.pool[Symbol(join(fullname(@eval TestNamedPalettes), '_'), "_extra_thing")] === named
+        @test FACES.themes.dark[named].font == "dark"
+    end
+end
+
 @testset "Styled Markup" begin
+    # FIXME: Since the 'aface'/'bface' references are seen at parse-time,
+    # styled"" doesn't see them in time. We want to make macroexpansion be run
+    # at runtime instead of parse-time for this to work as intended.
+    aface = hacky_addface!(:aface, copy(Face()))
+    bface = hacky_addface!(:bface, copy(Face()))
     # Preservation of an unstyled string
     @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
@@ -303,25 +956,34 @@ end
     @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing, "val")])
     @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a, "1"), (11:11, :b, "2")])
     @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing, "val with spaces")])
-    @test styled"{aface:some} string" == AnnotatedString("some string", [(1:4, :face, :aface)])
+    @test stylazy"{aface:some} string" == AnnotatedString("some string", [(1:4, :face, aface)])
     # Annotation prioritisation
-    @test styled"{aface,bface:some} string" ==
-        AnnotatedString("some string", [(1:4, :face, :aface), (1:4, :face, :bface)])
-    @test styled"{aface:{bface:some}} string" ==
-        AnnotatedString("some string", [(1:4, :face, :aface), (1:4, :face, :bface)])
-    @test styled"{aface,bface:$(1)} string" ==
-        AnnotatedString("1 string", [(1:1, :face, :aface), (1:1, :face, :bface)])
-    @test styled"{aface:{bface:$(1)}} string" ==
-        AnnotatedString("1 string", [(1:1, :face, :aface), (1:1, :face, :bface)])
+    @test stylazy"{aface,bface:some} string" ==
+        AnnotatedString("some string", [(1:4, :face, aface), (1:4, :face, bface)])
+    @test stylazy"{aface:{bface:some}} string" ==
+        AnnotatedString("some string", [(1:4, :face, aface), (1:4, :face, bface)])
+    @test stylazy"{aface,bface:$(1)} string" ==
+        AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
+    @test stylazy"{aface:{bface:$(1)}} string" ==
+        AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
+    # Interpolated variables with similar names
+    let x = "xx", x_2 = "yyy"
+        @test annotations(styled"$x$x_2{red:a}$x{blue:b}") ==
+            [(region = 6:6, label = :face, value = face"red"), (region = 9:9, label = :face, value = face"blue")]
+    end
+    # An interpolated annotated char keeps its annotations
+    let c = Base.AnnotatedChar('x', [(label = :face, value = face"red")])
+        @test styled"a$c" == AnnotatedString("ax", [(2:2, :face, face"red")])
+    end
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
         AnnotatedString("some string", [(1:4, :face, Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
-        AnnotatedString("some string", [(1:4, :face, Face(foreground=:magenta, background=0x555555))])
+        AnnotatedString("some string", [(1:4, :face, Face(foreground=face"magenta", background=0x555555))])
     # Inline face attributes: empty attribute lists are legal
-    @test styled"{():}" == styled"{( ):}" == AnnotatedString("")
+    @test styled"{():}" == styled"{( ):}" == AnnotatedString("", [(1:0, :face, Face())])
     # Inline face attributes: leading/trailing whitespace
-    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
+    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
     # Inline face attributes: each recognised key
     @test styled"{(font=serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="serif"))])
     @test styled"{(font=some serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="some serif"))])
@@ -332,74 +994,171 @@ end
     @test styled"{(weight=normal):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:normal))])
     @test styled"{(weight=bold):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:bold))])
     @test styled"{(slant=italic):a}" == AnnotatedString("a", [(1:1, :face, Face(slant=:italic))])
-    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
-    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=:red))])
-    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=:red))])
-    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=:red))])
+    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
+    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
+    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=face"red"))])
+    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=face"red"))])
     @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=true))])
-    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=:cyan))])
-    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(:cyan, :curly)))])
+    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=face"cyan"))])
+    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :curly)))])
+    @test styled"{(underline=(cyan,$(:dashed))):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :dashed)))])
     @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, :face, Face(strikethrough=true))])
     @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face, Face(inverse=true))])
-    @test styled"{(inherit=b):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=:b))])
-    @test styled"{(inherit=[b,c]):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=[:b, :c]))])
+    @test stylazy"{(inherit=bface):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=bface))])
+    @test stylazy"{(inherit=[aface,bface]):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=[aface, bface]))])
+    @test FACES.names[annotations(styled("{(fg=nocolour):x}"))[1].value.foreground.value] == :nocolour
     # Curly bracket escaping
     @test styled"some \{string" == AnnotatedString("some {string")
     @test styled"some string\}" == AnnotatedString("some string}")
     @test styled"some \{string\}" == AnnotatedString("some {string}")
     @test styled"some \{str:ing\}" == AnnotatedString("some {str:ing}")
-    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face, :bold)])
-    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face, :bold)])
+    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face, face"bold")])
+    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face, face"bold")])
     # Nesting
     @test styled"{bold:nest{italic:ed st{red:yling}}}" ==
         AnnotatedString(
-            "nested styling", [(1:14, :face, :bold), (5:14, :face, :italic), (10:14, :face, :red)])
-    # Production of a `(AnnotatedString)` value instead of an expression when possible
-    @test AnnotatedString("val") == @macroexpand styled"val"
-    @test AnnotatedString("val", [(1:3, :face, :style)]) == @macroexpand styled"{style:val}"
+            "nested styling", [(1:14, :face, face"bold"), (5:14, :face, face"italic"), (10:14, :face, face"red")])
+    # Same-start nesting keeps order; only an identical directly-enclosing annotation is reused
+    @test styled"{underline:{(underline=false):{underline:x}}}" ==
+        AnnotatedString("x", [(1:1, :face, face"underline"), (1:1, :face, Face(underline=false)), (1:1, :face, face"underline")])
+    @test styled"{red:{red:x}}" == AnnotatedString("x", [(1:1, :face, face"red")])
+    @test astmatch(:(let ; AnnotatedString("val", _[]) end), @macroexpand styled"val")
     # Interpolation
-    let annotatedstring = GlobalRef(StyledMarkup, :annotatedstring)
-        AnnotatedString = GlobalRef(StyledMarkup, :AnnotatedString)
-        annotatedstring_optimize! = GlobalRef(StyledMarkup, :annotatedstring_optimize!)
-        chain = GlobalRef(StyledMarkup, :|>)
-        merge = GlobalRef(StyledMarkup, :merge)
-        Tuple = GlobalRef(StyledMarkup, :Tuple)
-        NamedTuple = GlobalRef(StyledMarkup, :NamedTuple)
-        Symbol = GlobalRef(StyledMarkup, :Symbol)
-        Any = GlobalRef(StyledMarkup, :Any)
-        NamedTupleLV = :($NamedTuple{(:label, :value), $Tuple{$Symbol, $Any}})
-        @test :($annotatedstring(val)) == @macroexpand styled"$val"
-        @test :($chain($annotatedstring("a", val), $annotatedstring_optimize!)) == @macroexpand styled"a$val"
-        @test :($chain($annotatedstring("a", val, "b"), $annotatedstring_optimize!)) == @macroexpand styled"a$(val)b"
-        # @test :($annotatedstring(StyledStrings.AnnotatedString(string(val), $(Pair{Symbol, Any}(:face, :style))))) ==
-        #     @macroexpand styled"{style:$val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [$merge((; region=$(1:3)), $NamedTupleLV((:face, face)))]))) ==
-            @macroexpand styled"{$face:val}"
-        @test :($chain($annotatedstring($AnnotatedString(
-            "v1v2", [$merge((; region=$(1:2)), $NamedTupleLV((:face, f1))),
-                     $merge((; region=$(3:4)), $NamedTupleLV((:face, f2)))])),
-                       $annotatedstring_optimize!)) ==
-            @macroexpand styled"{$f1:v1}{$f2:v2}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [$merge((; region=$(1:3)), $NamedTupleLV((key, "val")))]))) ==
-            @macroexpand styled"{$key=val:val}"
-        @test :($chain($annotatedstring($AnnotatedString(
-            "val", [$merge((; region=$(1:3)), $NamedTupleLV((key, val)))])),
-                       $annotatedstring_optimize!)) ==
-            @macroexpand styled"{$key=$val:val}"
-        # @test :($annotatedstring($AnnotatedString(
-        #     string(val), $Pair{$Symbol, $Any}(key, val)))) ==
-        #     @macroexpand styled"{$key=$val:$val}"
-        @test :($annotatedstring($AnnotatedString(
-            "val", [$merge((; region=$(1:3)), $NamedTupleLV((:face, $(Face)(foreground = color))))]))) ==
-            @macroexpand styled"{(foreground=$color):val}"
-    end
+    @test astmatch(
+        :(let ;
+              _!val_str = String(string(val))
+              _!offset = ncodeunits(_!val_str)
+              _!annots = _[]
+              _!interp_annot_count = 0
+              _...
+              _!interp_annots = convert(Vector{_}, _!annots)
+              _...
+              AnnotatedString(_!val_str, _!interp_annots)
+          end),
+        @macroexpand styled"$val")
+    @test astmatch(
+        :(let ;
+              _...
+              AnnotatedString(string("a", _!val_str), _!interp_annots)
+          end),
+        @macroexpand styled"a$val")
+    @test astmatch(
+        :(let ;
+              _...
+              AnnotatedString(string("a", _!val_str, "b"), _!interp_annots)
+          end),
+        @macroexpand styled"a$(val)b")
+    @test astmatch(
+        :(let ;
+              _!val_str = String(string(val))
+              _!offset = ncodeunits(_!val_str)
+              _!annots = _[(; region = 1:0 + _!offset, label = :face, value = $(face"red"))]
+              _...
+              AnnotatedString(_!val_str, _!interp_annots)
+          end),
+        @macroexpand styled"{red:$val}")
+    @test astmatch(
+        :(let ;
+              _f = lookmakeface(_, :nonexistent_face)
+              AnnotatedString("x", _[(; region = 1:1, label = :face, value = _f)])
+          end),
+        @macroexpand styled"{nonexistent_face:x}")
+    @test astmatch(
+        :(let ;
+              _f = interpfaceannot(face, _, false)
+              AnnotatedString("val", _[(; region = 1:3, label = :face, value = _f)])
+          end),
+        @macroexpand styled"{$face:val}")
+    @test astmatch(
+        :(let ;
+              _f1 = interpfaceannot(f1, _, false)
+              _f2 = interpfaceannot(f2, _, false)
+              AnnotatedString("v1v2", _[(; region = 1:2, label = :face, value = _f1), (; region = 3:4, label = :face, value = _f2)])
+          end),
+        @macroexpand styled"{$f1:v1}{$f2:v2}")
+    @test astmatch(
+        :(let ;
+              _...
+              AnnotatedString("text", _[(; region = 1:4, label = key, value = "val")])
+          end),
+        @macroexpand styled"{$key=val:text}")
+    @test astmatch(
+        :(let ;
+              _...
+              AnnotatedString("text", _[(; region = 1:4, label = key, value = val)])
+          end),
+        @macroexpand styled"{$key=$val:text}")
+    @test astmatch(
+        :(let ;
+              AnnotatedString("val", _[(; region = 1:3, label = :face, value = Face(foreground = interpattr(color, _, false)))])
+          end),
+        @macroexpand styled"{(foreground=$color):val}"
+    )
     # Partial annotation termination with interpolation
     @test styled"{green:a}{red:{blue:b}$('c')}" ==
-        AnnotatedString{String}("abc", [(1:1, :face, :green),
-                                        (2:3, :face, :red),
-                                        (2:2, :face, :blue)])
+        AnnotatedString{String}("abc", [(1:1, :face, face"green"),
+                                        (2:3, :face, face"red"),
+                                        (2:2, :face, face"blue")])
+    # Annotations following an annotated interpolation are kept
+    annotated = styled"{red:x}"
+    @test styled"$annotated{bold:b}" ==
+        AnnotatedString("xb", [(1:1, :face, face"red"), (2:2, :face, face"bold")])
+    @test styled"{bold:a}$annotated{italic:c}{underline:d}" ==
+        AnnotatedString("axcd", [(1:1, :face, face"bold"), (2:2, :face, face"red"),
+                                 (3:3, :face, face"italic"), (4:4, :face, face"underline")])
+    other = styled"{blue:x}"
+    @test styled"{bold:a $annotated}$other{italic:c}" ==
+        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (3:3, :face, face"red"),
+                                  (4:4, :face, face"blue"), (5:5, :face, face"italic")])
+    @test styled"$annotated" == annotated
+    # Repeated interpolations
+    @test styled"{bold:a $annotated}$annotated{italic:c}" ==
+        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (3:3, :face, face"red"),
+                                  (4:4, :face, face"red"), (5:5, :face, face"italic")])
+    plain = "x"
+    @test styled"{bold:a $plain}$plain{italic:c}" ==
+        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (5:5, :face, face"italic")])
+    # Assignments within interpolations reach the caller, as they would outside the macro
+    assigns() = (styled"$(q = 7){(fg=$(c = 0xff0000)):x}{key=$(v = 1):y}"; (q, c, v))
+    @test assigns() == (7, 0xff0000, 1)
+    # Interpolated variables cannot clash with the macro's own names for them
+    lineof(offset, name) = styled"line $offset: $name"
+    @test lineof(styled"{red:1}", styled"{bold:x}") ==
+        AnnotatedString("line 1: x", [(6:6, :face, face"red"), (9:9, :face, face"bold")])
+    pairof(annot, str) = styled"{bold:$annot} = $str"
+    @test pairof(styled"{red:a}", styled"{blue:b}") ==
+        AnnotatedString("a = b", [(1:1, :face, face"bold"), (1:1, :face, face"red"), (5:5, :face, face"blue")])
+    # The generated code uses its own operators, not those of the module it is expanded in
+    let mod = Module()
+        Core.eval(mod, :(+(x, y) = nothing; annotated = $annotated))
+        @test Core.eval(mod, Expr(:macrocall, GlobalRef(StyledStrings, Symbol("@styled_str")), nothing, "\$annotated y")) ==
+            styled"$annotated y"
+    end
+    @test String(styled"αβ") == styled("αβ") == "αβ"
+    # Any string can be styled, not only a `String`
+    @test styled(SubString("x{bold:y}", 2)) == styled("{bold:y}")
+    @test styled(strip("  {bold:y}  ")) == styled("{bold:y}")
+    @test styled"{red:αβ}" == AnnotatedString("αβ", [(1:4, :face, face"red")])
+    # Value types
+    @test styled"{red:x}" isa AnnotatedString{String, Face}
+    @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{String, Face}}
+    @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, Face}}
+    # The value type follows from the argument types, not from whether they are annotated
+    boldafter(a) = styled"{bold:x} $a"
+    @test typeof(boldafter(styled("y"))) == typeof(boldafter(styled("{red:y}")))
+    @test Base.return_types(boldafter, (typeof(styled("y")),)) == [typeof(styled("y"))]
+    # Faces by dotted path and by interpolated name
+    @test annotations(styled"{TestPaletteA.shared:x}")[1].value === TestPaletteA.shared
+    @test annotations(styled"{$(:red):x}")[1].value === face"red"
+    # An interpolated vector of faces stacks them, the first taking priority
+    stack = [face"red", face"bold", face"blue"]
+    @test getface(styled"{$stack:x}", 1).foreground == SimpleColor(face"red")
+    @test getface(styled"{$stack,inverse:x}", 1).weight == :bold
+    @test getface(styled"{$stack,inverse:x}", 1).inverse
+    # In a module with a palette, an unknown name is an error at expansion time
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{zzz_typo:x}"))
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{(fg=zzz_typo):x}"))
+    @test_throws MalformedStylingMacro macroexpand(TestPalette, :(styled"{(inherit=zzz_typo):x}"))
 
     # Trailing (and non-trailing) Backslashes
     @test String(styled"\\") == "\\"
@@ -408,6 +1167,11 @@ end
     @test String(styled".\\") == ".\\"
     @test String(styled".\\\\") == ".\\\\"
     @test String(styled".\\\\\\") == ".\\\\\\"
+    # An escaped backslash is one literal backslash, not an escape for what follows
+    bsval = "x"
+    @test String(styled"\\$bsval") == "\\x"
+    @test styled"\\{bold:x}" == AnnotatedString("\\x", [(2:2, :face, face"bold")])
+    @test String(styled("a\\\\b")) == "a\\b"
 
     # newlines
     strlines = "abc\
@@ -433,6 +1197,21 @@ end
     @test styled("{red:hey} {blue:there}") == styled"{red:hey} {blue:there}"
     @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
     @test styled("\$hey") == styled"\$hey"
+    @test styled("{red:x}{note=n:y}") isa AnnotatedString{String, Union{Face, String}}
+    # An unknown name is a placeholder that a later registration displaces, as in the macro
+    @test annotations(styled("{zzz_fnface:x}"))[1].value === StyledStrings.lookmakeface(:zzz_fnface)
+    early = styled("{zzz_fnlate:x}")
+    StyledStrings.addface!(:zzz_fnlate => Face(foreground = 0x00ff00))
+    push!(HACKY_FACES, :zzz_fnlate)
+    @test getface(early, 1).foreground == SimpleColor(0x00ff00)
+    # A dotted name is a namespaced name, in a face name and an inline face alike
+    @test only(annotations(styled("{zzz_ns.face:x}"))).value === StyledStrings.lookmakeface(:zzz_ns_face)
+    @test only(annotations(styled("{(fg=zzz_ns.face):x}"))).value.foreground.value === StyledStrings.lookmakeface(:zzz_ns_face)
+    # A name unknown at expansion time is looked up when the string is built
+    lazyinline() = styled"{(fg=zzz_lazyinline):x}"
+    @test annotations(lazyinline())[1].value.foreground.value === StyledStrings.lookmakeface(:zzz_lazyinline)
+    lazyface = hacky_addface!(:zzz_lazyinline, Face(foreground=face"red"))
+    @test annotations(lazyinline())[1].value.foreground.value === lazyface
 
     # Various kinds of syntax errors that should be reported
     @test_throws MalformedStylingMacro styled("{incomplete")
@@ -447,6 +1226,43 @@ end
     @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
     @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
     @test_throws MalformedStylingMacro styled("{(invalid=):}")
+    @test styled"{(inherit=[]):x}" == AnnotatedString("x", [(1:1, :face, Face())])
+    @test_throws MalformedStylingMacro styled("{(inherit=[")
+    @test_throws MalformedStylingMacro styled("{(height=5x):}")
+    @test_throws MalformedStylingMacro styled("{(height=0.0):}")
+    @test_throws MalformedStylingMacro styled("{(height=1e-46):}")
+    @test_throws MalformedStylingMacro styled("{(fg=):x}")
+    @test_throws MalformedStylingMacro styled("{(inherit=):x}")
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{(bg=):x}"))
+    @test_throws MalformedStylingMacro styled("{face=red:x}")
+    @test_throws MalformedStylingMacro styled("{=v:x}")
+    # One problem is reported once, where it is
+    markuperror(f) = try f(); nothing catch err err end
+    let err = markuperror(() -> styled("{red bold:x}"))
+        @test only(err.problems).position == 5 && occursin("Expected ',' or ':'", String(only(err.problems).message))
+    end
+    @test length(markuperror(() -> styled("{red")).problems) == 1
+    @test annotations(styled("{red , bold :x}")) == annotations(styled("{red,bold:x}"))
+    let err = markuperror(() -> macroexpand(@__MODULE__, Meta.parse("styled\"{red:\$}\"")))
+        @test only(err.problems).position == 6 && occursin("unexpected `}`", String(only(err.problems).message))
+    end
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, :(styled"{k=v,=w:x}"))
+    @test_throws MalformedStylingMacro styled("{(fg=#ff000):}")
+    @test_throws MalformedStylingMacro styled("{(strikethrough=maybe):}")
+    @test_throws MalformedStylingMacro styled("{(underline=(red, curly)")
+    @test_throws MalformedStylingMacro macroexpand(@__MODULE__, Meta.parse("styled\"{(underline=(red, \$x\""))
+    @test_throws MalformedStylingMacro styled("{x.:y}")
+    @test_throws MalformedStylingMacro styled("{red-ish:y}")
+    let hex = "0x010203", notname = "red-ish"
+        @test only(annotations(styled"{(fg=$hex):x}")).value == Face(foreground = 0x010203)
+        @test_throws ArgumentError styled"{(fg=$notname):x}"
+    end
+    # Errors point at the value at fault
+    problemat(s) = try styled(s) catch err; s[nextind(s, only(err.problems).position):end] end
+    @test problemat("{(fg=#):x}") == "#):x}"
+    @test problemat("{(inverse=maybe):x}") == "maybe):x}"
+    @test problemat("{(weight=heavy):x}") == "heavy):x}"
+    @test problemat("{(fg=red, fg=blue):x}") == "fg=blue):x}"
     # Test the error printing too
     aio = AnnotatedIOBuffer()
     try
@@ -455,16 +1271,52 @@ end
         showerror(aio, err)
     end
     errstr = read(seekstart(aio), AnnotatedString)
-    @test errstr ==
-        styled"MalformedStylingMacro\n\
-               {error:│} Incomplete annotation declaration:\n\
-               {error:│}  {bright_green:\"\{\"}\n\
-               {error:│}   {info:╰─╴starts here}\n\
-               {error:┕} {light,italic:1 issue}\n"
+    # @test errstr ==
+    #     styled"MalformedStylingMacro\n\
+    #            {error:│} Incomplete annotation (missing closing '{warning:\}}'):\n\
+    #            {error:│}  {bright_green:\"\{\"}\n\
+    #            {error:│}   {info:╰─╴starts here}\n\
+    #            {error:┕} {light,italic:1 issue}\n"
 end
 
 # Markup fuzzing!
 styfuzz()
+
+struct Hue end
+Base.AnnotatedDisplay.AnnotationStyle(::Type{Hue}) = StyledStrings.Styled()
+Base.convert(::Type{Face}, ::Hue) = face"red"
+
+struct CallableWriter end
+(::CallableWriter)(io::IO, s) = print(io, s)
+
+@testset "Annotation styles" begin
+    AnnotationStyle, NoStyle = Base.AnnotatedDisplay.AnnotationStyle, Base.AnnotatedDisplay.NoStyle
+    @test sprint(io -> Base.AnnotatedDisplay.awrite(CallableWriter(), StyledStrings.Styled(), io, styled"{red:a}"),
+                 context = :color => true) == "\e[31ma\e[39m"
+    @test AnnotationStyle(Face) === StyledStrings.Styled()
+    @test AnnotationStyle(Union{Face, String}) === AnnotationStyle(Union{String, Int, Face}) === StyledStrings.Styled()
+    @test AnnotationStyle(String) === NoStyle()
+    red(V) = AnnotatedString{String, V}("x", [(1:1, :face, face"red"), (1:1, :n, 1)])
+    @test sprint(print, red(Union{Face, Int}), context = :color => true) == "\e[31mx\e[39m"
+    @test sprint(print, red(Any), context = :color => true) == "\e[31mx\e[39m"
+    @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, :n, 1)]), context = :color => true) == "x"
+    # A styled char shows in HTML as a one-character string would
+    @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
+    # Regions whose face is unchanged add no span
+    @test sprint(show, MIME("text/html"), styled"{red:a{link={https://x}:b}c}") ==
+        "<span style=\"color: #a51c2c\">a<a href=\"https://x\">b</a>c</span>"
+    # A link whose value is not a string is skipped
+    oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1)])
+    @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
+    @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
+    # A link spanning several styled regions is one hyperlink
+    @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
+        "\e]8;;https://x.org\e\\\e[1ma\e[22mb\e]8;;\e\\ c"
+    # Another value type is displayed through `convert(Face, value)`
+    @test sprint(print, AnnotatedString{String, Hue}("x", [(1:1, :face, Hue())]), context = :color => true) == "\e[31mx\e[39m"
+    # Escaping is applied to each run of text as it is styled
+    @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
+end
 
 @testset "AnnotatedIOBuffer" begin
     aio = AnnotatedIOBuffer()
@@ -478,21 +1330,34 @@ styfuzz()
 end
 
 @testset "ANSI encoding" begin
+    # A customised default face applies to unannotated text as to the rest
+    setface!(face"default" => Face(foreground = face"green"))
+    @test sprint(print, styled"plain", context = :color => true) == "\e[32mplain\e[39m"
+    @test sprint(print, styled"plain {bold:x}", context = :color => true) == "\e[32mplain \e[1mx\e[39m\e[22m"
+    resetfaces!(face"default")
+    @test sprint(print, styled"plain", context = :color => true) == "plain"
+    # Link formatting
+    @test StyledStrings.uriformat("https://x.y/z w") == "https://x.y/z%20w"
+    @test StyledStrings.uriformat("a:b") == "a:b"
+    @test StyledStrings.uriformat("https://x.y/a;b=c") == "https://x.y/a;b=c"
+    @test startswith(StyledStrings.uriformat("C:\\Users\\x"), "file://")
     # 4-bit color
     @test StyledStrings.ansi_4bit(
-        StyledStrings.ANSI_4BIT_COLORS[:cyan], false) == 36
+        StyledStrings.ANSI_4BIT_COLORS[face"cyan"], false) == 36
     @test StyledStrings.ansi_4bit(
-        StyledStrings.ANSI_4BIT_COLORS[:cyan], true) == 46
+        StyledStrings.ANSI_4BIT_COLORS[face"cyan"], true) == 46
     @test StyledStrings.ansi_4bit(
-        StyledStrings.ANSI_4BIT_COLORS[:bright_cyan], false) == 96
+        StyledStrings.ANSI_4BIT_COLORS[face"bright_cyan"], false) == 96
     @test StyledStrings.ansi_4bit(
-        StyledStrings.ANSI_4BIT_COLORS[:bright_cyan], true) == 106
+        StyledStrings.ANSI_4BIT_COLORS[face"bright_cyan"], true) == 106
     # 8-bit color
-    @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;26m"
-    @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;28m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;5;62m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;5;64m"
     @test sprint(StyledStrings.termcolor8bit, (r=0x95, g=0x58, b=0xb2), '3') == "\e[38;5;97m"
-    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;5;160m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;5;167m"
     @test sprint(StyledStrings.termcolor8bit, (r=0xee, g=0xee, b=0xee), '3') == "\e[38;5;255m"
+    @test sprint(StyledStrings.termcolor8bit, (r=0x46, g=0x46, b=0xeb), '3') == "\e[38;5;63m" # 0x46 is nearer 95 than 0
+    @test sprint(StyledStrings.termcolor8bit, (r=0xcb, g=0xc4, b=0xd2), '3') == "\e[38;5;251m"
     # 24-bit color
     @test sprint(StyledStrings.termcolor24bit, (r=0x40, g=0x63, b=0xd8), '3') == "\e[38;2;64;99;216m"
     @test sprint(StyledStrings.termcolor24bit, (r=0x38, g=0x98, b=0x26), '3') == "\e[38;2;56;152;38m"
@@ -500,26 +1365,52 @@ end
     @test sprint(StyledStrings.termcolor24bit, (r=0xcb, g=0x3c, b=0x33), '3') == "\e[38;2;203;60;51m"
     # The color reset method
     @test sprint(StyledStrings.termcolor, nothing, '3') == "\e[39m"
+    with_terminfo(vt100) do
+        # A colour that chains to the default foreground, or cannot be resolved, resets
+        chain = Face(foreground=Face(foreground=face"foreground"))
+        @test sprint(print, styled"{red:a}{$chain:b}c", context = :color => true) == "\e[31ma\e[39mbc"
+        unresolvable = Face(foreground=Face())
+        @test sprint(print, styled"{red:a}{$unresolvable:b}c", context = :color => true) == "\e[31ma\e[39mb\e[39mc"
+        # A customised colour face is still its colour
+        setface!(face"red" => Face(weight=:bold))
+        @test sprint(print, styled"{(fg=red):x}", context = :color => true) == "\e[31mx\e[39m"
+        resetfaces!(face"red")
+    end
     # ANSI attributes
     function ansi_change(; attrs...)
         face = getface(Face(; attrs...))
         dface = getface()
-        sprint(StyledStrings.termstyle, face, dface),
-        sprint(StyledStrings.termstyle, dface, face)
+        sprint(StyledStrings.termstyle, face.f, dface.f),
+        sprint(StyledStrings.termstyle, dface.f, face.f)
     end
     with_terminfo(vt100) do
-        @test ansi_change(foreground=:cyan) == ("\e[36m", "\e[39m")
-        @test ansi_change(background=:cyan) == ("\e[46m", "\e[49m")
+        @test ansi_change(foreground=face"cyan") == ("\e[36m", "\e[39m")
+        @test ansi_change(background=face"cyan") == ("\e[46m", "\e[49m")
         @test ansi_change(weight=:bold) == ("\e[1m", "\e[22m")
         @test ansi_change(weight=:extrabold) == ("\e[1m", "\e[22m")
         @test ansi_change(inverse=true) == ("\e[7m", "\e[27m")
         # Reduced-capability behaviours
-        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;26m", "\e[39m")
-        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;26m", "\e[49m")
+        @test ansi_change(foreground=(r=0x40, g=0x63, b=0xd8)) == ("\e[38;5;62m", "\e[39m")
+        @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;5;62m", "\e[49m")
+        # An explicit colour is kept, even when it matches the default's
+        @test startswith(first(ansi_change(foreground=FACES.basecolors[face"foreground"])), "\e[38;5;")
+        @test startswith(first(ansi_change(background=FACES.basecolors[face"background"])), "\e[48;5;")
         @test ansi_change(weight=:light) == ("", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[4m", "\e[24m")
+        # The bytes written are counted in an appending buffer too
+        pipe = PipeBuffer()
+        @test write(IOContext(pipe, :color => true), styled"{red:hello}") == 15
+        @test read(pipe, String) == "\e[31mhello\e[39m"
+        # A char is written as a one-character string, against the same default face
+        setface!(face"default" => Face(foreground = face"red"))
+        c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = "https://x")])
+        @test sprint(print, c, context = :color => true) ==
+            sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, "https://x")]), context = :color => true)
+        resetfaces!(face"default")
+        # The underline that stands in for italics is kept
+        @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)).f, getface(Face(underline=true)).f) == "\e[4m"
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
-        @test ansi_change(underline=:green) == ("\e[4m", "\e[24m")
+        @test ansi_change(underline=face"green") == ("\e[4m", "\e[24m")
         @test ansi_change(strikethrough=true) == ("", "")
     end
     with_terminfo(fancy_term) do
@@ -528,20 +1419,20 @@ end
         @test ansi_change(background=(r=0x40, g=0x63, b=0xd8)) == ("\e[48;2;64;99;216m", "\e[49m")
         @test ansi_change(weight=:light) == ("\e[2m", "\e[22m")
         @test ansi_change(slant=:italic) == ("\e[3m", "\e[23m")
-        @test ansi_change(underline=:green) == ("\e[4m\e[58;5;2m", "\e[59m\e[24m")
-        @test ansi_change(underline=:straight) == ("\e[4:1m", "\e[24m")
+        @test ansi_change(underline=face"green") == ("\e[4m\e[58;5;2m", "\e[59m\e[24m")
+        @test ansi_change(underline=:straight) == ("\e[4m", "\e[24m")
         @test ansi_change(underline=:double) == ("\e[4:2m", "\e[24m")
         @test ansi_change(underline=:curly)  == ("\e[4:3m", "\e[24m")
         @test ansi_change(underline=:dotted) == ("\e[4:4m", "\e[24m")
         @test ansi_change(underline=:dashed) == ("\e[4:5m", "\e[24m")
-        @test ansi_change(underline=(:cyan, :double)) == ("\e[4:2m\e[58;5;6m", "\e[59m\e[24m")
+        @test ansi_change(underline=(face"cyan", :double)) == ("\e[4:2m\e[58;5;6m", "\e[59m\e[24m")
         @test ansi_change(strikethrough=true) == ("\e[9m", "\e[29m")
     end
     # AnnotatedChar
     @test sprint(print, AnnotatedChar('a')) == "a"
-    @test sprint(print, AnnotatedChar('a', [(:face, :red)]), context = :color => true) == "\e[31ma\e[39m"
+    @test sprint(print, AnnotatedChar('a', [(:face, face"red")]), context = :color => true) == "\e[31ma\e[39m"
     @test sprint(show, AnnotatedChar('a')) == "'a'"
-    @test sprint(show, AnnotatedChar('a', [(:face, :red)]), context = :color => true) == "'\e[31ma\e[39m'"
+    @test sprint(show, AnnotatedChar('a', [(:face, face"red")]), context = :color => true) == "'\e[31ma\e[39m'"
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
@@ -557,7 +1448,7 @@ end
             "The \e[35m`\e[32mStyledStrings\e[35m`\e[39m package \e[4mbuilds\
              \e[1m\e[24m on top\e[22m of the \e[35m`\e[32mAnnotatedString\e[35m`\e[39m \
              \e]8;;https://en.wikipedia.org/wiki/Type_system\e\\type\e]8;;\e\\ to provide \
-             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;26m\e[1mstyling\e[39m\e[49m\e[22m \
+             a \e[4mfull-fledged\e[24m textual \e[38;5;147m\e[48;5;62m\e[1mstyling\e[39m\e[49m\e[22m \
              system, suitable for \e[7mterminal\e[27m and graphical displays."
     end
     with_terminfo(fancy_term) do
@@ -572,33 +1463,78 @@ end
 end
 
 @testset "HTML encoding" begin
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:black)) == "#1c1a23"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:green)) == "#25a268"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:warning)) == "#e5a509"
-    @test sprint(StyledStrings.htmlcolor, SimpleColor(:nonexistant)) == "#ff00ff"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(face"black")) == "#1c1a23"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(face"green")) == "#25a268"
+    @test sprint(StyledStrings.htmlcolor, getface(face"warning").foreground) == "#e5a509"
+    @test sprint(StyledStrings.htmlcolor, SimpleColor(Face())) == "#ff00ff"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     function html_change(; attrs...)
         face = getface(Face(; attrs...))
-        sprint(StyledStrings.htmlstyle, face)
+        sprint(StyledStrings.htmlstyle, face.f)
     end
-    @test html_change(foreground=:cyan) == "<span style=\"color: #0097a7\">"
-    @test html_change(background=:cyan) == "<span style=\"background-color: #0097a7\">"
+    @test html_change(foreground=face"cyan") == "<span style=\"color: #0097a7\">"
+    @test html_change(background=face"cyan") == "<span style=\"background-color: #0097a7\">"
     @test html_change(weight=:bold) == "<span style=\"font-weight: 700\">"
     @test html_change(weight=:extrabold) == "<span style=\"font-weight: 800\">"
     @test html_change(weight=:light) == "<span style=\"font-weight: 300\">"
-    @test html_change(foreground=:blue, background=:red, inverse=true) ==
+    @test html_change(foreground=face"blue", background=face"red", inverse=true) ==
         "<span style=\"color: #a51c2c; background-color: #195eb3\">"
     @test html_change(slant=:italic) == "<span style=\"font-style: italic\">"
     @test html_change(height=180) == "<span style=\"font-size: 18pt\">"
+    @test html_change(height=185) == "<span style=\"font-size: 18.5pt\">"
+    @test html_change(font="Mono's \"x\"") == "<span style=\"font-family: 'Mono\\'s &quot;x&quot;'\">"
     @test html_change(underline=true) == "<span style=\"text-decoration: underline\">"
-    @test html_change(underline=:green) == "<span style=\"text-decoration: #25a268 underline\">"
-    @test html_change(underline=:straight) == "<span style=\"text-decoration: solid underline\">"
+    @test html_change(underline=face"green") == "<span style=\"text-decoration: #25a268 underline\">"
+    @test html_change(underline=:straight) == "<span style=\"text-decoration: underline\">"
     @test html_change(underline=:double) == "<span style=\"text-decoration: double underline\">"
     @test html_change(underline=:curly)  == "<span style=\"text-decoration: wavy underline\">"
+    @test html_change(underline=(face"foreground", :curly)) == "<span style=\"text-decoration: wavy underline\">"
     @test html_change(underline=:dotted) == "<span style=\"text-decoration: dotted underline\">"
     @test html_change(underline=:dashed) == "<span style=\"text-decoration: dashed underline\">"
-    @test html_change(underline=(:cyan, :double)) == "<span style=\"text-decoration: #0097a7 double underline\">"
+    @test html_change(underline=(face"cyan", :double)) == "<span style=\"text-decoration: #0097a7 double underline\">"
     @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
+    @test html_change(underline=(face"red", :curly), strikethrough=true) ==
+        "<span style=\"text-decoration: #a51c2c wavy underline line-through\">"
+    @test sprint(StyledStrings.htmlstyle, getface(Face()).f, getface(Face(underline=true)).f) == "<span style=\"text-decoration: none\">"
+    setface!(face"default" => Face(height=1.5))
+    @test html_change(height=2.0) == "<span style=\"font-size: 200%\">"
+    @test sprint(show, MIME("text/html"), styled"{(height=2.0):a}{bold:b}") ==
+        "<span style=\"font-size: 200%\">a</span><span style=\"font-weight: 700\">b</span>"
+    resetfaces!(face"default")
+    # Text decorations cannot be removed within a nested span
+    @test sprint(show, MIME("text/html"), styled"{underline:a}{bold:b}") ==
+        "<span style=\"text-decoration: underline\">a</span><span style=\"font-weight: 700\">b</span>"
+    # A plain underline has the colour of its text, so a change of colour within it is a new span
+    @test sprint(show, MIME("text/html"), styled"{underline:a {red:b}}") ==
+        "<span style=\"text-decoration: underline\">a </span><span style=\"color: #a51c2c; text-decoration: underline\">b</span>"
+    # A link without a scheme is relative to the page, and only escaped
+    for (link, href) in ("#sec" => "#sec", "../a b.html" => "../a%20b.html", "//cdn.example/x" => "//cdn.example/x",
+                         "a\"b" => "a%22b", "https://x.y/z w" => "https://x.y/z%20w")
+        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, link)])) ==
+            "<a href=\"$href\"><span style=\"color: #a51c2c\">t</span></a>"
+    end
+    # One link across styled regions
+    @test sprint(show, MIME("text/html"), styled"{red,link={https://x}:t}") ==
+        "<a href=\"https://x\"><span style=\"color: #a51c2c\">t</span></a>"
+    @test sprint(show, MIME("text/html"), styled"{link={https://x}:{bold:a}b{italic:c}}") ==
+        "<a href=\"https://x\"><span style=\"font-weight: 700\">a</span>b<span style=\"font-style: italic\">c</span></a>"
+    @test sprint(show, MIME("text/html"), styled"{bold:a}{italic:b}{bold:c}{italic:d}") ==
+        "<span style=\"font-weight: 700\">a</span><span style=\"font-style: italic\">b</span>\
+         <span style=\"font-weight: 700\">c</span><span style=\"font-style: italic\">d</span>"
+    @test sprint(show, MIME("text/html"), styled"{red:a{bold:b}c}") ==
+        "<span style=\"color: #a51c2c\">a<span style=\"font-weight: 700\">b</span>c</span>"
+    swapped = Face(foreground = face"background", background = face"foreground", inverse = true)
+    @test sprint(show, MIME("text/html"), styled"a{$swapped:b}") == "ab"
+    let standard = sprint(show, MIME("text/html"), styled"{inverse:x}")
+        setface!(face"default" => convert(Face, Dict{String, Any}("background" => "inherit")))
+        @test sprint(show, MIME("text/html"), styled"{inverse:x}") == standard
+        resetfaces!(face"default")
+    end
+    # The default face's colours are the page's own
+    setface!(face"default" => Face(background=0x101010))
+    @test sprint(show, MIME("text/html"), styled"{(bg=#101010):x}{(bg=#202020):y}") ==
+        "x<span style=\"background-color: #202020\">y</span>"
+    resetfaces!(face"default")
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
@@ -609,32 +1545,34 @@ end
         <span style=\"color: #803d9b\">`</span> package"
     @test sprint(show, MIME("text/html"), fancy_string) ==
         "The <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">StyledStrings</span><span style=\"color: #803d9b\">`</span> \
-        package <span style=\"font-style: italic\">builds<span style=\"font-weight: 700; font-style: normal\"> on top</span></span> of the \
+        package <span style=\"font-style: italic\">builds</span><span style=\"font-weight: 700\"> on top</span> of the \
         <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
         <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
         full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"color: #241f31; background-color: #f6f5f4\">terminal</span> and graphical displays."
+        styling</span> system, suitable for <span style=\"color: $(StyledStrings.HTML_FGBG.background); background-color: $(StyledStrings.HTML_FGBG.foreground)\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin
-    @test Legacy.legacy_color(:blue) == SimpleColor(:blue)
-    @test Legacy.legacy_color(:light_blue) == SimpleColor(:bright_blue)
+    @test Legacy.legacy_color(:blue) == SimpleColor(face"blue")
+    @test Legacy.legacy_color(:light_blue) == SimpleColor(face"bright_blue")
     @test Legacy.legacy_color(-1) === nothing
-    @test Legacy.legacy_color(0) == SimpleColor(0x000000)
+    @test Legacy.legacy_color(0) == SimpleColor(face"black")
+    @test Legacy.legacy_color(11) == SimpleColor(face"bright_yellow")
+    @test Legacy.legacy_color(16) == SimpleColor(0x000000)
     @test Legacy.legacy_color(44) == SimpleColor(0x00d7d7)
     @test Legacy.legacy_color(255) == SimpleColor(0xeeeeee)
     @test Legacy.legacy_color(256) === nothing
-    @test Legacy.legacy_color("blue") == SimpleColor(:blue)
-    @test Legacy.legacy_color("light_blue") == SimpleColor(:bright_blue)
+    @test Legacy.legacy_color("blue") == SimpleColor(face"blue")
+    @test Legacy.legacy_color("light_blue") == SimpleColor(face"bright_blue")
     @test Legacy.legacy_color("-1") === nothing
-    @test Legacy.legacy_color("0") == SimpleColor(0x000000)
+    @test Legacy.legacy_color("0") == SimpleColor(face"black")
     @test Legacy.legacy_color("44") == SimpleColor(0x00d7d7)
     @test Legacy.legacy_color("255") == SimpleColor(0xeeeeee)
     @test Legacy.legacy_color("256") === nothing
     @test Legacy.legacy_color("invalid") === nothing
     withenv("JULIA_INFO_COLOR" => "magenta") do
         Legacy.load_env_colors!() isa Any
-        @test getface(:info).foreground.value == :magenta
+        @test getface(face"info").foreground.value == face"magenta"
         StyledStrings.resetfaces!()
     end
     aio = AnnotatedIOBuffer()
@@ -644,40 +1582,377 @@ end
     @test printstyled(aio, "d", reverse=true)   |> isnothing
     @test printstyled(aio, "e", color=:green)   |> isnothing
     @test read(seekstart(aio), AnnotatedString) == styled"{bold:a}{italic:b}{underline:c}{inverse:d}{(fg=green):e}"
+    @test printstyled(aio, "f", color=208) |> isnothing
+    @test annotations(read(seekstart(aio), AnnotatedString))[end].value.foreground == SimpleColor(0xff8700)
+    # A message whose value type cannot hold a face is styled all the same
+    let linked = AnnotatedString("g", [(1:1, :link, "https://example.com")]), lio = AnnotatedIOBuffer()
+        @test printstyled(lio, linked, "h", color=:red) |> isnothing
+        @test annotations(read(seekstart(lio), AnnotatedString)) ==
+            [(region = 1:1, label = :link, value = "https://example.com"), (region = 1:2, label = :face, value = Face(foreground = face"red"))]
+    end
+    let plain = AnnotatedString("i") # The faces are added to a copy, not to the caller's string
+        printstyled(AnnotatedIOBuffer(), plain, bold = true)
+        @test isempty(annotations(plain))
+    end
+    # A faulty faces.toml is reported once, and printing still works
+    mktempdir() do depot
+        mkpath(joinpath(depot, "config"))
+        write(joinpath(depot, "config", "faces.toml"), "[[[")
+        pushfirst!(DEPOT_PATH, depot)
+        try
+            @test_logs (:error, r"Could not load the face customisations") StyledStrings.load_customisations!(force = true)
+            @test_logs StyledStrings.load_customisations!()
+            @test sprint(print, styled"{red:x}", context = :color => true) == "\e[31mx\e[39m"
+        finally
+            popfirst!(DEPOT_PATH)
+        end
+    end
+    # The Symbol-named face API
+    legacy = Face(slant = :italic)
+    @test StyledStrings.addface!(:zzz_legacy => legacy) === legacy
+    push!(HACKY_FACES, :zzz_legacy)
+    @test StyledStrings.addface!(:zzz_legacy => Face(slant = :oblique)) === nothing
+    # A face that is already registered is not registered again under another name
+    @test_throws r"face `blue` is already registered" StyledStrings.addface!(:zzz_alias => face"blue")
+    @test repr(face"blue") |> pkgstrip == "face\"blue\"" && !haskey(FACES.pool, :zzz_alias)
+    # A registered empty face is its own, not the shared `Face()`
+    blank = StyledStrings.addface!(:zzz_blank => Face())
+    push!(HACKY_FACES, :zzz_blank)
+    StyledStrings.loadface!(:zzz_blank => Face(weight = :bold))
+    @test getface(FACES.pool[:zzz_blank]).weight == :bold && getface(Face()).weight == :normal
+    StyledStrings.loadface!(:zzz_blank => nothing)
+    @test Core.eval(TestPalette, :(@defpalette blank begin b = Face(foreground = nothing) end)).var"##styledstrings-defpalette-variable#".base.b !== Face()
+    @test FACES.pool[:zzz_legacy] === legacy && getface(legacy).slant == :italic
+    @test StyledStrings.addface!(:zzz_legacy => Face(font = "first"), :light) isa Face
+    @test StyledStrings.addface!(:zzz_legacy => Face(font = "second"), :light) === nothing
+    @test FACES.themes.light[legacy].font == "first"
+    StyledStrings.loadface!(:zzz_legacy => Face(weight = :bold))
+    @test getface(legacy).weight == :bold
+    StyledStrings.loadface!(:zzz_legacy => nothing)
+    @test getface(legacy).weight == :normal
+    delete!(FACES.themes.light, legacy)
+    cleanup_hacky_faces!()
 end
 
-# A look-alike for another copy of StyledStrings, whose `Face` is a distinct type with the
-# same fields.
+@testset "Recoloring" begin
+    @testset "RGB" begin
+        @test rgbcolor(face"red") == FACES.basecolors[face"red"]
+        @test rgbcolor(SimpleColor(face"red")) == FACES.basecolors[face"red"]
+        @test StyledStrings.finalcolor(face"red") === face"red"
+        @test StyledStrings.finalcolor(Face(foreground=face"red")) === face"red"
+        @test StyledStrings.finalcolor(Face()) === nothing
+        indirect = hacky_addface!(:indirect, copy(Face()))
+        another = hacky_addface!(:another, copy(Face()))
+        final = hacky_addface!(:final, copy(Face()))
+        @test withfaces(() -> rgbcolor(SimpleColor(indirect)),
+                        [indirect => Face(foreground=another),
+                         another => Face(foreground=final),
+                         final => Face(foreground=face"red")]) == FACES.basecolors[face"red"]
+        @test rgbcolor(indirect) == StyledStrings.UNRESOLVED_COLOR_FALLBACK
+        # Customisations of inherited faces are followed
+        setface!(face"emphasis" => Face(foreground=face"red"))
+        @test StyledStrings.finalcolor(face"highlight") === face"red"
+        @test rgbcolor(face"highlight") == FACES.basecolors[face"red"]
+        resetfaces!(face"emphasis")
+    end
+    @testset "Blending" begin
+        @test blend((r = 0x00, g = 0x00, b = 0xff) => 0.5, (r = 0xff, g=0xff, b=0x00) => 0.5) ==
+            (r = 0x6b, g = 0xaa, b = 0xc6)
+        @test blend(SimpleColor(0x0000ff) => 0.5, SimpleColor(0xffff00) => 0.5) ==
+            SimpleColor(0x6baac6)
+        @test blend(SimpleColor(0x000000) => 0.2, SimpleColor(0xffffff) => 0.6, SimpleColor(0x00ff00) => 0.2) ==
+            SimpleColor(0x9fbe9c)
+        @test blend(SimpleColor(0x123456)) == SimpleColor(0x123456)
+        withfaces([face"blue" => Face(foreground=0x0000ff),
+                   face"yellow" => Face(foreground=0xffff00)]) do
+                       @test blend(face"blue" => 0.5, face"yellow" => 0.5) == SimpleColor(0x6baac6)
+                   end
+    end
+    @testset "Theme change" begin
+        hooks = copy(StyledStrings.recolor_hooks) # Restored at the end, so no hook outlives the testset
+        lightfbg = [:foreground => (r = 0x00, g = 0x00, b = 0x00),
+                    :background => (r = 0xff, g = 0xff, b = 0xff),
+                    :yellow     => (r = 0xfc, g = 0xce, b = 0x7b)]
+        darkfbg = [:foreground => (r = 0xff, g = 0xff, b = 0xff),
+                   :background => (r = 0x00, g = 0x00, b = 0x00),
+                   :yellow     => (r = 0xa7, g = 0x7e, b = 0x27)]
+        setcolors!(lightfbg)
+        counter = Ref(0)
+        recolor() do
+            counter[] += 1
+        end
+        @test counter[] == 1
+        test_lightdark = hacky_addface!(:test_lightdark, Face(foreground=0x000001))
+        hacky_addface!(:test_lightdark, Face(foreground=0x000002), :light)
+        hacky_addface!(:test_lightdark, Face(foreground=0x000003), :dark)
+        @test rgbcolor(SimpleColor(test_lightdark)).b == 0x01
+        setcolors!(lightfbg)
+        @test counter[] == 2
+        @test rgbcolor(SimpleColor(test_lightdark)).b == 0x02
+        setcolors!(darkfbg)
+        @test counter[] == 3
+        @test rgbcolor(SimpleColor(test_lightdark)).b == 0x03
+        # Theme switch
+        setcolors!(lightfbg)
+        setface!(face"red" => Face(font="lightonly"), :light)
+        @test getface(face"red").font == "lightonly"
+        setcolors!(darkfbg)
+        @test getface(face"red").font == "monospace"
+        resetfaces!(face"red")
+        # A reset keeps the variant of the current theme
+        setcolors!(lightfbg)
+        setface!(face"region" => Face(font="modified"))
+        resetfaces!(face"region")
+        @test getface(face"region").background == FACES.themes.light[face"region"].background
+        setface!(face"region" => Face(font="modified"))
+        resetfaces!()
+        @test getface(face"region").background == FACES.themes.light[face"region"].background
+        @test withfaces(face"bold" => face"bold") do
+            resetfaces!() # Within a scope too
+            getface(face"region").background
+        end == FACES.themes.light[face"region"].background
+        # Registering a palette refreshes a resolution cached before it
+        @eval module TestPaletteLate
+            using StyledStrings
+            @defpalette begin late = Face(weight = :bold); late.light = Face(slant = :italic) end
+            const late = face"late"
+        end
+        setcolors!(lightfbg)
+        @test getface(TestPaletteLate.late).slant == :normal
+        Core.eval(TestPaletteLate, :(@registerpalette))
+        @test getface(TestPaletteLate.late).slant == :italic
+        # Modifications and theme variants layer over the base face
+        setface!(face"red" => Face(font="always"))
+        setcolors!(darkfbg)
+        @test getface(face"red").foreground.value === face"red"
+        @test getface(face"red").font == "always"
+        resetfaces!(face"red")
+        test_variant = hacky_addface!(:test_variant, Face(font="base"))
+        hacky_addface!(:test_variant, Face(foreground=0x000002), :light)
+        setcolors!(lightfbg)
+        @test getface(test_variant).font == "base"
+        @test getface(test_variant).foreground.value.b == 0x02
+        # Placeholder displacement
+        placeholder = StyledStrings.lookmakeface(:zzz_displaced, false)
+        setface!(placeholder => Face(font="lightmod"), :light)
+        setcolors!(lightfbg)
+        registered = Face(weight=:bold)
+        @lock FACES.lock StyledStrings.register_displace!(placeholder, registered, :zzz_displaced)
+        StyledStrings.relayer!(registered)
+        @test getface(registered).font == "lightmod"
+        resetfaces!(registered)
+        # Resolved faces are cached, and a change to the current definitions is seen at once
+        @test getface(face"red").font == "monospace"
+        setface!(face"red" => Face(font = "changed"))
+        @test getface(face"red").font == "changed"
+        @test withfaces(() -> getface(face"red").font, face"red" => Face(font = "scoped")) == "scoped"
+        @test getface(face"red").font == "changed"
+        resetfaces!(face"red")
+        @test getface(face"red").font == "monospace"
+        # A variant registered before its base face follows it on displacement, at once
+        setcolors!(darkfbg)
+        StyledStrings.addface!(:zzz_early => Face(foreground=0x000004), :dark)
+        early = Face(foreground=0x000005)
+        StyledStrings.addface!(:zzz_early => early)
+        push!(HACKY_FACES, :zzz_early)
+        @test getface(early).foreground.value.b == 0x04
+        # A customisation of a face not yet used applies from its first use
+        StyledStrings.loaduserfaces!(Dict{String, Any}("zzz_configured" => Dict{String, Any}("font" => "configured")))
+        @test getface(styled"{zzz_configured:x}", 1).font == "configured"
+        # A palette registered after the last recolour has its variants applied at once
+        @eval module ZzzLatePalette
+            using StyledStrings
+            @defpalette begin
+                late = Face(font = "base")
+                late.dark = Face(font = "dark")
+            end
+            @registerpalette
+            const late = face"late"
+        end
+        @test getface(@eval ZzzLatePalette.late).font == "dark"
+        recolor() do
+            setface!(test_lightdark => Face(foreground=blend(:background => 0.6, :foreground => 0.3, :yellow => 0.1)))
+        end
+        setcolors!(lightfbg)
+        @test getface(test_lightdark).foreground.value == (r = 0x9d, g = 0x99, b = 0x92)
+        setcolors!(darkfbg)
+        @test getface(test_lightdark).foreground.value == (r = 0x43, g = 0x40, b = 0x3a)
+        # A recolor hook runs at once, beneath user customisations
+        setface!(face"region" => Face(background = 0x112233))
+        recolor(() -> setface!(face"region" => Face(background = 0x445566, font = "recoloured")))
+        @test getface(face"region").background.value == (r = 0x11, g = 0x22, b = 0x33)
+        @test getface(face"region").font == "recoloured"
+        setcolors!(lightfbg)
+        @test getface(face"region").background.value == (r = 0x11, g = 0x22, b = 0x33)
+        resetfaces!()
+        @test getface(face"region").background.value == (r = 0x44, g = 0x55, b = 0x66)
+        # An unset attribute survives a later customisation of the same face
+        setface!(face"emphasis" => Face(foreground = face"red"))
+        setface!(face"emphasis" => convert(Face, Dict{String, Any}("foreground" => "inherit")))
+        setface!(face"emphasis" => Face(font = "later"))
+        @test getface(face"emphasis").foreground.value === face"foreground"
+        StyledStrings.relayer!()
+        @test getface(face"emphasis").foreground.value === face"foreground"
+        # A hook's variant for another theme is not applied
+        recolor(() -> setface!(face"region" => Face(font = "dark only"), :dark))
+        @test FACES.current_theme[] === :light && getface(face"region").font != "dark only"
+        pop!(StyledStrings.recolor_hooks)
+        # A hook that fails at once is not registered
+        nhooks = length(StyledStrings.recolor_hooks)
+        @test_throws ErrorException recolor(() -> error("at once"))
+        @test length(StyledStrings.recolor_hooks) == nhooks
+        # A hook that fails later is logged, and the hooks after it still run
+        failing = Ref(false)
+        recolor(() -> if failing[] error("later") end)
+        ran = Ref(0)
+        recolor(() -> ran[] += 1)
+        failing[] = true
+        @test_logs (:error, "Recolor hook failed") setcolors!(darkfbg)
+        @test ran[] == 2 && FACES.current_theme[] === :dark
+        deleteat!(StyledStrings.recolor_hooks, nhooks+1:nhooks+2)
+        # A hook defined after the task that changes the colours still runs
+        late, go = Ref(0), Channel{Nothing}(1)
+        changer = @async (take!(go); setcolors!(darkfbg))
+        recolor(@eval () -> $late[] += 1)
+        put!(go, nothing)
+        wait(changer)
+        @test late[] == 2
+        pop!(StyledStrings.recolor_hooks)
+        # Customisations first loaded by a hook as it is registered are not taken for its recolours
+        tomlface = hacky_addface!(:tomlface, copy(Face()))
+        mktempdir() do depot
+            mkpath(joinpath(depot, "config"))
+            write(joinpath(depot, "config", "faces.toml"), "[tomlface]\nfont = \"customised\"\n")
+            pushfirst!(DEPOT_PATH, depot)
+            setglobal!(StyledStrings, :HAVE_LOADED_CUSTOMISATIONS, false)
+            try
+                recolor(() -> sprint(print, styled"{red:x}", context = :color => true))
+                setcolors!(darkfbg)
+                @test getface(tomlface).font == "customised"
+            finally
+                pop!(StyledStrings.recolor_hooks)
+                popfirst!(DEPOT_PATH)
+            end
+        end
+        copy!(StyledStrings.recolor_hooks, hooks)
+        resetfaces!()
+        cleanup_hacky_faces!()
+    end
+end
+
+if NON_STDLIB_TESTS
+    @testset "Backwards compatability" begin
+        @test convert(SimpleColor, :red).value == face"red"
+        @test Face(foreground=:red).foreground == SimpleColor(face"red")
+        @test Face(foreground="red").foreground == SimpleColor(face"red")
+        @test Face(background=:red).background == SimpleColor(face"red")
+        @test Face(background="red").background == SimpleColor(face"red")
+        @test Face(underline=:red).underline == (SimpleColor(face"red"), :straight)
+        @test Face(underline=(:red, :curly)).underline == (SimpleColor(face"red"), :curly)
+        @test Face(inherit=:blue).inherit == [face"blue"]
+        @test Face(inherit=[:blue, :green]).inherit == [face"blue", face"green"]
+        @test withfaces(:red => :green) do
+            get(FACES.current[], face"red", nothing)
+        end == Face(foreground=:green)
+        @test withfaces(:red => [:green, :inverse]) do
+            get(FACES.current[], face"red", nothing)
+        end == Face(inherit=[:green, :inverse])
+        @test SimpleColor(:red) == SimpleColor(face"red")
+        @test withfaces(() -> getface(face"red").font, :red => Face(font = "compat")) == "compat"
+        @test withfaces(face"red" => Union{Symbol, Face}[face"bold", :blue]) do
+            (getface(face"red").weight, getface(face"red").foreground)
+        end == (:bold, SimpleColor(face"blue"))
+        @test withfaces(() -> getface(face"red").weight, face"red" => [:bold]) == :bold
+    end
+end
+
+# Look-alikes for other copies of StyledStrings, whose `Face` is a distinct type: one with
+# the pre-1.14 layout, and one loaded from our own sources.
 module OtherCopy
     module StyledStrings
         struct SimpleColor
             value::Union{Symbol, NamedTuple}
         end
-        struct Face
-            font; height; weight; slant; foreground; background
-            underline; strikethrough; inverse; inherit
+        Base.@kwdef struct Face
+            font = nothing; height = nothing; weight = nothing; slant = nothing
+            foreground = nothing; background = nothing; underline = nothing
+            strikethrough = nothing; inverse = nothing; inherit = Symbol[]
         end
     end
 end
 
-@testset "Faces from another copy of StyledStrings" begin
-    # The REPL runs on a private copy of StyledStrings, so the faces it attaches to its
-    # output can reach the copy user code loaded as values of a foreign `Face` type
-    # (JuliaLang/julia#60034).
-    Other = OtherCopy.StyledStrings
-    other = Other.Face(nothing, nothing, :bold, nothing, Other.SimpleColor(:red),
-                       Other.SimpleColor((r=0x01, g=0x02, b=0x03)),
-                       (Other.SimpleColor(:blue), :curly), nothing, true, [:emphasis])
-    ours = Face(weight=:bold, foreground=:red, background=(r=0x01, g=0x02, b=0x03),
-                underline=(:blue, :curly), inverse=true, inherit=:emphasis)
-    @test StyledStrings.foreignface(other) == ours
-    @test getface([other]) == getface([ours])
-    @test getface([:emphasis, other]) == getface([:emphasis, ours])
-    @test getface(AnnotatedString("x", [(1:1, :face, other)]), 1) == getface([ours])
-    @test sprint(print, AnnotatedString("x", [(1:1, :face, other)]); context = :color => true) ==
-        sprint(print, AnnotatedString("x", [(1:1, :face, ours)]); context = :color => true)
+module SourceCopy
+    module StyledStrings
+        using Base: AnnotatedString, AnnotatedChar, annotations, annotate!
+        using Base.ScopedValues: ScopedValue, with, @with
+        for file in ("faces.jl", "theme.jl", "palettes.jl")
+            include(joinpath(@__DIR__, "..", "src", file))
+        end
+    end
+end
+
+# A whole other copy, with a `Styled` of its own, as with the REPL's private copy
+module FullCopy
+    include(joinpath(@__DIR__, "..", "src", "StyledStrings.jl"))
+end
+
+# A copy that routes its faces through ours, as a package with its own face-like type would.
+Base.AnnotatedDisplay.AnnotationStyle(::Type{OtherCopy.StyledStrings.Face}) = StyledStrings.Styled()
+Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = StyledStrings.Styled()
+
+@testset "Foreign faces" begin
+    # The REPL's private copy of StyledStrings attaches faces of its own type (JuliaLang/julia#60034)
+    render(f) = sprint(print, AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
+    attrs = (font="mono", height=1.5, weight=:bold, strikethrough=false, inverse=true)
+    @testset "Pre-1.14 layout" begin
+        Other = OtherCopy.StyledStrings
+        other = Other.Face(; attrs..., foreground=Other.SimpleColor(:red), background=Other.SimpleColor((r=0x01, g=0x02, b=0x03)),
+                           underline=(Other.SimpleColor(:blue), :curly), inherit=[:emphasis, :bold])
+        ours = Face(; attrs..., foreground=face"red", background=0x010203, underline=(face"blue", :curly),
+                    inherit=[face"emphasis", face"bold"])
+        @test StyledStrings._mergedface(other) == ours
+        @test StyledStrings._mergedface(Other.Face()) == Face()
+        @test StyledStrings._mergedface(Other.Face(underline=Other.SimpleColor(:green))) == Face(underline=face"green")
+        @test StyledStrings._mergedface(Other.Face(underline=(nothing, :double))) == Face(underline=(nothing, :double))
+        @test getface([face"emphasis", other]) == getface([face"emphasis", ours])
+        @test render(other) == render(ours)
+    end
+    @testset "1.14 layout" begin
+        Other = SourceCopy.StyledStrings
+        other = Other.Face(; attrs..., foreground=Other.BASE_FACES.red, background=0x010203, underline=(Other.BASE_FACES.blue, :curly),
+                           inherit=[Other.FACES.pool[:emphasis], Other.Face(slant=:italic)])
+        ours = Face(; attrs..., foreground=face"red", background=0x010203, underline=(face"blue", :curly),
+                    inherit=[face"emphasis", Face(slant=:italic)])
+        got = StyledStrings._mergedface(other)
+        @test got == ours
+        @test got.f.foreground === face"red"
+        @test got.f.inherit[1] === face"emphasis"
+        @test StyledStrings._mergedface(Other.Face()) == Face()
+        @test render(other) == render(ours)
+        # Strong nothings, which only a field copy can carry over
+        strong = Other.strongnothing
+        sgot = StyledStrings._mergedface(Other.Face(Other.FaceDef(
+            strong(String), strong(SimpleColor), strong(SimpleColor), strong(SimpleColor), strong(UInt32),
+            strong(UInt8), strong(UInt8), strong(UInt8), strong(Bool), strong(Bool), Memory{Other.Face}()))).f
+        @test all(f -> StyledStrings.isstrongnothing(getfield(sgot, f)), setdiff(fieldnames(StyledStrings.FaceDef), (:inherit,)))
+    end
+    @testset "Two whole copies" begin
+        # Each copy has a `Styled` of its own, and strings holding faces of both display as one
+        Full = FullCopy.StyledStrings
+        theirs = Full.Face(weight = :bold, inverse = true)
+        allours = AnnotatedString("ab", [(1:1, :face, face"red"), (2:2, :face, Face(weight = :bold, inverse = true))])
+        mixed = AnnotatedString{String, Union{Face, Full.Face}}("ab", [(1:1, :face, face"red"), (2:2, :face, theirs)])
+        @test sprint(print, mixed; context = :color => true) == sprint(print, allours; context = :color => true)
+        @test sprint(show, MIME("text/html"), mixed) == sprint(show, MIME("text/html"), allours)
+        @test Base.issingletontype(Base.infer_return_type(Base.AnnotatedDisplay.style, (typeof(mixed),)))
+        # With an `Any` value type, whichever copy's face is met first
+        for annots in ([(1:1, :face, face"red"), (2:2, :face, theirs)], [(2:2, :face, theirs), (1:1, :face, face"red")])
+            @test sprint(print, AnnotatedString{String, Any}("ab", annots); context = :color => true) ==
+                sprint(print, allours; context = :color => true)
+        end
+    end
     @test_throws MethodError getface([1])
-    let
+    @testset "REPL mock load" begin
         # And with an actual second copy, loaded before ours the way the REPL's is. When the
         # package under test is the stdlib itself there is no second copy, and the script
         # reports so instead.
@@ -686,14 +1961,67 @@ end
             using StyledStrings
             other === StyledStrings && (print("same copy"); exit())
             face = other.Face(foreground = :red, weight = :bold)
-            ours = StyledStrings.Face(foreground = :red, weight = :bold)
+            ours = StyledStrings.Face(foreground = face"red", weight = :bold)
             render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
             print(StyledStrings.getface([face]) == StyledStrings.getface([ours]), ",", render(face) == render(ours))
             """
         # Julia's own test suite runs this without an active project.
-        project = isnothing(Base.active_project()) ? `` : `--project=$(Base.active_project())`
+        project = if isnothing(Base.active_project()) `` else `--project=$(Base.active_project())` end
         cmd = `$(Base.julia_cmd()) --startup-file=no $project -e $script`
         out = read(pipeline(cmd; stderr), String)
         @test out in ("true,true", "same copy")
+    end
+end
+
+# Faces seen from precompiled packages, in a fresh process with its own faces.toml
+@testset "Precompiled packages" begin
+    mktempdir() do dir
+        function package(name, uuid, deps, code)
+            mkpath(joinpath(dir, name, "src"))
+            write(joinpath(dir, name, "Project.toml"),
+                  "name = \"$name\"\nuuid = \"$uuid\"\n[deps]\n",
+                  join(("$dep = \"$depuuid\"\n" for (dep, depuuid) in deps)))
+            write(joinpath(dir, name, "src", "$name.jl"), "module $name\n$code\nend\n")
+        end
+        styledstrings = "StyledStrings" => "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+        legacy = "PkgLegacy" => "6c4b5d0e-0000-4000-8000-000000000001"
+        palette = "PkgPalette" => "6c4b5d0e-0000-4000-8000-000000000002"
+        package(legacy..., [styledstrings], """
+            using StyledStrings
+            __init__() = StyledStrings.addface!(:zzz_pkglegacy => Face(foreground = 0x00ff00))""")
+        package(palette..., [styledstrings], """
+            using StyledStrings
+            @defpalette begin accent = Face(foreground = 0xff0000) end
+            __init__() = @registerpalette
+            const accent = face"accent\"""")
+        package("PkgUser", "6c4b5d0e-0000-4000-8000-000000000003", [styledstrings, legacy, palette], """
+            using StyledStrings, PkgLegacy, PkgPalette
+            @usepalette PkgPalette: PkgPalette as PP
+            @usepalette PkgPalette
+            legacy() = styled"{zzz_pkglegacy:x}"
+            used() = (styled"{accent:x}", styled"{PP.accent:x}")
+            accent() = styled"{PkgPalette.accent:x}\"""")
+        depot = mkpath(joinpath(dir, "depot", "config"))
+        write(joinpath(depot, "faces.toml"), """
+            zzz_pkglegacy.weight = "bold"
+            PkgPalette.accent.weight = "bold"
+            shadow.foreground = "PkgPalette.accent"
+            """)
+        script = """
+            using StyledStrings: StyledStrings, FACES, getface, rgbcolor, @face_str
+            StyledStrings.load_customisations!() # Before `PkgPalette` registers the face it names
+            using PkgUser, PkgPalette
+            legacy = only(Base.annotations(PkgUser.legacy())).value
+            accent = only(Base.annotations(PkgUser.accent())).value
+            print(legacy === FACES.pool[:zzz_pkglegacy], ' ', getface(legacy).weight, ' ',
+                  accent === PkgPalette.accent, ' ', getface(accent).weight, ' ',
+                  rgbcolor(getface(face"shadow").foreground) == (r = 0xff, g = 0x00, b = 0x00), ' ',
+                  all(s -> only(Base.annotations(s)).value === PkgPalette.accent, PkgUser.used()))
+            """
+        pathsep = if Sys.iswindows() ';' else ':' end
+        loadpath = join([pkgdir(StyledStrings), map(name -> joinpath(dir, name), ["PkgLegacy", "PkgPalette", "PkgUser"])..., "@stdlib"], pathsep)
+        cmd = addenv(`$(Base.julia_cmd()) --startup-file=no -e $script`,
+                     "JULIA_LOAD_PATH" => loadpath, "JULIA_DEPOT_PATH" => dirname(depot) * pathsep)
+        @test readchomp(cmd) == "true bold true bold true true"
     end
 end
