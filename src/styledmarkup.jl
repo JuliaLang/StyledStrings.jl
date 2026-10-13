@@ -46,13 +46,17 @@ Of course, as usual, the devil is in the details.
 module StyledMarkup
 
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
-using ..StyledStrings: FACES, Face, SimpleColor,
+using ..StyledStrings: FACES, Face, SimpleColor, Link,
     ATTRIBUTES,
     lookupface, lookmakeface, faceref, pathface, similarface, isambiguous, registrykey, heightbits,
     UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
+
+# The value type of styled strings, which holds faces and links alike, so that strings styled in
+# different places share one value type, and the code specialised on it
+const STYLED_VALTYPE = Union{Face, Link}
 
 """
     State
@@ -128,12 +132,14 @@ struct FnOutput
     annots::Vector{@NamedTuple{
         region::UnitRange{Int},
         label::Symbol,
-        value::Union{Face, String}}}
+        value::STYLED_VALTYPE}}
     rfaces::Dict{String, Face}
+    skipothers::Bool # Skip `key=value` annotations other than faces and links, rather than reject them
 end
 
-State(content::AbstractString, mod::Union{Module, Nothing}=nothing) = State(String(content), mod)
-function State(content::String, mod::Union{Module, Nothing}=nothing)
+State(content::AbstractString, mod::Union{Module, Nothing}=nothing; skipothers::Bool = false) =
+    State(String(content), mod; skipothers)
+function State(content::String, mod::Union{Module, Nothing}=nothing; skipothers::Bool = false)
     strict = if mod isa Module
         isdefined(mod, MAGIC_DEFPALETTE_VARNAME) ||
             isdefined(mod, MAGIC_USEPALETTE_VARNAME)
@@ -141,7 +147,7 @@ function State(content::String, mod::Union{Module, Nothing}=nothing)
         false
     end
     output = if isnothing(mod)
-        FnOutput([], [], Dict())
+        FnOutput([], [], Dict(), skipothers)
     else
         MacroOutput(mod, [], [], [], Dict(), [], [], nothing, nothing)
     end
@@ -153,10 +159,6 @@ function State(content::String, mod::Union{Module, Nothing}=nothing)
           NamedTuple{(:message, :position, :hint), # errors
                      Tuple{AnnotatedString{String, Face}, <:Union{Int, Nothing}, String}}[])
 end
-
-# The value type of styled strings, which holds faces and link targets alike, so that strings
-# styled in different places share one value type, and the code specialised on it
-const STYLED_VALTYPE = Union{String, Face}
 
 const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
                           "height", "weight", "slant", "underline",
@@ -887,6 +889,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         end
         String(buffer)
     end
+    keystart = if !isempty(state.s) first(peek(state.s)) end
     # this isn't the 'last' char yet, but it will be
     key = if ismacro(state) && last(peek(state.s)) == '$'
         expr, _ = readexpr!(state)
@@ -916,12 +919,14 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
             needseval = true
-            vvar = if expr isa Symbol && key != "face"
+            vvar = if expr isa Symbol && key ∉ ("face", "link")
                 esc(expr)
             else
                 vsym = gensym(:value)
                 value = if key == "face"
                     :($interpfaceannot($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
+                elseif key == "link"
+                    :($convert($Link, $(bindexpr!(state, expr))))
                 else
                     bindexpr!(state, expr)
                 end
@@ -941,10 +946,16 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
             String(chars)
         end
         if key == "face" && value isa String
-            styerr!(state, "A face is written by name, as in {red:…}, or interpolated, as in {face=\$f:…}",
-                    -length(value) - 1)
-        end
-        if ismacro(state) && value isa String
+            return styerr!(state, "A face is written by name, as in {red:…}, or interpolated, as in {face=\$f:…}",
+                           -length(value) - 1)
+        elseif key == "link" && value isa String
+            value = Link(value)
+        elseif !ismacro(state)
+            state.out.skipothers || isempty(key) ||
+                styerr!(state, "Only faces and links are annotations in `styled(…)`; '$key' needs the \
+                                `styled\"…\"` macro, or `skipothers = true` to skip it", prevind(state.content, keystart))
+            return
+        elseif value isa String
             annotpromote!(state, :String)
         end
         addannot!(state, i, key, value)
@@ -1316,7 +1327,7 @@ macro styled_str(raw_content::String)
 end
 
 """
-    styled(content::AbstractString) -> AnnotatedString
+    styled(content::AbstractString; skipothers::Bool = false) -> AnnotatedString{String, Union{Face, Link}}
 
 Construct a styled string. Within the string, `{<specs>:<content>}` structures
 apply the formatting to `<content>`, according to the list of comma-separated
@@ -1325,14 +1336,16 @@ an inline face specification, or a `key=value` pair. The value must be wrapped
 by `{...}` should it contain any of the characters `,=:{}`.
 
 This is a functional equivalent of the [`@styled_str`](@ref) macro, just without
-interpolation capabilities.
+interpolation capabilities. Its annotations are only faces and links (`link=`), so that
+its result has a single type, whatever the content. Any other `key=value` pair is an
+error, or is skipped when `skipothers` is set.
 
 Face names are looked up in the global registry, as there is no module to find
 palettes in. A dotted name is an absolute module path: `Mod.face` is the face
 `face` of the palette of the top-level module `Mod`.
 """
-function styled(content::AbstractString)
-    state = State(content)
+function styled(content::AbstractString; skipothers::Bool = false)
+    state = State(content; skipothers)
     run_state_machine!(state)
     if !isempty(state.errors)
         throw(MalformedStylingMacro(state.content, state.errors))

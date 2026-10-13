@@ -701,7 +701,7 @@ end
     @test_throws ArgumentError Core.eval(TestPalette, :(styled"{(underline=$(string(:heading))):x}"))
     # A face given as a `face=` value is looked up as an interpolated face is
     let facekey = Core.eval(TestPalette, :(let f = :heading; styled"{face=$f:x}" end))
-        @test facekey isa AnnotatedString{String, Union{String, Face}}
+        @test facekey isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
         @test annotations(facekey) == [(region = 1:1, label = :face, value = heading)]
     end
     @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
@@ -1151,9 +1151,9 @@ end
     @test styled(strip("  {bold:y}  ")) == styled("{bold:y}")
     @test styled"{red:αβ}" == AnnotatedString("αβ", [(1:4, :face, face"red")])
     # Faces and links share one value type, whichever the markup holds
-    @test styled"{red:x}" isa AnnotatedString{String, Union{String, Face}}
-    @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{String, Face}}
-    @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, String, Face}}
+    @test styled"{red:x}" isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
+    @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
+    @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, Face, StyledStrings.Link}}
     # The value type follows from the argument types, not from whether they are annotated
     boldafter(a) = styled"{bold:x} $a"
     @test typeof(boldafter(styled("y"))) == typeof(boldafter(styled("{red:y}")))
@@ -1213,7 +1213,10 @@ end
     @test styled("{red:hey} {blue:there}") == styled"{red:hey} {blue:there}"
     @test styled("\\{green:hi\\}") == styled"\{green:hi\}"
     @test styled("\$hey") == styled"\$hey"
-    @test styled("{red:x}{note=n:y}") isa AnnotatedString{String, Union{Face, String}}
+    # Runtime styling has faces and links alone, so its result has one type
+    @test styled("{red:x}{link={https://x}:y}") isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
+    @test_throws r"'note' needs the `styled\"…\"` macro" styled("{red:x}{note=n:y}")
+    @test styled("{red:x}{note=n,bold:y}"; skipothers = true) == styled"{red:x}{bold:y}"
     # An unknown name is a placeholder that a later registration displaces, as in the macro
     @test annotations(styled("{zzz_fnface:x}"))[1].value === StyledStrings.lookmakeface(:zzz_fnface)
     early = styled("{zzz_fnlate:x}")
@@ -1311,6 +1314,7 @@ struct CallableWriter end
                  context = :color => true) == "\e[31ma\e[39m"
     @test AnnotationStyle(Face) === StyledStrings.Styled()
     @test AnnotationStyle(Union{Face, String}) === AnnotationStyle(Union{String, Int, Face}) === StyledStrings.Styled()
+    @test AnnotationStyle(StyledStrings.Link) === StyledStrings.Styled()
     @test AnnotationStyle(String) === NoStyle()
     red(V) = AnnotatedString{String, V}("x", [(1:1, :face, face"red"), (1:1, :n, 1)])
     @test sprint(print, red(Union{Face, Int}), context = :color => true) == "\e[31mx\e[39m"
@@ -1321,8 +1325,8 @@ struct CallableWriter end
     # Regions whose face is unchanged add no span
     @test sprint(show, MIME("text/html"), styled"{red:a{link={https://x}:b}c}") ==
         "<span style=\"color: #a51c2c\">a<a href=\"https://x\">b</a>c</span>"
-    # A link whose value is not a string is skipped
-    oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1)])
+    # A link is a `Link`, and any other `:link` value is skipped
+    oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1), (1:1, :link, "https://x")])
     @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
     @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
     # A link spanning several styled regions is one hyperlink
@@ -1419,9 +1423,9 @@ end
         @test read(pipe, String) == "\e[31mhello\e[39m"
         # A char is written as a one-character string, against the same default face
         setface!(face"default" => Face(foreground = face"red"))
-        c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = "https://x")])
+        c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = StyledStrings.Link("https://x"))])
         @test sprint(print, c, context = :color => true) ==
-            sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, "https://x")]), context = :color => true)
+            sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, StyledStrings.Link("https://x"))]), context = :color => true)
         resetfaces!(face"default")
         # The underline that stands in for italics is kept
         @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)).f, getface(Face(underline=true)).f) == "\e[4m"
@@ -1529,7 +1533,7 @@ end
     # A link without a scheme is relative to the page, and only escaped
     for (link, href) in ("#sec" => "#sec", "../a b.html" => "../a%20b.html", "//cdn.example/x" => "//cdn.example/x",
                          "a\"b" => "a%22b", "https://x.y/z w" => "https://x.y/z%20w")
-        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, link)])) ==
+        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, StyledStrings.Link(link))])) ==
             "<a href=\"$href\"><span style=\"color: #a51c2c\">t</span></a>"
     end
     # One link across styled regions

@@ -313,7 +313,7 @@ Substitute the faces annotating `s` according to `kv`, leaving other annotations
 
 ```jldoctest; setup = :(import StyledStrings: Face, remapfaces)
 julia> remapfaces(styled"some {red:important} text", face"red" => face"blue") |> annotations
-1-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Union{String, Face}}}:
+1-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Union{Face, StyledStrings.Link}}}:
  (region = 6:14, label = :face, value = face"blue")
 ```
 """

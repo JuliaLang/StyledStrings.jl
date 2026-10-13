@@ -561,6 +561,7 @@ StyledStrings.Face
 StyledStrings.remapfaces
 StyledStrings.withfaces
 StyledStrings.SimpleColor
+StyledStrings.Link
 StyledStrings.parse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.tryparse(::Type{StyledStrings.SimpleColor}, ::String)
 StyledStrings.merge(::StyledStrings.Face, ::StyledStrings.Face)

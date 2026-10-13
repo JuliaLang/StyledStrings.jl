@@ -337,8 +337,10 @@ function _ansi_writer(string_writer::F, io::IO, s::Union{<:AnnotatedString, SubS
         cache = FACES.cache[]
         for (str, styles) in eachregion(s)
             face = resolvedef(styles, cache)
-            link = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
-                if !isnothing(idx) String(styles[idx].value::AbstractString) end
+            link = let idx = findfirst(a -> a.value isa Link, styles)
+                if !isnothing(idx)
+                    (styles[idx].value::Link).uri
+                end
             end
             if link != lastlink # One hyperlink for all of a link's regions
                 isnothing(lastlink) || write(buf, "\e]8;;\e\\")
@@ -365,16 +367,40 @@ end
 # Hook into the AnnotatedDisplay style dispatch
 
 """
+    Link(uri::String)
+
+A hyperlink to `uri`, as the value of a `:link` annotation. Styled output makes the
+annotated text a link: an OSC 8 hyperlink in a terminal, or an `<a>` element in HTML.
+
+A string can be converted to a `Link`, as `{link=…}` in styled markup does.
+
+# Examples
+
+```julia
+julia> s = styled"see {link={https://julialang.org}:the website}";
+
+julia> annotations(s)[1].value
+StyledStrings.Link("https://julialang.org")
+```
+"""
+struct Link
+    uri::String
+end
+
+Base.convert(::Type{Link}, uri::AbstractString) = Link(uri)
+
+"""
     Styled
 
-The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face`: annotated strings whose
-values include `Face`s are displayed by StyledStrings. Another annotation value type can
+The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face` and `Link`: annotated strings whose
+values include either are displayed by StyledStrings. Another annotation value type can
 be displayed the same way by declaring `Styled()` as its style, and defining
 `convert(Face, value)` for its values.
 """
 struct Styled <: AnnotatedDisplay.AbstractAnnotationStyle end
 
 AnnotatedDisplay.AnnotationStyle(::Type{Face}) = Styled()
+AnnotatedDisplay.AnnotationStyle(::Type{Link}) = Styled()
 
 # Another loaded copy of StyledStrings has a `Styled` of its own, and each copy renders the
 # other's faces (see `foreignface`), so either may display them both
@@ -525,9 +551,9 @@ function show_html(io::IO, s::Union{<:AnnotatedString, SubString{<:AnnotatedStri
     for (str, styles) in eachregion(s)
         face = resolvedef(styles, cache)
         look = cssappearance(face)
-        newlink = let idx = findfirst(a -> a.label === :link && a.value isa AbstractString, styles)
+        newlink = let idx = findfirst(a -> a.value isa Link, styles)
             if !isnothing(idx) # A link without a scheme is relative to the page
-                href = String(styles[idx].value::AbstractString)
+                href = (styles[idx].value::Link).uri
                 safeuri(href, codeunits(href), URI_SPECIAL_CHARS)
             end
         end
