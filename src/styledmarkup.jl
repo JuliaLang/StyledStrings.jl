@@ -46,17 +46,13 @@ Of course, as usual, the devil is in the details.
 module StyledMarkup
 
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
-using ..StyledStrings: FACES, Face, SimpleColor, Link,
+using ..StyledStrings: FACES, Face, SimpleColor, Link, StyledValue,
     ATTRIBUTES,
     lookupface, lookmakeface, faceref, pathface, similarface, isambiguous, registrykey, heightbits,
     UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
 export @styled_str, styled
-
-# The value type of styled strings, which holds faces and links alike, so that strings styled in
-# different places share one value type, and the code specialised on it
-const STYLED_VALTYPE = Union{Face, Link}
 
 """
     State
@@ -132,7 +128,7 @@ struct FnOutput
     annots::Vector{@NamedTuple{
         region::UnitRange{Int},
         label::Symbol,
-        value::STYLED_VALTYPE}}
+        value::StyledValue}}
     rfaces::Dict{String, Face}
     skipothers::Bool # Skip `key=value` annotations other than faces and links, rather than reject them
 end
@@ -214,7 +210,7 @@ Promote the annotation value type in `state.out` to include `newvaltype`.
 """
 function annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr})
     newavtype = gensym(:avtype)
-    push!(state.out.lets, :($newavtype = promote_type_4u($(something(state.out.avtype, STYLED_VALTYPE)), $newvaltype)))
+    push!(state.out.lets, :($newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), $newvaltype)))
     state.out.avtype = newavtype
 end
 
@@ -1111,16 +1107,16 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                     if $(esc(var)) isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
                         $iavar = annotations(if $(esc(var)) isa AnnotatedChar annotatedstring($(esc(var))) else $(esc(var)) end)
                         interp_annot_count = interp_annot_count + $annlen
-                        $newavtype = promote_type_4u($(something(state.out.avtype, STYLED_VALTYPE)), typeofval(eltype($iavar)))
+                        $newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), typeofval(eltype($iavar)))
                     else
                         $iavar = $(@NamedTuple{region::UnitRange{Int}, label::Symbol, value::Face}[])
-                        $newavtype = $(something(state.out.avtype, STYLED_VALTYPE))
+                        $newavtype = $(something(state.out.avtype, StyledValue))
                     end
                 end).args)
         state.out.avtype = newavtype
     end
     iexprs = Union{Expr, LineNumberNode}[]
-    avtype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, STYLED_VALTYPE))}})
+    avtype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, StyledValue))}})
     # Special case: a single interpolation that starts at position 1
     if length(interps) == 1 && first(interps).startpos == 1 && first(interps).annotidx == lastindex(state.out.annots) + 1
         append!(state.out.lets,
@@ -1308,7 +1304,7 @@ macro styled_str(raw_content::String)
         end
         Expr(:tuple, Expr(:call, :(:), start, stop), label, value) # Converted to `atype` as the vector is built
     end
-    atype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, STYLED_VALTYPE))}})
+    atype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, StyledValue))}})
     avec = :($atype[$(annots...)])
     aexp = :($AnnotatedString($astr, $avec))
     if !isempty(state.out.interpolations)

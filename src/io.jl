@@ -390,6 +390,22 @@ end
 Base.convert(::Type{Link}, uri::AbstractString) = Link(uri)
 
 """
+    StyledValue
+
+The type of the annotation values of styled strings: a [`Face`](@ref) or a [`Link`](@ref).
+Styled strings are `AnnotatedString{String, StyledValue}`. Markup with other `key=value` pairs
+widens it to hold their values too.
+
+# Examples
+
+```jldoctest; setup = :(using StyledStrings: StyledValue)
+julia> styled"{red:x} {link={https://julialang.org}:y}" isa AnnotatedString{String, StyledValue}
+true
+```
+"""
+const StyledValue = Union{Face, Link}
+
+"""
     Styled
 
 The [`AnnotatedDisplay.AnnotationStyle`](@ref) of `Face` and `Link`: annotated strings whose

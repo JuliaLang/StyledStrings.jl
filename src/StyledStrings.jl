@@ -10,7 +10,7 @@ export AnnotatedString, AnnotatedChar, AnnotatedIOBuffer, annotations, annotate!
 
 export @styled_str, @face_str, Face
 export @defpalette, @usepalette, @registerpalette
-public withfaces, remapfaces, styled, SimpleColor, Link, blend, recolor, setface!, addface!
+public withfaces, remapfaces, styled, SimpleColor, Link, StyledValue, blend, recolor, setface!, addface!
 
 include("faces.jl")
 include("theme.jl")
