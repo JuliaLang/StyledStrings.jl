@@ -486,16 +486,27 @@ end
 
 Combine all of the `:face` annotations, as with [`getface`](@ref), into a `FaceDef`.
 """
-function resolvedef(annotations::AbstractVector{@NamedTuple{label::Symbol, value::V}},
-                     cache::FaceCache = FACES.cache[]) where {V}
-    faces = (ann.value for ann in annotations if ann.label === :face)
-    face = nothing # A single `Face`, the usual case, is resolved without the fold
-    for ann in annotations # Rather than over `faces`, which is measurably slower
+function resolvedef(annotations::AbstractVector{<:NamedTuple{<:Any, <:Tuple{Vararg{Any}}}},
+                     cache::FaceCache = FACES.cache[]) # Of `(; label, value)`, with or without `region`
+    face = nothing # A single `Face`, the usual case, is resolved through the cache
+    for ann in annotations
         ann.label === :face || continue
-        isnothing(face) && ann.value isa Face || return resolvedef(faces)
+        isnothing(face) && ann.value isa Face || return mergeannotfaces(annotations, cache)
         face = ann.value::Face
     end
     if isnothing(face) resolvedef(STANDARD_FACES.default, cache) else resolvedef(face, cache) end
+end
+
+# Merge the faces of several `:face` annotations, as `resolvedef(faces)` does
+function mergeannotfaces(annotations::AbstractVector, cache::FaceCache)
+    merged = nothing
+    for ann in annotations
+        ann.label === :face || continue
+        def = _mergedface(ann.value).f
+        merged = if isnothing(merged) def else merge(merged, def) end
+    end
+    default = resolvedef(STANDARD_FACES.default, cache)
+    finalcolours(merge(default, merged::FaceDef), default)
 end
 
 """
@@ -552,15 +563,14 @@ getface() = getface(STANDARD_FACES.default)
 
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
-getface(s::AnnotatedString, i::Integer) =
-    getface([value for (; label, value) in annotations(s, i) if label === :face])
+getface(s::AnnotatedString, i::Integer) = Face(resolvedef(annotations(s, i)))
 
 """
     getface(c::AnnotatedChar)
 
 Get the merged [`Face`](@ref) that applies to `c`.
 """
-getface(c::AnnotatedChar) = getface([value for (; label, value) in c.annotations if label === :face])
+getface(c::AnnotatedChar) = Face(resolvedef(c.annotations))
 
 """
     face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
