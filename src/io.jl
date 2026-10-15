@@ -324,7 +324,7 @@ end
 """
     Link(uri::String)
 
-A hyperlink to `uri`, as the value of a `:link` annotation. Styled output makes the
+A hyperlink to `uri`, as an annotation value. Styled output makes the
 annotated text a link: an OSC 8 hyperlink in a terminal, or an `<a>` element in HTML.
 
 A string can be converted to a `Link`, as `{link=…}` in styled markup does.
@@ -349,7 +349,7 @@ Base.convert(::Type{Link}, uri::AbstractString) = Link(uri)
 
 The type of the annotation values of styled strings: a [`Face`](@ref) or a [`Link`](@ref).
 Styled strings are `AnnotatedString{String, StyledValue}`. Markup with other `key=value` pairs
-widens it to hold their values too.
+widens it to hold `Pair{Symbol, Any}` too.
 
 # Examples
 
@@ -484,8 +484,8 @@ AnnotatedDisplay.transition(io::IO, ::MIME"text/html", ::FaceDef, ::Nothing) = p
 
 function AnnotatedDisplay.reduction(::MIME, ::Type{Link}, _, annotations)
     link = Link("")
-    for ann in annotations
-        ann.value isa Link && (link = ann.value)
+    for value in annotations
+        value isa Link && (link = value)
     end
     link
 end

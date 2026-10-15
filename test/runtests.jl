@@ -382,10 +382,10 @@ end
     resetfaces!(face"blue")
     # `remapfaces`
     @test StyledStrings.remapfaces(styled"{red:a}{note=x:b}", face"red" => face"blue") ==
-        AnnotatedString("ab", [(1:1, :face, face"blue"), (2:2, :note, "x")])
+        AnnotatedString("ab", [(1:1, face"blue"), (2:2, :note => "x")])
     # Only annotation values are substituted, not the attributes of a face
     @test StyledStrings.remapfaces(styled"{(foreground=red):a}", face"red" => face"blue") ==
-        AnnotatedString("a", [(1:1, :face, Face(foreground = face"red"))])
+        AnnotatedString("a", [(1:1, Face(foreground = face"red"))])
     # The value type is kept, whatever the values
     linked = styled"{red:a}{link=x:b}"
     @test typeof(StyledStrings.remapfaces(linked, face"red" => face"blue")) == typeof(linked)
@@ -692,7 +692,7 @@ end
     @test FACES.themes.dark[topic] == Face(foreground = heading)
     @test FACES.themes.dark[TestPaletteVariant.mark].foreground.value === TestPaletteVariant.spot
     @test_throws ArgumentError macroexpand(TestPalette, :(@defpalette begin x.dark = Face(weight = :bold) end))
-    @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, label = :face, value = heading)]
+    @test annotations(Core.eval(TestPalette, :(styled"{$(:heading):x}"))) == [(region = 1:1, value = heading)]
     @test only(annotations(Core.eval(TestPalette, :(styled"{(fg=$(:heading)):x}")))).value.foreground.value === heading
     @test only(annotations(Core.eval(TestPalette, :(styled"{(inherit=$([:heading])):x}")))).value.inherit == [heading]
     # Strings name colours, as in `fg` and an underline tuple, but not faces to inherit or a bare underline
@@ -702,7 +702,7 @@ end
     # A face given as a `face=` value is looked up as an interpolated face is
     let facekey = Core.eval(TestPalette, :(let f = :heading; styled"{face=$f:x}" end))
         @test facekey isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
-        @test annotations(facekey) == [(region = 1:1, label = :face, value = heading)]
+        @test annotations(facekey) == [(region = 1:1, value = heading)]
     end
     @test_throws StyledStrings.UnknownFaceError Core.eval(TestPalette, :(styled"{(fg=$(:nope)):x}"))
     # Interpolated names are looked up as written ones are, whether Symbols or Strings
@@ -963,76 +963,76 @@ end
     # Preservation of an unstyled string
     @test styled"some string" == AnnotatedString("some string")
     # Basic styled constructs
-    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing, "val")])
-    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing, "val")])
-    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a, "1"), (11:11, :b, "2")])
-    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing, "val with spaces")])
-    @test stylazy"{aface:some} string" == AnnotatedString("some string", [(1:4, :face, aface)])
+    @test styled"{thing=val:some} string" == AnnotatedString("some string", [(1:4, :thing => "val")])
+    @test styled"some {thing=val:string}" == AnnotatedString("some string", [(6:11, :thing => "val")])
+    @test styled"some {a=1:s}trin{b=2:g}" == AnnotatedString("some string", [(6:6, :a => "1"), (11:11, :b => "2")])
+    @test styled"{thing=val with spaces:some} string" == AnnotatedString("some string", [(1:4, :thing => "val with spaces")])
+    @test stylazy"{aface:some} string" == AnnotatedString("some string", [(1:4, aface)])
     # Annotation prioritisation
     @test stylazy"{aface,bface:some} string" ==
-        AnnotatedString("some string", [(1:4, :face, aface), (1:4, :face, bface)])
+        AnnotatedString("some string", [(1:4, aface), (1:4, bface)])
     @test stylazy"{aface:{bface:some}} string" ==
-        AnnotatedString("some string", [(1:4, :face, aface), (1:4, :face, bface)])
+        AnnotatedString("some string", [(1:4, aface), (1:4, bface)])
     @test stylazy"{aface,bface:$(1)} string" ==
-        AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
+        AnnotatedString("1 string", [(1:1, aface), (1:1, bface)])
     @test stylazy"{aface:{bface:$(1)}} string" ==
-        AnnotatedString("1 string", [(1:1, :face, aface), (1:1, :face, bface)])
+        AnnotatedString("1 string", [(1:1, aface), (1:1, bface)])
     # Interpolated variables with similar names
     let x = "xx", x_2 = "yyy"
         @test annotations(styled"$x$x_2{red:a}$x{blue:b}") ==
-            [(region = 6:6, label = :face, value = face"red"), (region = 9:9, label = :face, value = face"blue")]
+            [(region = 6:6, value = face"red"), (region = 9:9, value = face"blue")]
     end
     # An interpolated annotated char keeps its annotations
-    let c = Base.AnnotatedChar('x', [(label = :face, value = face"red")])
-        @test styled"a$c" == AnnotatedString("ax", [(2:2, :face, face"red")])
+    let c = Base.AnnotatedChar('x', [face"red"])
+        @test styled"a$c" == AnnotatedString("ax", [(2:2, face"red")])
     end
     # Inline face attributes
     @test styled"{(slant=italic):some} string" ==
-        AnnotatedString("some string", [(1:4, :face, Face(slant=:italic))])
+        AnnotatedString("some string", [(1:4, Face(slant=:italic))])
     @test styled"{(foreground=magenta,background=#555555):some} string" ==
-        AnnotatedString("some string", [(1:4, :face, Face(foreground=face"magenta", background=0x555555))])
+        AnnotatedString("some string", [(1:4, Face(foreground=face"magenta", background=0x555555))])
     # Inline face attributes: empty attribute lists are legal
-    @test styled"{():}" == styled"{( ):}" == AnnotatedString("", [(1:0, :face, Face())])
+    @test styled"{():}" == styled"{( ):}" == AnnotatedString("", [(1:0, Face())])
     # Inline face attributes: leading/trailing whitespace
-    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
+    @test styled"{ ( fg=red , ) :a}" == AnnotatedString("a", [(1:1, Face(foreground=face"red"))])
     # Inline face attributes: each recognised key
-    @test styled"{(font=serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="serif"))])
-    @test styled"{(font=some serif):a}" == AnnotatedString("a", [(1:1, :face, Face(font="some serif"))])
-    @test styled"{(font=\"some serif\"):a}" == AnnotatedString("a", [(1:1, :face, Face(font="some serif"))])
-    @test styled"{(font=\"{},):\"):a}" == AnnotatedString("a", [(1:1, :face, Face(font="{},):"))])
-    @test styled"{(height=120):a}" == AnnotatedString("a", [(1:1, :face, Face(height=120))])
-    @test styled"{(height=1.2):a}" == AnnotatedString("a", [(1:1, :face, Face(height=1.2))])
-    @test styled"{(weight=normal):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:normal))])
-    @test styled"{(weight=bold):a}" == AnnotatedString("a", [(1:1, :face, Face(weight=:bold))])
-    @test styled"{(slant=italic):a}" == AnnotatedString("a", [(1:1, :face, Face(slant=:italic))])
-    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
-    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, :face, Face(foreground=face"red"))])
-    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=face"red"))])
-    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, :face, Face(background=face"red"))])
-    @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=true))])
-    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=face"cyan"))])
-    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :curly)))])
-    @test styled"{(underline=(cyan,$(:dashed))):a}" == AnnotatedString("a", [(1:1, :face, Face(underline=(face"cyan", :dashed)))])
-    @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, :face, Face(strikethrough=true))])
-    @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, :face, Face(inverse=true))])
-    @test stylazy"{(inherit=bface):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=bface))])
-    @test stylazy"{(inherit=[aface,bface]):a}" == AnnotatedString("a", [(1:1, :face, Face(inherit=[aface, bface]))])
+    @test styled"{(font=serif):a}" == AnnotatedString("a", [(1:1, Face(font="serif"))])
+    @test styled"{(font=some serif):a}" == AnnotatedString("a", [(1:1, Face(font="some serif"))])
+    @test styled"{(font=\"some serif\"):a}" == AnnotatedString("a", [(1:1, Face(font="some serif"))])
+    @test styled"{(font=\"{},):\"):a}" == AnnotatedString("a", [(1:1, Face(font="{},):"))])
+    @test styled"{(height=120):a}" == AnnotatedString("a", [(1:1, Face(height=120))])
+    @test styled"{(height=1.2):a}" == AnnotatedString("a", [(1:1, Face(height=1.2))])
+    @test styled"{(weight=normal):a}" == AnnotatedString("a", [(1:1, Face(weight=:normal))])
+    @test styled"{(weight=bold):a}" == AnnotatedString("a", [(1:1, Face(weight=:bold))])
+    @test styled"{(slant=italic):a}" == AnnotatedString("a", [(1:1, Face(slant=:italic))])
+    @test styled"{(fg=red):a}" == AnnotatedString("a", [(1:1, Face(foreground=face"red"))])
+    @test styled"{(foreground=red):a}" == AnnotatedString("a", [(1:1, Face(foreground=face"red"))])
+    @test styled"{(bg=red):a}" == AnnotatedString("a", [(1:1, Face(background=face"red"))])
+    @test styled"{(background=red):a}" == AnnotatedString("a", [(1:1, Face(background=face"red"))])
+    @test styled"{(underline=true):a}" == AnnotatedString("a", [(1:1, Face(underline=true))])
+    @test styled"{(underline=cyan):a}" == AnnotatedString("a", [(1:1, Face(underline=face"cyan"))])
+    @test styled"{(underline=(cyan,curly)):a}" == AnnotatedString("a", [(1:1, Face(underline=(face"cyan", :curly)))])
+    @test styled"{(underline=(cyan,$(:dashed))):a}" == AnnotatedString("a", [(1:1, Face(underline=(face"cyan", :dashed)))])
+    @test styled"{(strikethrough=true):a}" == AnnotatedString("a", [(1:1, Face(strikethrough=true))])
+    @test styled"{(inverse=true):a}" == AnnotatedString("a", [(1:1, Face(inverse=true))])
+    @test stylazy"{(inherit=bface):a}" == AnnotatedString("a", [(1:1, Face(inherit=bface))])
+    @test stylazy"{(inherit=[aface,bface]):a}" == AnnotatedString("a", [(1:1, Face(inherit=[aface, bface]))])
     @test FACES.names[annotations(styled("{(fg=nocolour):x}"))[1].value.foreground.value] == :nocolour
     # Curly bracket escaping
     @test styled"some \{string" == AnnotatedString("some {string")
     @test styled"some string\}" == AnnotatedString("some string}")
     @test styled"some \{string\}" == AnnotatedString("some {string}")
     @test styled"some \{str:ing\}" == AnnotatedString("some {str:ing}")
-    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, :face, face"bold")])
-    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, :face, face"bold")])
+    @test styled"some \{{bold:string}\}" == AnnotatedString("some {string}", [(7:12, face"bold")])
+    @test styled"some {bold:string \{other\}}" == AnnotatedString("some string {other}", [(6:19, face"bold")])
     # Nesting
     @test styled"{bold:nest{italic:ed st{red:yling}}}" ==
         AnnotatedString(
-            "nested styling", [(1:14, :face, face"bold"), (5:14, :face, face"italic"), (10:14, :face, face"red")])
+            "nested styling", [(1:14, face"bold"), (5:14, face"italic"), (10:14, face"red")])
     # Same-start nesting keeps order; only an identical directly-enclosing annotation is reused
     @test styled"{underline:{(underline=false):{underline:x}}}" ==
-        AnnotatedString("x", [(1:1, :face, face"underline"), (1:1, :face, Face(underline=false)), (1:1, :face, face"underline")])
-    @test styled"{red:{red:x}}" == AnnotatedString("x", [(1:1, :face, face"red")])
+        AnnotatedString("x", [(1:1, face"underline"), (1:1, Face(underline=false)), (1:1, face"underline")])
+    @test styled"{red:{red:x}}" == AnnotatedString("x", [(1:1, face"red")])
     @test astmatch(:(let ; AnnotatedString("val", _[]) end), @macroexpand styled"val")
     # Interpolation
     @test astmatch(
@@ -1063,7 +1063,7 @@ end
         :(let ;
               _!val_str = String(string(val))
               _!offset = ncodeunits(_!val_str)
-              _!annots = _[(1:0 + _!offset, :face, $(face"red"))]
+              _!annots = _[(1:0 + _!offset, $(face"red"))]
               _...
               AnnotatedString(_!val_str, _!interp_annots)
           end),
@@ -1071,74 +1071,76 @@ end
     @test astmatch(
         :(let ;
               _f = lookmakeface(_, :nonexistent_face)
-              AnnotatedString("x", _[(1:1, :face, _f)])
+              AnnotatedString("x", _[(1:1, _f)])
           end),
         @macroexpand styled"{nonexistent_face:x}")
     @test astmatch(
         :(let ;
               _f = interpfaceannot(face, _, false)
-              AnnotatedString("val", _[(1:3, :face, _f)])
+              AnnotatedString("val", _[(1:3, _f)])
           end),
         @macroexpand styled"{$face:val}")
     @test astmatch(
         :(let ;
               _f1 = interpfaceannot(f1, _, false)
               _f2 = interpfaceannot(f2, _, false)
-              AnnotatedString("v1v2", _[(1:2, :face, _f1), (3:4, :face, _f2)])
+              AnnotatedString("v1v2", _[(1:2, _f1), (3:4, _f2)])
           end),
         @macroexpand styled"{$f1:v1}{$f2:v2}")
     @test astmatch(
         :(let ;
+              _v = interpkeyvalue(key, "val", _, false)
               _...
-              AnnotatedString("text", _[(1:4, key, "val")])
+              AnnotatedString("text", _[(1:4, _v)])
           end),
         @macroexpand styled"{$key=val:text}")
     @test astmatch(
         :(let ;
+              _v = interpkeyvalue(key, val, _, false)
               _...
-              AnnotatedString("text", _[(1:4, key, val)])
+              AnnotatedString("text", _[(1:4, _v)])
           end),
         @macroexpand styled"{$key=$val:text}")
     @test astmatch(
         :(let ;
-              AnnotatedString("val", _[(1:3, :face, Face(foreground = interpattr(color, _, false)))])
+              AnnotatedString("val", _[(1:3, Face(foreground = interpattr(color, _, false)))])
           end),
         @macroexpand styled"{(foreground=$color):val}"
     )
     # Partial annotation termination with interpolation
     @test styled"{green:a}{red:{blue:b}$('c')}" ==
-        AnnotatedString{String}("abc", [(1:1, :face, face"green"),
-                                        (2:3, :face, face"red"),
-                                        (2:2, :face, face"blue")])
+        AnnotatedString{String}("abc", [(1:1, face"green"),
+                                        (2:3, face"red"),
+                                        (2:2, face"blue")])
     # Annotations following an annotated interpolation are kept
     annotated = styled"{red:x}"
     @test styled"$annotated{bold:b}" ==
-        AnnotatedString("xb", [(1:1, :face, face"red"), (2:2, :face, face"bold")])
+        AnnotatedString("xb", [(1:1, face"red"), (2:2, face"bold")])
     @test styled"{bold:a}$annotated{italic:c}{underline:d}" ==
-        AnnotatedString("axcd", [(1:1, :face, face"bold"), (2:2, :face, face"red"),
-                                 (3:3, :face, face"italic"), (4:4, :face, face"underline")])
+        AnnotatedString("axcd", [(1:1, face"bold"), (2:2, face"red"),
+                                 (3:3, face"italic"), (4:4, face"underline")])
     other = styled"{blue:x}"
     @test styled"{bold:a $annotated}$other{italic:c}" ==
-        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (3:3, :face, face"red"),
-                                  (4:4, :face, face"blue"), (5:5, :face, face"italic")])
+        AnnotatedString("a xxc", [(1:3, face"bold"), (3:3, face"red"),
+                                  (4:4, face"blue"), (5:5, face"italic")])
     @test styled"$annotated" == annotated
     # Repeated interpolations
     @test styled"{bold:a $annotated}$annotated{italic:c}" ==
-        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (3:3, :face, face"red"),
-                                  (4:4, :face, face"red"), (5:5, :face, face"italic")])
+        AnnotatedString("a xxc", [(1:3, face"bold"), (3:3, face"red"),
+                                  (4:4, face"red"), (5:5, face"italic")])
     plain = "x"
     @test styled"{bold:a $plain}$plain{italic:c}" ==
-        AnnotatedString("a xxc", [(1:3, :face, face"bold"), (5:5, :face, face"italic")])
+        AnnotatedString("a xxc", [(1:3, face"bold"), (5:5, face"italic")])
     # Assignments within interpolations reach the caller, as they would outside the macro
     assigns() = (styled"$(q = 7){(fg=$(c = 0xff0000)):x}{key=$(v = 1):y}"; (q, c, v))
     @test assigns() == (7, 0xff0000, 1)
     # Interpolated variables cannot clash with the macro's own names for them
     lineof(offset, name) = styled"line $offset: $name"
     @test lineof(styled"{red:1}", styled"{bold:x}") ==
-        AnnotatedString("line 1: x", [(6:6, :face, face"red"), (9:9, :face, face"bold")])
+        AnnotatedString("line 1: x", [(6:6, face"red"), (9:9, face"bold")])
     pairof(annot, str) = styled"{bold:$annot} = $str"
     @test pairof(styled"{red:a}", styled"{blue:b}") ==
-        AnnotatedString("a = b", [(1:1, :face, face"bold"), (1:1, :face, face"red"), (5:5, :face, face"blue")])
+        AnnotatedString("a = b", [(1:1, face"bold"), (1:1, face"red"), (5:5, face"blue")])
     # The generated code uses its own operators, not those of the module it is expanded in
     let mod = Module()
         Core.eval(mod, :(+(x, y) = nothing; annotated = $annotated))
@@ -1149,11 +1151,19 @@ end
     # Any string can be styled, not only a `String`
     @test styled(SubString("x{bold:y}", 2)) == styled("{bold:y}")
     @test styled(strip("  {bold:y}  ")) == styled("{bold:y}")
-    @test styled"{red:αβ}" == AnnotatedString("αβ", [(1:4, :face, face"red")])
+    @test styled"{red:αβ}" == AnnotatedString("αβ", [(1:4, face"red")])
     # Faces and links share one value type, whichever the markup holds
     @test styled"{red:x}" isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
     @test styled"{link={https://x}:x}" isa AnnotatedString{String, Union{Face, StyledStrings.Link}}
-    @test styled"{n=$(1):x}" isa AnnotatedString{String, Union{Int, Face, StyledStrings.Link}}
+    # Other keys are properties, as `key => value` pairs of one type, whatever the values
+    @test styled"{n=$(1):x}{m=y:z}" isa AnnotatedString{String, Union{Face, StyledStrings.Link, Pair{Symbol, Any}}}
+    @test annotations(styled"{n=$(1):x}{m=y:z}") == [(region = 1:1, value = :n => 1), (region = 2:2, value = :m => "y")]
+    # An interpolated key reads as the same key written out
+    let link = :link, face = "face", red = face"red", note = :note
+        @test only(annotations(styled"{$link={https://x}:y}")).value === StyledStrings.Link("https://x")
+        @test only(annotations(styled"{$face=$red:y}")).value === face"red"
+        @test only(annotations(styled"{$note=a:y}")).value == (:note => "a")
+    end
     # The value type follows from the argument types, not from whether they are annotated
     boldafter(a) = styled"{bold:x} $a"
     @test typeof(boldafter(styled("y"))) == typeof(boldafter(styled("{red:y}")))
@@ -1186,7 +1196,7 @@ end
     # An escaped backslash is one literal backslash, not an escape for what follows
     bsval = "x"
     @test String(styled"\\$bsval") == "\\x"
-    @test styled"\\{bold:x}" == AnnotatedString("\\x", [(2:2, :face, face"bold")])
+    @test styled"\\{bold:x}" == AnnotatedString("\\x", [(2:2, face"bold")])
     @test String(styled("a\\\\b")) == "a\\b"
 
     # newlines
@@ -1245,7 +1255,7 @@ end
     @test_throws MalformedStylingMacro styled("{(weight=invalid):}")
     @test_throws MalformedStylingMacro styled("{(slant=invalid):}")
     @test_throws MalformedStylingMacro styled("{(invalid=):}")
-    @test styled"{(inherit=[]):x}" == AnnotatedString("x", [(1:1, :face, Face())])
+    @test styled"{(inherit=[]):x}" == AnnotatedString("x", [(1:1, Face())])
     @test_throws MalformedStylingMacro styled("{(inherit=[")
     @test_throws MalformedStylingMacro styled("{(height=5x):}")
     @test_throws MalformedStylingMacro styled("{(height=0.0):}")
@@ -1306,31 +1316,31 @@ struct Hue end
 Base.convert(::Type{Face}, ::Hue) = face"red"
 Base.AnnotatedDisplay.context(m::MIME, ::Type{Hue}) = Base.AnnotatedDisplay.context(m, Face)
 Base.AnnotatedDisplay.reduction(m::MIME, ::Type{Hue}, cache, annotations) =
-    Base.AnnotatedDisplay.reduction(m, Face, cache, [(label = a.label, value = convert(Face, a.value)) for a in annotations if a.value isa Hue])
+    Base.AnnotatedDisplay.reduction(m, Face, cache, [convert(Face, value) for value in annotations if value isa Hue])
 
 struct CallableWriter end
 (::CallableWriter)(io::IO, s) = print(io, s)
 
 @testset "Display" begin
     @test sprint(io -> Base.AnnotatedDisplay.render(CallableWriter(), MIME("text/plain"), io, styled"{red:a}")) == "\e[31ma\e[39m"
-    red(V) = AnnotatedString{String, V}("x", [(1:1, :face, face"red"), (1:1, :n, 1)])
+    red(V) = AnnotatedString{String, V}("x", [(1:1, face"red"), (1:1, 1)])
     @test sprint(print, red(Union{Face, Int}), context = :color => true) == "\e[31mx\e[39m"
     @test sprint(print, red(Any), context = :color => true) == "\e[31mx\e[39m"
-    @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, :n, 1)]), context = :color => true) == "x"
+    @test sprint(print, AnnotatedString{String, Int}("x", [(1:1, 1)]), context = :color => true) == "x"
     # A styled char shows in HTML as a one-character string would
     @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
     # Regions whose face is unchanged add no span
     @test sprint(show, MIME("text/html"), styled"{red:a{link={https://x}:b}c}") ==
         "<span style=\"color: #a51c2c;\">a<a href=\"https://x\">b</a>c</span>"
-    # A link is a `Link`, and any other `:link` value is skipped
-    oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1), (1:1, :link, "https://x")])
+    # A link is a `Link`, and other values are not links
+    oddlink = AnnotatedString{String, Any}("x", [(1:1, face"red"), (1:1, 1), (1:1, "https://x")])
     @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
     @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
     # A link spanning several styled regions is one hyperlink
     @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
         "\e[1m\e]8;;https://x.org\e\\a\e[22mb\e]8;;\e\\ c"
     # Another value type is displayed through `convert(Face, value)`
-    @test sprint(print, AnnotatedString{String, Hue}("x", [(1:1, :face, Hue())]), context = :color => true) == "\e[31mx\e[39m"
+    @test sprint(print, AnnotatedString{String, Hue}("x", [(1:1, Hue())]), context = :color => true) == "\e[31mx\e[39m"
     # Escaping is applied to each run of text as it is styled
     @test sprint(escape_string, styled"{red:a\nb}", context = :color => true) == "\e[31ma\\nb\e[39m"
 end
@@ -1420,9 +1430,9 @@ end
         @test read(pipe, String) == "\e[31mhello\e[39m"
         # A char is written as a one-character string, against the same default face
         setface!(face"default" => Face(foreground = face"red"))
-        c = Base.AnnotatedChar('x', [(label = :face, value = Face(foreground = face"red")), (label = :link, value = StyledStrings.Link("https://x"))])
+        c = Base.AnnotatedChar('x', [Face(foreground = face"red"), StyledStrings.Link("https://x")])
         @test sprint(print, c, context = :color => true) ==
-            sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, StyledStrings.Link("https://x"))]), context = :color => true)
+            sprint(print, AnnotatedString("x", [(1:1, Face(foreground = face"red")), (1:1, StyledStrings.Link("https://x"))]), context = :color => true)
         resetfaces!(face"default")
         # The underline that stands in for italics is kept
         @test sprint(Base.AnnotatedDisplay.transition, MIME"text/plain"(), getface(Face(underline=true)).f, getface(Face(slant=:italic)).f) == "\e[4m"
@@ -1447,9 +1457,9 @@ end
     end
     # AnnotatedChar
     @test sprint(print, AnnotatedChar('a')) == "a"
-    @test sprint(print, AnnotatedChar('a', [(:face, face"red")]), context = :color => true) == "\e[31ma\e[39m"
+    @test sprint(print, AnnotatedChar('a', [face"red"]), context = :color => true) == "\e[31ma\e[39m"
     @test sprint(show, AnnotatedChar('a')) == "'a'"
-    @test sprint(show, AnnotatedChar('a', [(:face, face"red")]), context = :color => true) == "'\e[31ma\e[39m'"
+    @test sprint(show, AnnotatedChar('a', [face"red"]), context = :color => true) == "'\e[31ma\e[39m'"
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
         {bold: on top} of the {magenta:`{green:AnnotatedString}`} {link={https://en.wikipedia.org/wiki/Type_system}:type} \
@@ -1487,7 +1497,7 @@ end
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
     html = MIME("text/html")
     cssstate(faces...) = Base.AnnotatedDisplay.reduction(html, Face, Base.AnnotatedDisplay.context(html, Face),
-                                                          [(label = :face, value = f) for f in faces])
+                                                          collect(faces))
     csschange(from, to) = sprint(io -> Base.AnnotatedDisplay.transition(io, html, from, to))
     html_change(; attrs...) = csschange(cssstate(), cssstate(Face(; attrs...)))
     @test html_change(foreground=face"cyan") == "<span style=\"color: #0097a7;\">"
@@ -1531,7 +1541,7 @@ end
     # A link without a scheme is relative to the page, and only escaped
     for (link, href) in ("#sec" => "#sec", "../a b.html" => "../a%20b.html", "//cdn.example/x" => "//cdn.example/x",
                          "a\"b" => "a%22b", "https://x.y/z w" => "https://x.y/z%20w")
-        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, StyledStrings.Link(link))])) ==
+        @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, face"red"), (1:1, StyledStrings.Link(link))])) ==
             "<a href=\"$href\"><span style=\"color: #a51c2c;\">t</span></a>"
     end
     # One link across styled regions
@@ -1606,10 +1616,10 @@ end
     @test printstyled(aio, "f", color=208) |> isnothing
     @test annotations(read(seekstart(aio), AnnotatedString))[end].value.foreground == SimpleColor(0xff8700)
     # A message whose value type cannot hold a face is styled all the same
-    let linked = AnnotatedString("g", [(1:1, :link, "https://example.com")]), lio = AnnotatedIOBuffer()
+    let linked = AnnotatedString("g", [(1:1, "https://example.com")]), lio = AnnotatedIOBuffer()
         @test printstyled(lio, linked, "h", color=:red) |> isnothing
         @test annotations(read(seekstart(lio), AnnotatedString)) ==
-            [(region = 1:1, label = :link, value = "https://example.com"), (region = 1:2, label = :face, value = Face(foreground = face"red"))]
+            [(region = 1:1, value = "https://example.com"), (region = 1:2, value = Face(foreground = face"red"))]
     end
     let plain = AnnotatedString("i") # The faces are added to a copy, not to the caller's string
         printstyled(AnnotatedIOBuffer(), plain, bold = true)
@@ -1913,12 +1923,12 @@ end
         Full = FullCopy.StyledStrings
         sortcodes(s) = replace(s, r"(?:\e\[[0-9;]*m)+" => run -> join(sort([m.match for m in eachmatch(r"\e\[[0-9;]*m", run)])))
         theirs = Full.Face(weight = :bold, inverse = true)
-        allours = AnnotatedString("ab", [(1:1, :face, face"red"), (2:2, :face, Face(weight = :bold, inverse = true))])
-        mixed = AnnotatedString{String, Union{Face, Full.Face}}("ab", [(1:1, :face, face"red"), (2:2, :face, theirs)])
+        allours = AnnotatedString("ab", [(1:1, face"red"), (2:2, Face(weight = :bold, inverse = true))])
+        mixed = AnnotatedString{String, Union{Face, Full.Face}}("ab", [(1:1, face"red"), (2:2, theirs)])
         @test sortcodes(sprint(print, mixed; context = :color => true)) == sortcodes(sprint(print, allours; context = :color => true))
         @test sprint(show, MIME("text/html"), mixed) == sprint(show, MIME("text/html"), allours)
         # With an `Any` value type, in either order
-        for annots in ([(1:1, :face, face"red"), (2:2, :face, theirs)], [(2:2, :face, theirs), (1:1, :face, face"red")])
+        for annots in ([(1:1, face"red"), (2:2, theirs)], [(2:2, theirs), (1:1, face"red")])
             @test sortcodes(sprint(print, AnnotatedString{String, Any}("ab", annots); context = :color => true)) ==
                 sortcodes(sprint(print, allours; context = :color => true))
         end
@@ -1934,7 +1944,7 @@ end
             other === StyledStrings && (print("same copy"); exit())
             face = other.Face(foreground = :red, weight = :bold)
             ours = StyledStrings.Face(foreground = face"red", weight = :bold)
-            render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
+            render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, f)]); context = :color => true)
             print(render(face) == render(ours))
             """
         # Julia's own test suite runs this without an active project.

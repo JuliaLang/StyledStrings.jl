@@ -5,7 +5,7 @@ function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype || show(io, SimpleColor)
     skiptype || print(io, '(')
     if get(io, :color, false)::Bool
-        print(io, AnnotatedString("■", [(region=1:1, label=:face, value=Face(foreground=color))]), ' ')
+        print(io, AnnotatedString("■", [(1:1, Face(foreground=color))]), ' ')
     end
     if color.value isa RGBTuple
         (; r, g, b) = color.value
@@ -18,7 +18,7 @@ function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
         if !isnothing(name)
             print(io, name)
         else
-            print(io, AnnotatedString("(unregistered)", [(region=1:14, label=:face, value=face"grey")]))
+            print(io, AnnotatedString("(unregistered)", [(1:14, face"grey")]))
         end
     end
     skiptype || print(io, ')')
@@ -106,9 +106,6 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
     if get(io, :compact, false)::Bool
         if !isnothing(name)
             show(io, face)
-        # elseif get(io, :limit, false)::Bool
-        #     show(io, Face)
-        #     print(io, AnnotatedString("(sample)", [(region=2:7, label=:face, value=face)]))
         else
             show(io, Face)
             print(io, '(')
@@ -142,9 +139,9 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         show(io, Face)
         if !isnothing(name)
             print(io, ' ')
-            print(io, AnnotatedString(String(name), [(region=1:ncodeunits(String(name)), label=:face, value=Face(weight=:bold))]))
+            print(io, AnnotatedString(String(name), [(1:ncodeunits(String(name)), Face(weight=:bold))]))
         end
-        print(io, AnnotatedString(" (sample)", [(region=3:8, label=:face, value=face)]))
+        print(io, AnnotatedString(" (sample)", [(3:8, face)]))
         fieldnamepad = 14
         for field in (:font, :height, :weight, :slant)
             printfield(io, face, cface, field, print)
@@ -180,7 +177,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 for iface in cface.inherit
                     if isfirst; isfirst = false else print(io, ", ") end
                     iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
+                    print(io, iname, '(', AnnotatedString("*", [(1:1, iface)]), ')')
                 end
             end
             if isempty(face.inherit)
@@ -191,7 +188,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 for iface in face.inherit
                     if isfirst; isfirst = false else print(io, ", ") end
                     iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', AnnotatedString("*", [(region=1:1, label=:face, value=iface)]), ')')
+                    print(io, iname, '(', AnnotatedString("*", [(1:1, iface)]), ')')
                 end
                 print(io, styled"{light:)}")
             end
@@ -213,7 +210,7 @@ function Base.show(io::IO, face::Face)
             print(io, @view(strmac[2:thisind(strmac, end - 4)]), '"')
         end
         face = get(FACES.current[], face, face) # Get customised face
-        print(io, AnnotatedString(String(name), [(region=1:ncodeunits(String(name)), label=:face, value=face)]))
+        print(io, AnnotatedString(String(name), [(1:ncodeunits(String(name)), face)]))
         print(io, '"')
     end
 end

@@ -313,18 +313,14 @@ Substitute the faces annotating `s` according to `kv`, leaving other annotations
 
 ```jldoctest; setup = :(import StyledStrings: Face, remapfaces)
 julia> remapfaces(styled"some {red:important} text", face"red" => face"blue") |> annotations
-1-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Union{Face, StyledStrings.Link}}}:
- (region = 6:14, label = :face, value = face"blue")
+1-element Vector{@NamedTuple{region::UnitRange{Int64}, value::StyledStrings.StyledValue}}:
+ @NamedTuple{region::UnitRange{Int64}, value::StyledStrings.StyledValue}((6:14, face"blue"))
 ```
 """
 function remapfaces(s::AnnotatedString{S, V}, kv::Pair{Face, Face}...) where {S, V}
     remap = IdDict{Face, Face}(kv)
-    AnnotatedString{S, V}(s.string, map(annotations(s)) do (; region, label, value)
-        if value isa Face
-            (; region, label, value = get(remap, value, value))
-        else
-            (; region, label, value)
-        end
+    AnnotatedString{S, V}(s.string, map(annotations(s)) do (; region, value)
+        (; region, value = if value isa Face get(remap, value, value) else value end)
     end)
 end
 
@@ -404,36 +400,29 @@ _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(face
 Obtain the final merged face from `faces`, an iterator of
 [`Face`](@ref)s, face name `Symbol`s, and lists thereof.
 """
-getface(faces) = if isempty(faces) getface() else Face(resolvedef(faces)) end
-
-function resolvedef(faces)
-    default = resolvedef(STANDARD_FACES.default)
-    merged = mapfoldl(face -> _mergedface(face).f, merge, faces)::FaceDef
-    finalcolours(merge(default, merged), default)
-end
+getface(faces) = if isempty(faces) getface() else Face(mergedef(faces, FACES.cache[])) end
 
 """
-    resolvedef(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
+    resolvedef(values::AbstractVector, cache::FaceCache)
 
-Combine all of the annotations whose values are `Face`s, as with [`getface`](@ref), into a `FaceDef`.
+Combine the `Face`s among the annotation `values`, as with [`getface`](@ref), into a `FaceDef`.
 """
-function resolvedef(annotations::AbstractVector{<:NamedTuple{<:Any, <:Tuple{Vararg{Any}}}},
-                     cache::FaceCache = FACES.cache[]) # Of `(; label, value)`, with or without `region`
+function resolvedef(values::AbstractVector, cache::FaceCache)
     face = nothing # A single `Face`, the usual case, is resolved through the cache
-    for (; value) in annotations
+    for value in values
         value isa Face || continue
-        isnothing(face) || return mergeannotfaces(annotations, cache)
+        isnothing(face) || return mergedef(values, cache, Face)
         face = value
     end
     if isnothing(face) resolvedef(STANDARD_FACES.default, cache) else resolvedef(face, cache) end
 end
 
-# Merge the faces of several annotations, as `resolvedef(faces)` does
-function mergeannotfaces(annotations::AbstractVector, cache::FaceCache)
+# The faces among `faces` of type `T`, merged over the default face
+function mergedef(faces, cache::FaceCache, ::Type{T} = Any) where {T}
     merged = nothing
-    for (; value) in annotations
-        value isa Face || continue
-        def = _mergedface(value).f
+    for face in faces
+        face isa T || continue
+        def = _mergedface(face).f
         merged = if isnothing(merged) def else merge(merged, def) end
     end
     default = resolvedef(STANDARD_FACES.default, cache)
@@ -494,14 +483,14 @@ getface() = getface(STANDARD_FACES.default)
 
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
-getface(s::AnnotatedString, i::Integer) = Face(resolvedef(annotations(s, i)))
+getface(s::AnnotatedString, i::Integer) = Face(resolvedef([a.value for a in annotations(s, i)], FACES.cache[]))
 
 """
     getface(c::AnnotatedChar)
 
 Get the merged [`Face`](@ref) that applies to `c`.
 """
-getface(c::AnnotatedChar) = Face(resolvedef(c.annotations))
+getface(c::AnnotatedChar) = Face(resolvedef(c.annotations, FACES.cache[]))
 
 """
     face!(str::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}},
@@ -512,7 +501,7 @@ Apply `face` to `str`, along `range` if specified or the whole of `str`.
 function face! end
 
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRange{Int}, face::Face) =
-    annotate!(s, range, :face, face)
+    annotate!(s, range, face)
 
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, face) =
     face!(s, firstindex(s):lastindex(s), face)
@@ -527,7 +516,7 @@ end
 
 # Deprecated API
 face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRange{Int}, face::Symbol) =
-    annotate!(s, range, :face, lookmakeface(face))
+    annotate!(s, range, lookmakeface(face))
 
 
 ## Reading face definitions from a dictionary ##

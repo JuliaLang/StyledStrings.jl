@@ -112,7 +112,6 @@ mutable struct MacroOutput
         region::UnitRange{Int},
         loff::Union{Symbol, Nothing},
         roff::Union{Symbol, Nothing},
-        label::Union{Symbol, QuoteNode, Expr},
         value::Any}}
     const interpolations::Vector{@NamedTuple{
         startpos::Int,
@@ -127,7 +126,6 @@ struct FnOutput
     strs::Vector{String}
     annots::Vector{@NamedTuple{
         region::UnitRange{Int},
-        label::Symbol,
         value::StyledValue}}
     rfaces::Dict{String, Face}
     skipothers::Bool # Skip `key=value` annotations other than faces and links, rather than reject them
@@ -204,11 +202,11 @@ function offadd!(state::State{MacroOutput}, delta::Union{Int, Symbol, Expr})
 end
 
 """
-    annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr})
+    annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr, Type})
 
 Promote the annotation value type in `state.out` to include `newvaltype`.
 """
-function annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr})
+function annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr, Type})
     newavtype = gensym(:avtype)
     push!(state.out.lets, :($newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), $newvaltype)))
     state.out.avtype = newavtype
@@ -331,7 +329,7 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     if isempty(state.s)
         styerr!(state,
                 AnnotatedString("Identifier or parenthesised expression expected after \$ in string",
-                                [(55:55, :face, FACES.pool[:warning])]),
+                                [(55:55, FACES.pool[:warning])]),
                 -1, "right here")
         return "", pos
     end
@@ -555,9 +553,9 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                         valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
                         styerr!(state,
                                 AnnotatedString("Invalid underline style '$ustyle_word' (should be $valid_options)",
-                                                [(26:25+ncodeunits(ustyle_word), :face, FACES.pool[:warning])
+                                                [(26:25+ncodeunits(ustyle_word), FACES.pool[:warning])
                                                  (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
-                                                  :face, FACES.pool[:light])]),
+                                                  FACES.pool[:light])]),
                                 -length(ustyle_word) - 2)
                     end
                     ustyle = QuoteNode(Symbol(ustyle_word))
@@ -695,7 +693,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 stop = if isempty(state.s) lastindex(state.content) + 1 else first(peek(state.s)) end
                 invalid = rstrip(∈((' ', '\t', '\n', '\r', ',', ')')), state.content[start:prevind(state.content, stop)])
                 styerr!(state, AnnotatedString("Invalid height '$invalid', should be a natural number or positive float",
-                                                [(17:16+ncodeunits(invalid), :face, FACES.pool[:warning])]),
+                                                [(17:16+ncodeunits(invalid), FACES.pool[:warning])]),
                         prevind(state.content, start))
             end
         elseif key ∈ (:weight, :slant)
@@ -703,16 +701,16 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             if key == :weight && v ∉ VALID_WEIGHTS
                 valid_options = join(VALID_WEIGHTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid weight '$v' (should be $valid_options)",
-                                                [(17:16+ncodeunits(v), :face, FACES.pool[:warning]),
+                                                [(17:16+ncodeunits(v), FACES.pool[:warning]),
                                                  (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
-                                                  :face, FACES.pool[:light])]),
+                                                  FACES.pool[:light])]),
                         -length(v) - 2)
             elseif key == :slant && v ∉ VALID_SLANTS
                 valid_options = join(VALID_SLANTS, ", ", ", or ")
                 styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
-                                                [(16:15+ncodeunits(v), :face, FACES.pool[:warning]),
+                                                [(16:15+ncodeunits(v), FACES.pool[:warning]),
                                                  (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
-                                                  :face, FACES.pool[:light])]),
+                                                  FACES.pool[:light])]),
                         -length(v) - 2)
             end
             Symbol(v) |> if ismacro(state) QuoteNode else identity end
@@ -741,7 +739,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         else
             styerr!(state, AnnotatedString(
                 "Uses unrecognised face key '$key'. Recognised keys are: $(join(VALID_FACE_ATTRS, ", ", ", and "))",
-                [(29:28+ncodeunits(String(key)), :face, FACES.pool[:warning])]),
+                [(29:28+ncodeunits(String(key)), FACES.pool[:warning])]),
                     -length(str_key) - 2)
         end
         let key = key # Avoid boxing from closure capture
@@ -751,7 +749,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 push!(kwargs, key => val)
             else
                 styerr!(state, AnnotatedString("Contains repeated face key '$key'",
-                                                [(29:28+ncodeunits(String(key)), :face, FACES.pool[:warning])]),
+                                                [(29:28+ncodeunits(String(key)), FACES.pool[:warning])]),
                         keypos)
             end
         end
@@ -776,9 +774,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     else
         Face(; NamedTuple(kwargs)...)
     end
-    addannot!(state, i,
-              if ismacro(state) QuoteNode(:face) else :face end,
-              faceval)
+    addannot!(state, i, faceval)
 end
 
 """
@@ -822,30 +818,20 @@ function resolveface(state::State, facename::String)
 end
 
 """
-    addannot!(state::State, i::Int, label, value)
+    addannot!(state::State, i::Int, value)
 
-Create a new annotation in `state.out` at position `i`, with `label` and `value`.
+Create a new annotation in `state.out` at position `i`, with `value`.
 
 An identical annotation opened at the same position (as in `{red:{red:x}}`) is
 reused instead, provided it is the most recent one: any annotation added since
 takes precedence over it.
 """
-function addannot!(state::State, i::Int, label, value)
+function addannot!(state::State, i::Int, value)
     region = (i + state.offset):typemax(Int)
     styannot = if ismacro(state)
-        (region = region,
-         loff = state.out.dynoff,
-         roff = nothing,
-         label = if label isa String
-             QuoteNode(Symbol(label))
-         else
-             label
-         end,
-         value = value)
+        (; region, loff = state.out.dynoff, roff = nothing, value)
     else
-        (region = region,
-         label = Symbol(label),
-         value = value)
+        (; region, value)
     end
     prev = if isempty(state.out.annots) nothing else last(state.out.annots) end
     if prev == styannot && (!(prev.value isa Face) || prev.value === styannot.value)
@@ -915,22 +901,15 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         elseif ismacro(state) && nextchar == '$'
             expr, _ = readexpr!(state)
             needseval = true
-            vvar = if expr isa Symbol && key ∉ ("face", "link")
+            if key == "face"
+                :($interpfaceannot($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
+            elseif key == "link"
+                :($convert($Link, $(bindexpr!(state, expr))))
+            elseif expr isa Symbol
                 esc(expr)
             else
-                vsym = gensym(:value)
-                value = if key == "face"
-                    :($interpfaceannot($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
-                elseif key == "link"
-                    :($convert($Link, $(bindexpr!(state, expr))))
-                else
-                    bindexpr!(state, expr)
-                end
-                push!(state.out.lets, :($vsym = $value))
-                vsym
+                bindexpr!(state, expr)
             end
-            annotpromote!(state, :(typeof($vvar)))
-            vvar
         elseif nextchar == '{'
             read_curlywrapped!(state)
         else
@@ -951,10 +930,20 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
                 styerr!(state, "Only faces and links are annotations in `styled(…)`; '$key' needs the \
                                 `styled\"…\"` macro, or `skipothers = true` to skip it", prevind(state.content, keystart))
             return
-        elseif value isa String
-            annotpromote!(state, :String)
+        elseif key isa String && key ∉ ("face", "link") # A property, as an untyped annotation
+            value = :($(Pair{Symbol, Any})($(QuoteNode(Symbol(key))), $value))
+            annotpromote!(state, Pair{Symbol, Any})
+        else # Evaluated once: an interpolated face or link, or the value of an interpolated key
+            vsym = gensym(:value)
+            push!(state.out.lets, :($vsym = $(if key isa String
+                                                  value
+                                              else
+                                                  :($interpkeyvalue($key, $value, $(state.out.mod), $(state.strict)))
+                                              end)))
+            annotpromote!(state, :(typeof($vsym)))
+            value = vsym
         end
-        addannot!(state, i, key, value)
+        addannot!(state, i, value)
     elseif key !== ""
         face = if !ismacro(state)
             get!(state.out.rfaces, key) do
@@ -976,9 +965,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
                 fval
             end
         end
-        addannot!(state, i,
-                  if ismacro(state) QuoteNode(:face) else :face end,
-                  face)
+        addannot!(state, i, face)
     end
 end
 
@@ -1033,6 +1020,13 @@ interpattr(value::AbstractString, mod::Module, strict::Bool) =
 interpattr((color, style)::Tuple{Any, Symbol}, mod::Module, strict::Bool) = (interpattr(color, mod, strict), style)
 interpattr(value, ::Module, ::Bool) = value
 
+function interpkeyvalue(key, value, mod::Module, strict::Bool)
+    name = Symbol(key)
+    if name === :link convert(Link, value)
+    elseif name === :face interpfaceannot(value, mod, strict)
+    else Pair{Symbol, Any}(name, value) end
+end
+
 interpunderline(value::Symbol, mod::Module, strict::Bool) =
     if value in ATTRIBUTES.underlines value else interpface(value, mod, strict) end
 interpunderline(value::AbstractString, ::Module, ::Bool) = value # A hex colour, as `Face` requires
@@ -1069,7 +1063,7 @@ function run_state_machine!(state::State)
     end
     for (; source) in state.activestyles
         styerr!(state, AnnotatedString("Incomplete annotation (missing closing '}')",
-                                        [(41:41, :face, FACES.pool[:warning])]),
+                                        [(41:41, FACES.pool[:warning])]),
                 prevind(state.content, source), "starts here")
     end
 end
@@ -1109,14 +1103,14 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                         interp_annot_count = interp_annot_count + $annlen
                         $newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), typeofval(eltype($iavar)))
                     else
-                        $iavar = $(@NamedTuple{region::UnitRange{Int}, label::Symbol, value::Face}[])
+                        $iavar = $(@NamedTuple{region::UnitRange{Int}, value::Face}[])
                         $newavtype = $(something(state.out.avtype, StyledValue))
                     end
                 end).args)
         state.out.avtype = newavtype
     end
     iexprs = Union{Expr, LineNumberNode}[]
-    avtype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, StyledValue))}})
+    avtype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(something(state.out.avtype, StyledValue))}})
     # Special case: a single interpolation that starts at position 1
     if length(interps) == 1 && first(interps).startpos == 1 && first(interps).annotidx == lastindex(state.out.annots) + 1
         append!(state.out.lets,
@@ -1163,7 +1157,6 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                             anni = $annots[i]
                             $newavar[$(annotidx - 1) + annot_offset + i] =
                                 (; region = (first(anni.region) + ioffset):(last(anni.region) + ioffset),
-                                   label = anni.label,
                                    value = anni.value)
                         end
                         annot_offset = annot_offset + length($annots)
@@ -1188,7 +1181,7 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     newavar
 end
 
-typeofval(::Type{@NamedTuple{region::UnitRange{Int}, label::Symbol, value::T}}) where {T} = T
+typeofval(::Type{@NamedTuple{region::UnitRange{Int}, value::T}}) where {T} = T
 
 """
     @styled_str -> AnnotatedString
@@ -1197,7 +1190,8 @@ Construct a styled string. Within the string, `{<specs>:<content>}` structures
 apply the formatting to `<content>`, according to the list of comma-separated
 specifications `<specs>`. Each spec can either take the form of a face name,
 an inline face specification, or a `key=value` pair. The value must be wrapped
-by `{...}` should it contain any of the characters `,=:{}`.
+by `{...}` should it contain any of the characters `,=:{}`. A `link=` pair annotates
+with a [`Link`](@ref), and any other key with a `key => value` `Pair{Symbol, Any}`.
 
 String interpolation with `\$` functions in the same way as regular strings,
 except quotes need to be escaped. Faces, keys, and values can also be
@@ -1294,7 +1288,7 @@ macro styled_str(raw_content::String)
     else
         :(string($(state.out.strs...)))
     end
-    annots = map(state.out.annots) do (; region, label, value, loff, roff)
+    annots = map(state.out.annots) do (; region, value, loff, roff)
         start, stop = first(region), last(region)
         if !isnothing(loff)
             start = :($start + $loff)
@@ -1302,9 +1296,9 @@ macro styled_str(raw_content::String)
         if !isnothing(roff)
             stop = :($stop + $roff)
         end
-        Expr(:tuple, Expr(:call, :(:), start, stop), label, value) # Converted to `atype` as the vector is built
+        Expr(:tuple, Expr(:call, :(:), start, stop), value) # Converted to `atype` as the vector is built
     end
-    atype = :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, $(something(state.out.avtype, StyledValue))}})
+    atype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(something(state.out.avtype, StyledValue))}})
     avec = :($atype[$(annots...)])
     aexp = :($AnnotatedString($astr, $avec))
     if !isempty(state.out.interpolations)

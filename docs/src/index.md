@@ -52,7 +52,7 @@ styled"{yellow:hello} {blue:there}"
 
 It is sometimes useful to be able to hold metadata relating to regions of a
 string. A [`AnnotatedString`](@ref Base.AnnotatedString) wraps another string and
-allows for regions of it to be annotated with labelled values (`:label => value`).
+allows for regions of it to be annotated with values, whose types say what they are.
 All generic string operations are applied to the underlying string. However,
 when possible, styling information is preserved. This means you can manipulate a
 [`AnnotatedString`](@ref Base.AnnotatedString) —taking substrings, padding them,
@@ -60,9 +60,9 @@ concatenating them with other strings— and the metadata annotations will "come
 along for the ride".
 
 This string type is fundamental to the [StyledStrings stdlib](@ref
-stdlib-styledstrings), which uses `:face`-labelled annotations to hold styling
-information, but arbitrary textual metadata can also be held with the string,
-such as part of speech labels.
+stdlib-styledstrings), which annotates with [`Face`](@ref StyledStrings.Face) values to
+hold styling information, but arbitrary metadata can also be held with the string, such as
+parts of speech.
 
 The annotations of a [`AnnotatedString`](@ref Base.AnnotatedString) can be
 accessed and modified via the [`annotations`](@ref StyledStrings.annotations)
@@ -73,7 +73,7 @@ and return a `String`. To preserve annotations, use [`annotatedstring`](@ref
 StyledStrings.annotatedstring) instead.
 
 ```jldoctest
-julia> str = AnnotatedString("hello there", [(1:5, :pos, :interjection), (7:11, :pos, :pronoun)])
+julia> str = AnnotatedString("hello there", [(1:5, :interjection), (7:11, :pronoun)])
 "hello there"
 
 julia> lpad(str, 14)
@@ -82,17 +82,17 @@ julia> lpad(str, 14)
 julia> typeof(lpad(str, 7))
 AnnotatedString{String, Symbol}
 
-julia> str2 = AnnotatedString(" julia", [(2:6, :pos, :noun)])
+julia> str2 = AnnotatedString(" julia", [(2:6, :noun)])
 " julia"
 
 julia> str3 = Base.annotatedstring(str, str2)
 "hello there julia"
 
 julia> Base.annotations(str3)
-3-element Vector{@NamedTuple{region::UnitRange{Int64}, label::Symbol, value::Symbol}}:
- (region = 1:5, label = :pos, value = :interjection)
- (region = 7:11, label = :pos, value = :pronoun)
- (region = 13:17, label = :pos, value = :noun)
+3-element Vector{@NamedTuple{region::UnitRange{Int64}, value::Symbol}}:
+ (region = 1:5, value = :interjection)
+ (region = 7:11, value = :pronoun)
+ (region = 13:17, value = :noun)
 
 julia> str * str2 == str3 # *-concatenation works
 true
@@ -327,9 +327,8 @@ This capability is most valuable when reaching for colors in-between those offer
 
 ### [Applying faces to a `AnnotatedString`](@id stdlib-styledstrings-applying-faces)
 
-By convention, the `:face` attributes of a [`AnnotatedString`](@ref
-Base.AnnotatedString) hold information on the [`Face`](@ref StyledStrings.Face)s
-that currently apply. 
+The [`Face`](@ref StyledStrings.Face) values annotating a [`AnnotatedString`](@ref
+Base.AnnotatedString) are the faces that apply to it.
 
 !!! compat "Julia 1.14"
     Before Julia 1.14, a face could also be given by a `Symbol` naming it, or by a vector
@@ -337,15 +336,15 @@ that currently apply.
     such as `face"bold"` for `:bold`, or a `Face` that inherits from several faces.
 
 The `show(::IO, ::MIME"text/plain", ::AnnotatedString)` and `show(::IO,
-::MIME"text/html", ::AnnotatedString)` methods both look at the `:face` attributes
+::MIME"text/html", ::AnnotatedString)` methods both look at the `Face` annotations
 and merge them all together when determining the overall styling.
 
-We can supply `:face` attributes to a `AnnotatedString` during construction, add
-them to the properties list afterwards, or use the convenient [Styled String
-literals](@ref stdlib-styledstring-literals).
+We can supply `Face` annotations to a `AnnotatedString` during construction, add
+them afterwards with [`annotate!`](@ref StyledStrings.annotate!), or use the convenient
+[Styled String literals](@ref stdlib-styledstring-literals).
 
 ```@repl demo
-str1 = AnnotatedString("blue text", [(1:9, :face, face"blue")])
+str1 = AnnotatedString("blue text", [(1:9, face"blue")])
 str2 = styled"{blue:blue text}"
 str1 == str2
 sprint(print, str1, context = :color => true)
@@ -366,7 +365,8 @@ constructs.
 The `annotations...` component is a comma-separated list of three types of annotations.
 - Face names (resolved using the same process described for `face""`)
 - Inline `Face` expressions `(key=val,...)`
-- `key=value` pairs
+- `key=value` pairs: `link=` gives a [`Link`](@ref StyledStrings.Link), and any other key
+  a `key => value` annotation, as a `Pair{Symbol, Any}`
 
 In a module that defines or imports a palette, a face name that cannot be
 resolved is an error when the literal is expanded. Elsewhere the name is looked
