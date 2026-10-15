@@ -344,6 +344,10 @@ end
 
 Base.convert(::Type{Link}, uri::AbstractString) = Link(uri)
 
+# The faces and links of the labelled annotations that Base deprecates
+Base.labelled_kind(::Val{:face}) = Face
+Base.labelled_kind(::Val{:link}) = Link
+
 """
     StyledValue
 

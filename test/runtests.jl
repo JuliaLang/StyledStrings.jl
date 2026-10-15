@@ -1164,6 +1164,12 @@ end
         @test only(annotations(styled"{$face=$red:y}")).value === face"red"
         @test only(annotations(styled"{$note=a:y}")).value == (:note => "a")
     end
+    # Deleting by the labels that Base deprecates removes faces and links
+    let s = styled"{red,link={https://x},n=$(1):a}"
+        Base.annotate!(s, 1:1, :face, nothing)
+        Base.annotate!(s, 1:1, :link, nothing)
+        @test annotations(s) == [(region = 1:1, value = :n => 1)]
+    end
     # The value type follows from the argument types, not from whether they are annotated
     boldafter(a) = styled"{bold:x} $a"
     @test typeof(boldafter(styled("y"))) == typeof(boldafter(styled("{red:y}")))
