@@ -320,7 +320,7 @@ julia> remapfaces(styled"some {red:important} text", face"red" => face"blue") |>
 function remapfaces(s::AnnotatedString{S, V}, kv::Pair{Face, Face}...) where {S, V}
     remap = IdDict{Face, Face}(kv)
     AnnotatedString{S, V}(s.string, map(annotations(s)) do (; region, label, value)
-        if label === :face && value isa Face
+        if value isa Face
             (; region, label, value = get(remap, value, value))
         else
             (; region, label, value)
@@ -397,75 +397,6 @@ withfaces(f) = f()
 _mergedface(face::Face) = get(FACES.current[], face, face)
 _mergedface(face::Symbol) = _mergedface(lookmakeface(face))
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
-_mergedface(face::Any) = _mergedface(foreignface(face))
-
-"""
-    foreignface(face) -> Face
-
-Rebuild `face`, a `Face` from another loaded copy of StyledStrings, as one of ours.
-
-The REPL runs on a private copy of the stdlib, which is not necessarily the one user code
-loads (see `Base.require_stdlib`). Each copy displays its own faces, but a string may hold
-faces of both copies, so faces of one can reach the other's `getface`.
-
-Named faces (base colours included) map to ours by identity, so that self-referential base
-faces terminate and theme overrides keyed on the equivalent face still apply. Other faces
-with our `FaceDef` layout are copied field by field, those with our properties are rebuilt
-from them, and anything else is a `MethodError`. A face name `Symbol`, which is how pre-1.14
-copies refer to colours and inheritance, is looked up as ours. A value of another type is
-converted with `convert(Face, face)`.
-"""
-function foreignface(face)
-    T = typeof(face)
-    other = parentmodule(T)
-    color(::Nothing) = nothing
-    color(c)::Union{RGBTuple, Face} = if c.value isa RGBTuple c.value else foreignface(c.value) end
-    samelayout(t, s) = if t isa Union && s isa Union
-        issetequal(map(nameof, Base.uniontypes(t)), map(nameof, Base.uniontypes(s)))
-    else
-        !(t isa Union || s isa Union) && nameof(t) == nameof(s)
-    end
-    if nameof(other) !== :StyledStrings || nameof(T) !== :Face
-        return convert(Face, face)::Face
-    end
-    name = if isdefined(other, :FACES) && hasproperty(other.FACES, :names) get(other.FACES.names, face, nothing) end
-    named = if !isnothing(name) get(FACES.pool, name, nothing) end
-    isnothing(named) || return named
-    if hasfield(T, :f) && fieldnames(fieldtype(T, :f)) == fieldnames(FaceDef) &&
-        all(splat(samelayout), zip(fieldtypes(fieldtype(T, :f)), fieldtypes(FaceDef)))
-        # Same layout: copy the fields, replacing only the nothings and the references to `other`'s faces
-        def = getfield(face, :f)
-        attr(x) = if x isa other.WeakNothing
-            WeakNothing()
-        elseif x isa other.StrongNothing
-            StrongNothing()
-        elseif x isa other.Face
-            foreignface(x)
-        else
-            x
-        end
-        Face(FaceDef(attr(def.font), attr(def.foreground), attr(def.background), attr(def.underline),
-                     def.height, def.weight, def.slant, def.underline_style, def.strikethrough, def.inverse,
-                     Face[foreignface(f) for f in def.inherit].ref.mem))
-    elseif issetequal(propertynames(face), propertynames(EMPTY_FACE))
-        underline = face.underline
-        Face(font = face.font, height = face.height, weight = face.weight, slant = face.slant,
-             foreground = color(face.foreground), background = color(face.background),
-             underline = if underline isa Tuple
-                             (color(underline[1]), underline[2])
-                         elseif underline isa Union{Nothing, Bool, Symbol}
-                             underline
-                         else
-                             color(underline)
-                         end,
-             strikethrough = face.strikethrough, inverse = face.inverse,
-             inherit = Face[foreignface(f) for f in face.inherit])
-    else
-        throw(MethodError(_mergedface, (face,)))
-    end
-end
-
-foreignface(name::Symbol) = lookmakeface(name)
 
 """
     getface(faces)
@@ -484,25 +415,25 @@ end
 """
     resolvedef(annotations::AbstractVector{@NamedTuple{label::Symbol, value}}, cache = FACES.cache[])
 
-Combine all of the `:face` annotations, as with [`getface`](@ref), into a `FaceDef`.
+Combine all of the annotations whose values are `Face`s, as with [`getface`](@ref), into a `FaceDef`.
 """
 function resolvedef(annotations::AbstractVector{<:NamedTuple{<:Any, <:Tuple{Vararg{Any}}}},
                      cache::FaceCache = FACES.cache[]) # Of `(; label, value)`, with or without `region`
     face = nothing # A single `Face`, the usual case, is resolved through the cache
-    for ann in annotations
-        ann.label === :face || continue
-        isnothing(face) && ann.value isa Face || return mergeannotfaces(annotations, cache)
-        face = ann.value::Face
+    for (; value) in annotations
+        value isa Face || continue
+        isnothing(face) || return mergeannotfaces(annotations, cache)
+        face = value
     end
     if isnothing(face) resolvedef(STANDARD_FACES.default, cache) else resolvedef(face, cache) end
 end
 
-# Merge the faces of several `:face` annotations, as `resolvedef(faces)` does
+# Merge the faces of several annotations, as `resolvedef(faces)` does
 function mergeannotfaces(annotations::AbstractVector, cache::FaceCache)
     merged = nothing
-    for ann in annotations
-        ann.label === :face || continue
-        def = _mergedface(ann.value).f
+    for (; value) in annotations
+        value isa Face || continue
+        def = _mergedface(value).f
         merged = if isnothing(merged) def else merge(merged, def) end
     end
     default = resolvedef(STANDARD_FACES.default, cache)

@@ -324,8 +324,8 @@ end
     resetfaces!(face"default")
     @test getface() === face"default"
     with_terminfo(vt100) do
-        setface!(face"default" => Face(weight=:bold))
-        @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "\e[1mx\e[22my"
+        setface!(face"default" => Face(weight=:bold)) # The terminal's look, which display starts and ends at
+        @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "x\e[22my\e[1m"
         resetfaces!(face"default")
     end
     # Loading from TOML (a Dict)
@@ -1301,21 +1301,18 @@ end
 # Markup fuzzing!
 styfuzz()
 
+# A value type shown through faces, by giving its values as faces
 struct Hue end
-Base.AnnotatedDisplay.AnnotationStyle(::Type{Hue}) = StyledStrings.Styled()
 Base.convert(::Type{Face}, ::Hue) = face"red"
+Base.AnnotatedDisplay.context(m::MIME, ::Type{Hue}) = Base.AnnotatedDisplay.context(m, Face)
+Base.AnnotatedDisplay.reduction(m::MIME, ::Type{Hue}, cache, annotations) =
+    Base.AnnotatedDisplay.reduction(m, Face, cache, [(label = a.label, value = convert(Face, a.value)) for a in annotations if a.value isa Hue])
 
 struct CallableWriter end
 (::CallableWriter)(io::IO, s) = print(io, s)
 
-@testset "Annotation styles" begin
-    AnnotationStyle, NoStyle = Base.AnnotatedDisplay.AnnotationStyle, Base.AnnotatedDisplay.NoStyle
-    @test sprint(io -> Base.AnnotatedDisplay.awrite(CallableWriter(), StyledStrings.Styled(), io, styled"{red:a}"),
-                 context = :color => true) == "\e[31ma\e[39m"
-    @test AnnotationStyle(Face) === StyledStrings.Styled()
-    @test AnnotationStyle(Union{Face, String}) === AnnotationStyle(Union{String, Int, Face}) === StyledStrings.Styled()
-    @test AnnotationStyle(StyledStrings.Link) === StyledStrings.Styled()
-    @test AnnotationStyle(String) === NoStyle()
+@testset "Display" begin
+    @test sprint(io -> Base.AnnotatedDisplay.render(CallableWriter(), MIME("text/plain"), io, styled"{red:a}")) == "\e[31ma\e[39m"
     red(V) = AnnotatedString{String, V}("x", [(1:1, :face, face"red"), (1:1, :n, 1)])
     @test sprint(print, red(Union{Face, Int}), context = :color => true) == "\e[31mx\e[39m"
     @test sprint(print, red(Any), context = :color => true) == "\e[31mx\e[39m"
@@ -1324,14 +1321,14 @@ struct CallableWriter end
     @test sprint(show, MIME("text/html"), styled"{red:<}"[1]) == sprint(show, MIME("text/html"), styled"{red:<}")
     # Regions whose face is unchanged add no span
     @test sprint(show, MIME("text/html"), styled"{red:a{link={https://x}:b}c}") ==
-        "<span style=\"color: #a51c2c\">a<a href=\"https://x\">b</a>c</span>"
+        "<span style=\"color: #a51c2c;\">a<a href=\"https://x\">b</a>c</span>"
     # A link is a `Link`, and any other `:link` value is skipped
     oddlink = AnnotatedString{String, Any}("x", [(1:1, :face, face"red"), (1:1, :link, 1), (1:1, :link, "https://x")])
     @test sprint(print, oddlink, context = :color => true) == "\e[31mx\e[39m"
     @test !occursin("<a", sprint(show, MIME("text/html"), oddlink))
     # A link spanning several styled regions is one hyperlink
     @test sprint(print, styled"{link={https://x.org}:{bold:a}b} c", context = :color => true) ==
-        "\e]8;;https://x.org\e\\\e[1ma\e[22mb\e]8;;\e\\ c"
+        "\e[1m\e]8;;https://x.org\e\\a\e[22mb\e]8;;\e\\ c"
     # Another value type is displayed through `convert(Face, value)`
     @test sprint(print, AnnotatedString{String, Hue}("x", [(1:1, :face, Hue())]), context = :color => true) == "\e[31mx\e[39m"
     # Escaping is applied to each run of text as it is styled
@@ -1350,10 +1347,10 @@ end
 end
 
 @testset "ANSI encoding" begin
-    # A customised default face applies to unannotated text as to the rest
+    # A customised default face is the output's own look: plain text is written as it is
     setface!(face"default" => Face(foreground = face"green"))
-    @test sprint(print, styled"plain", context = :color => true) == "\e[32mplain\e[39m"
-    @test sprint(print, styled"plain {bold:x}", context = :color => true) == "\e[32mplain \e[1mx\e[39m\e[22m"
+    @test sprint(print, styled"plain", context = :color => true) == "plain"
+    @test sprint(print, styled"plain {bold:x}", context = :color => true) == "plain \e[1mx\e[22m"
     resetfaces!(face"default")
     @test sprint(print, styled"plain", context = :color => true) == "plain"
     # Link formatting
@@ -1400,8 +1397,8 @@ end
     function ansi_change(; attrs...)
         face = getface(Face(; attrs...))
         dface = getface()
-        sprint(StyledStrings.termstyle, face.f, dface.f),
-        sprint(StyledStrings.termstyle, dface.f, face.f)
+        sprint(Base.AnnotatedDisplay.transition, MIME"text/plain"(), dface.f, face.f),
+        sprint(Base.AnnotatedDisplay.transition, MIME"text/plain"(), face.f, dface.f)
     end
     with_terminfo(vt100) do
         @test ansi_change(foreground=face"cyan") == ("\e[36m", "\e[39m")
@@ -1428,7 +1425,7 @@ end
             sprint(print, AnnotatedString("x", [(1:1, :face, Face(foreground = face"red")), (1:1, :link, StyledStrings.Link("https://x"))]), context = :color => true)
         resetfaces!(face"default")
         # The underline that stands in for italics is kept
-        @test sprint(StyledStrings.termstyle, getface(Face(slant=:italic)).f, getface(Face(underline=true)).f) == "\e[4m"
+        @test sprint(Base.AnnotatedDisplay.transition, MIME"text/plain"(), getface(Face(underline=true)).f, getface(Face(slant=:italic)).f) == "\e[4m"
         @test ansi_change(underline=true) == ("\e[4m", "\e[24m")
         @test ansi_change(underline=face"green") == ("\e[4m", "\e[24m")
         @test ansi_change(strikethrough=true) == ("", "")
@@ -1488,45 +1485,46 @@ end
     @test sprint(StyledStrings.htmlcolor, getface(face"warning").foreground) == "#e5a509"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(Face())) == "#ff00ff"
     @test sprint(StyledStrings.htmlcolor, SimpleColor(0x40, 0x63, 0xd8)) == "#4063d8"
-    function html_change(; attrs...)
-        face = getface(Face(; attrs...))
-        sprint(StyledStrings.htmlstyle, face.f)
-    end
-    @test html_change(foreground=face"cyan") == "<span style=\"color: #0097a7\">"
-    @test html_change(background=face"cyan") == "<span style=\"background-color: #0097a7\">"
-    @test html_change(weight=:bold) == "<span style=\"font-weight: 700\">"
-    @test html_change(weight=:extrabold) == "<span style=\"font-weight: 800\">"
-    @test html_change(weight=:light) == "<span style=\"font-weight: 300\">"
+    html = MIME("text/html")
+    cssstate(faces...) = Base.AnnotatedDisplay.reduction(html, Face, Base.AnnotatedDisplay.context(html, Face),
+                                                          [(label = :face, value = f) for f in faces])
+    csschange(from, to) = sprint(io -> Base.AnnotatedDisplay.transition(io, html, from, to))
+    html_change(; attrs...) = csschange(cssstate(), cssstate(Face(; attrs...)))
+    @test html_change(foreground=face"cyan") == "<span style=\"color: #0097a7;\">"
+    @test html_change(background=face"cyan") == "<span style=\"background-color: #0097a7;\">"
+    @test html_change(weight=:bold) == "<span style=\"font-weight: 700;\">"
+    @test html_change(weight=:extrabold) == "<span style=\"font-weight: 800;\">"
+    @test html_change(weight=:light) == "<span style=\"font-weight: 300;\">"
     @test html_change(foreground=face"blue", background=face"red", inverse=true) ==
-        "<span style=\"color: #a51c2c; background-color: #195eb3\">"
-    @test html_change(slant=:italic) == "<span style=\"font-style: italic\">"
-    @test html_change(height=180) == "<span style=\"font-size: 18pt\">"
-    @test html_change(height=185) == "<span style=\"font-size: 18.5pt\">"
-    @test html_change(font="Mono's \"x\"") == "<span style=\"font-family: 'Mono\\'s &quot;x&quot;'\">"
-    @test html_change(underline=true) == "<span style=\"text-decoration: underline\">"
-    @test html_change(underline=face"green") == "<span style=\"text-decoration: #25a268 underline\">"
-    @test html_change(underline=:straight) == "<span style=\"text-decoration: underline\">"
-    @test html_change(underline=:double) == "<span style=\"text-decoration: double underline\">"
-    @test html_change(underline=:curly)  == "<span style=\"text-decoration: wavy underline\">"
-    @test html_change(underline=(face"foreground", :curly)) == "<span style=\"text-decoration: wavy underline\">"
-    @test html_change(underline=:dotted) == "<span style=\"text-decoration: dotted underline\">"
-    @test html_change(underline=:dashed) == "<span style=\"text-decoration: dashed underline\">"
-    @test html_change(underline=(face"cyan", :double)) == "<span style=\"text-decoration: #0097a7 double underline\">"
-    @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through\">"
+        "<span style=\"color: #a51c2c;background-color: #195eb3;\">"
+    @test html_change(slant=:italic) == "<span style=\"font-style: italic;\">"
+    @test html_change(height=180) == "<span style=\"font-size: 18pt;\">"
+    @test html_change(height=185) == "<span style=\"font-size: 18.5pt;\">"
+    @test html_change(font="Mono's \"x\"") == "<span style=\"font-family: 'Mono\\'s &quot;x&quot;';\">"
+    @test html_change(underline=true) == "<span style=\"text-decoration: underline;\">"
+    @test html_change(underline=face"green") == "<span style=\"text-decoration: #25a268 underline;\">"
+    @test html_change(underline=:straight) == "<span style=\"text-decoration: underline;\">"
+    @test html_change(underline=:double) == "<span style=\"text-decoration: double underline;\">"
+    @test html_change(underline=:curly)  == "<span style=\"text-decoration: wavy underline;\">"
+    @test html_change(underline=(face"foreground", :curly)) == "<span style=\"text-decoration: wavy underline;\">"
+    @test html_change(underline=:dotted) == "<span style=\"text-decoration: dotted underline;\">"
+    @test html_change(underline=:dashed) == "<span style=\"text-decoration: dashed underline;\">"
+    @test html_change(underline=(face"cyan", :double)) == "<span style=\"text-decoration: #0097a7 double underline;\">"
+    @test html_change(strikethrough=true) == "<span style=\"text-decoration: line-through;\">"
     @test html_change(underline=(face"red", :curly), strikethrough=true) ==
-        "<span style=\"text-decoration: #a51c2c wavy underline line-through\">"
-    @test sprint(StyledStrings.htmlstyle, getface(Face()).f, getface(Face(underline=true)).f) == "<span style=\"text-decoration: none\">"
+        "<span style=\"text-decoration: #a51c2c wavy underline line-through;\">"
+    @test csschange(cssstate(Face(underline=true)), cssstate()) == "<span style=\"text-decoration: none;\">"
     setface!(face"default" => Face(height=1.5))
-    @test html_change(height=2.0) == "<span style=\"font-size: 200%\">"
+    @test html_change(height=2.0) == "<span style=\"font-size: 200%;\">"
     @test sprint(show, MIME("text/html"), styled"{(height=2.0):a}{bold:b}") ==
-        "<span style=\"font-size: 200%\">a</span><span style=\"font-weight: 700\">b</span>"
+        "<span style=\"font-size: 200%;\">a</span><span style=\"font-weight: 700;\">b</span>"
     resetfaces!(face"default")
     # Text decorations cannot be removed within a nested span
     @test sprint(show, MIME("text/html"), styled"{underline:a}{bold:b}") ==
-        "<span style=\"text-decoration: underline\">a</span><span style=\"font-weight: 700\">b</span>"
+        "<span style=\"text-decoration: underline;\">a</span><span style=\"font-weight: 700;\">b</span>"
     # A plain underline has the colour of its text, so a change of colour within it is a new span
     @test sprint(show, MIME("text/html"), styled"{underline:a {red:b}}") ==
-        "<span style=\"text-decoration: underline\">a </span><span style=\"color: #a51c2c; text-decoration: underline\">b</span>"
+        "<span style=\"text-decoration: underline;\">a </span><span style=\"color: #a51c2c;text-decoration: underline;\">b</span>"
     # Text and link targets are escaped for HTML
     @test sprint(show, MIME("text/html"), styled"a<b>&c {link={x?a=1&b=<2>}:d}") ==
         "a&lt;b&gt;&amp;c <a href=\"x?a=1&amp;b=%3C2%3E\">d</a>"
@@ -1534,18 +1532,18 @@ end
     for (link, href) in ("#sec" => "#sec", "../a b.html" => "../a%20b.html", "//cdn.example/x" => "//cdn.example/x",
                          "a\"b" => "a%22b", "https://x.y/z w" => "https://x.y/z%20w")
         @test sprint(show, MIME("text/html"), AnnotatedString{String, Any}("t", [(1:1, :face, face"red"), (1:1, :link, StyledStrings.Link(link))])) ==
-            "<a href=\"$href\"><span style=\"color: #a51c2c\">t</span></a>"
+            "<a href=\"$href\"><span style=\"color: #a51c2c;\">t</span></a>"
     end
     # One link across styled regions
     @test sprint(show, MIME("text/html"), styled"{red,link={https://x}:t}") ==
-        "<a href=\"https://x\"><span style=\"color: #a51c2c\">t</span></a>"
+        "<a href=\"https://x\"><span style=\"color: #a51c2c;\">t</span></a>"
     @test sprint(show, MIME("text/html"), styled"{link={https://x}:{bold:a}b{italic:c}}") ==
-        "<a href=\"https://x\"><span style=\"font-weight: 700\">a</span>b<span style=\"font-style: italic\">c</span></a>"
+        "<a href=\"https://x\"><span style=\"font-weight: 700;\">a</span>b<span style=\"font-style: italic;\">c</span></a>"
     @test sprint(show, MIME("text/html"), styled"{bold:a}{italic:b}{bold:c}{italic:d}") ==
-        "<span style=\"font-weight: 700\">a</span><span style=\"font-style: italic\">b</span>\
-         <span style=\"font-weight: 700\">c</span><span style=\"font-style: italic\">d</span>"
+        "<span style=\"font-weight: 700;\">a</span><span style=\"font-style: italic;\">b</span>\
+         <span style=\"font-weight: 700;\">c</span><span style=\"font-style: italic;\">d</span>"
     @test sprint(show, MIME("text/html"), styled"{red:a{bold:b}c}") ==
-        "<span style=\"color: #a51c2c\">a<span style=\"font-weight: 700\">b</span>c</span>"
+        "<span style=\"color: #a51c2c;\">a<span style=\"font-weight: 700;\">b</span>c</span>"
     swapped = Face(foreground = face"background", background = face"foreground", inverse = true)
     @test sprint(show, MIME("text/html"), styled"a{$swapped:b}") == "ab"
     let standard = sprint(show, MIME("text/html"), styled"{inverse:x}")
@@ -1556,7 +1554,7 @@ end
     # The default face's colours are the page's own
     setface!(face"default" => Face(background=0x101010))
     @test sprint(show, MIME("text/html"), styled"{(bg=#101010):x}{(bg=#202020):y}") ==
-        "x<span style=\"background-color: #202020\">y</span>"
+        "x<span style=\"background-color: #202020;\">y</span>"
     resetfaces!(face"default")
     # Might as well put everything together for a final test
     fancy_string = styled"The {magenta:`{green:StyledStrings}`} package {italic:builds}\
@@ -1564,15 +1562,15 @@ end
         to provide a {(underline=(red,curly)):full-fledged} textual {(bg=#4063d8,fg=#adbdf8,inherit=[bold,strikethrough]):styling} \
         system, suitable for {inverse:terminal} and graphical displays."
     @test sprint(show, MIME("text/html"), fancy_string[1:27]) ==
-        "The <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">StyledStrings</span>\
-        <span style=\"color: #803d9b\">`</span> package"
+        "The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span>\
+        <span style=\"color: #803d9b;\">`</span> package"
     @test sprint(show, MIME("text/html"), fancy_string) ==
-        "The <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">StyledStrings</span><span style=\"color: #803d9b\">`</span> \
-        package <span style=\"font-style: italic\">builds</span><span style=\"font-weight: 700\"> on top</span> of the \
-        <span style=\"color: #803d9b\">`</span><span style=\"color: #25a268\">AnnotatedString</span><span style=\"color: #803d9b\">`</span> \
-        <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline\">\
-        full-fledged</span> textual <span style=\"font-weight: 700; color: #adbdf8; background-color: #4063d8; text-decoration: line-through\">\
-        styling</span> system, suitable for <span style=\"color: $(StyledStrings.HTML_FGBG.background); background-color: $(StyledStrings.HTML_FGBG.foreground)\">terminal</span> and graphical displays."
+        "The <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">StyledStrings</span><span style=\"color: #803d9b;\">`</span> \
+        package <span style=\"font-style: italic;\">builds</span><span style=\"font-weight: 700;\"> on top</span> of the \
+        <span style=\"color: #803d9b;\">`</span><span style=\"color: #25a268;\">AnnotatedString</span><span style=\"color: #803d9b;\">`</span> \
+        <a href=\"https://en.wikipedia.org/wiki/Type_system\">type</a> to provide a <span style=\"text-decoration: #a51c2c wavy underline;\">\
+        full-fledged</span> textual <span style=\"font-weight: 700;color: #adbdf8;background-color: #4063d8;text-decoration: line-through;\">\
+        styling</span> system, suitable for <span style=\"color: $(StyledStrings.HTML_FGBG.background);background-color: $(StyledStrings.HTML_FGBG.foreground);\">terminal</span> and graphical displays."
 end
 
 @testset "Legacy" begin
@@ -1902,89 +1900,27 @@ end
     @test withfaces(() -> getface(face"red").weight, face"red" => [:bold]) == :bold
 end
 
-# Look-alikes for other copies of StyledStrings, whose `Face` is a distinct type: one with
-# the pre-1.14 layout, and one loaded from our own sources.
-module OtherCopy
-    module StyledStrings
-        struct SimpleColor
-            value::Union{Symbol, NamedTuple}
-        end
-        Base.@kwdef struct Face
-            font = nothing; height = nothing; weight = nothing; slant = nothing
-            foreground = nothing; background = nothing; underline = nothing
-            strikethrough = nothing; inverse = nothing; inherit = Symbol[]
-        end
-    end
-end
-
-module SourceCopy
-    module StyledStrings
-        using Base: AnnotatedString, AnnotatedChar, annotations, annotate!
-        using Base.ScopedValues: ScopedValue, with, @with
-        for file in ("faces.jl", "theme.jl", "palettes.jl")
-            include(joinpath(@__DIR__, "..", "src", file))
-        end
-    end
-end
-
 # A whole other copy, with a `Styled` of its own, as with the REPL's private copy
 module FullCopy
     include(joinpath(@__DIR__, "..", "src", "StyledStrings.jl"))
 end
 
-# A copy that routes its faces through ours, as a package with its own face-like type would.
-Base.AnnotatedDisplay.AnnotationStyle(::Type{OtherCopy.StyledStrings.Face}) = StyledStrings.Styled()
-Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = StyledStrings.Styled()
-
 @testset "Foreign faces" begin
     # The REPL's private copy of StyledStrings attaches faces of its own type (JuliaLang/julia#60034)
-    render(f) = sprint(print, AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
-    attrs = (font="mono", height=1.5, weight=:bold, strikethrough=false, inverse=true)
-    @testset "Pre-1.14 layout" begin
-        Other = OtherCopy.StyledStrings
-        other = Other.Face(; attrs..., foreground=Other.SimpleColor(:red), background=Other.SimpleColor((r=0x01, g=0x02, b=0x03)),
-                           underline=(Other.SimpleColor(:blue), :curly), inherit=[:emphasis, :bold])
-        ours = Face(; attrs..., foreground=face"red", background=0x010203, underline=(face"blue", :curly),
-                    inherit=[face"emphasis", face"bold"])
-        @test StyledStrings._mergedface(other) == ours
-        @test StyledStrings._mergedface(Other.Face()) == Face()
-        @test StyledStrings._mergedface(Other.Face(underline=Other.SimpleColor(:green))) == Face(underline=face"green")
-        @test StyledStrings._mergedface(Other.Face(underline=(nothing, :double))) == Face(underline=(nothing, :double))
-        @test getface([face"emphasis", other]) == getface([face"emphasis", ours])
-        @test render(other) == render(ours)
-    end
-    @testset "1.14 layout" begin
-        Other = SourceCopy.StyledStrings
-        other = Other.Face(; attrs..., foreground=Other.BASE_FACES.red, background=0x010203, underline=(Other.BASE_FACES.blue, :curly),
-                           inherit=[Other.FACES.pool[:emphasis], Other.Face(slant=:italic)])
-        ours = Face(; attrs..., foreground=face"red", background=0x010203, underline=(face"blue", :curly),
-                    inherit=[face"emphasis", Face(slant=:italic)])
-        got = StyledStrings._mergedface(other)
-        @test got == ours
-        @test got.f.foreground === face"red"
-        @test got.f.inherit[1] === face"emphasis"
-        @test StyledStrings._mergedface(Other.Face()) == Face()
-        @test render(other) == render(ours)
-        # Strong nothings, which only a field copy can carry over
-        strong = Other.strongnothing
-        sgot = StyledStrings._mergedface(Other.Face(Other.FaceDef(
-            strong(String), strong(SimpleColor), strong(SimpleColor), strong(SimpleColor), strong(UInt32),
-            strong(UInt8), strong(UInt8), strong(UInt8), strong(Bool), strong(Bool), Memory{Other.Face}()))).f
-        @test all(f -> StyledStrings.isstrongnothing(getfield(sgot, f)), setdiff(fieldnames(StyledStrings.FaceDef), (:inherit,)))
-    end
     @testset "Two whole copies" begin
-        # Each copy has a `Styled` of its own, and strings holding faces of both display as one
+        # Each copy displays its own faces, and a string holding faces of both displays as one,
+        # though the two may write a region's codes in either order
         Full = FullCopy.StyledStrings
+        sortcodes(s) = replace(s, r"(?:\e\[[0-9;]*m)+" => run -> join(sort([m.match for m in eachmatch(r"\e\[[0-9;]*m", run)])))
         theirs = Full.Face(weight = :bold, inverse = true)
         allours = AnnotatedString("ab", [(1:1, :face, face"red"), (2:2, :face, Face(weight = :bold, inverse = true))])
         mixed = AnnotatedString{String, Union{Face, Full.Face}}("ab", [(1:1, :face, face"red"), (2:2, :face, theirs)])
-        @test sprint(print, mixed; context = :color => true) == sprint(print, allours; context = :color => true)
+        @test sortcodes(sprint(print, mixed; context = :color => true)) == sortcodes(sprint(print, allours; context = :color => true))
         @test sprint(show, MIME("text/html"), mixed) == sprint(show, MIME("text/html"), allours)
-        @test Base.issingletontype(Base.infer_return_type(Base.AnnotatedDisplay.style, (typeof(mixed),)))
-        # With an `Any` value type, whichever copy's face is met first
+        # With an `Any` value type, in either order
         for annots in ([(1:1, :face, face"red"), (2:2, :face, theirs)], [(2:2, :face, theirs), (1:1, :face, face"red")])
-            @test sprint(print, AnnotatedString{String, Any}("ab", annots); context = :color => true) ==
-                sprint(print, allours; context = :color => true)
+            @test sortcodes(sprint(print, AnnotatedString{String, Any}("ab", annots); context = :color => true)) ==
+                sortcodes(sprint(print, allours; context = :color => true))
         end
     end
     @test_throws MethodError getface([1])
@@ -1999,13 +1935,13 @@ Base.AnnotatedDisplay.AnnotationStyle(::Type{SourceCopy.StyledStrings.Face}) = S
             face = other.Face(foreground = :red, weight = :bold)
             ours = StyledStrings.Face(foreground = face"red", weight = :bold)
             render(f) = sprint(print, Base.AnnotatedString("x", [(1:1, :face, f)]); context = :color => true)
-            print(StyledStrings.getface([face]) == StyledStrings.getface([ours]), ",", render(face) == render(ours))
+            print(render(face) == render(ours))
             """
         # Julia's own test suite runs this without an active project.
         project = if isnothing(Base.active_project()) `` else `--project=$(Base.active_project())` end
         cmd = `$(Base.julia_cmd()) --startup-file=no $project -e $script`
         out = read(pipeline(cmd; stderr), String)
-        @test out in ("true,true", "same copy")
+        @test out in ("true", "same copy")
     end
 end
 

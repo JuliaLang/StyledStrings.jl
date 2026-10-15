@@ -19,7 +19,6 @@ StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit
 StyledStrings.setcolors!
 StyledStrings.face!
-StyledStrings.foreignface
 StyledStrings.override
 StyledStrings.relayer!
 StyledStrings.getface
@@ -35,8 +34,14 @@ StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
 StyledStrings.safeuri
 StyledStrings.uriformat
-StyledStrings.Styled
 ```
+
+## Display
+
+Faces and links display through Base's interface for annotated display, documented in
+[`Base.AnnotatedDisplay`](@ref): `context` reads the cache of resolved faces once per display,
+each region's `reduction` merges its faces into a `FaceDef` and takes its innermost `Link`, and
+`transition` writes the change between two of them, as terminal codes or as HTML.
 
 ## Styled Markup parsing
 
