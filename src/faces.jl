@@ -435,44 +435,34 @@ Base.merge(a::Face, b::Face) = Face(merge(a.f, b.f))
 Base.merge(a::Face, b::Face, others::Face...) = merge(merge(a, b), others...)
 
 function Base.merge(a::FaceDef, b::FaceDef)
-    mergeattr(va, vb) = if isnothingflavour(vb) va else vb end
-    if isempty(b.inherit)
-        abheight = if isnothingflavour(b.height)
-            a.height
-        elseif isnothingflavour(a.height)
-            b.height
-        elseif iszero(b.height & ~(typemax(UInt32) >> 1)) # b.height::Int
-            b.height
-        elseif iszero(a.height & ~(typemax(UInt32) >> 1)) # a.height::Int
-            aint = reinterpret(UInt32, a.height)
-            bfloat = reinterpret(Float32, b.height & (typemax(UInt32) >> 1))
-            round(UInt32, min(aint * Float64(bfloat), typemax(Int32))) # Larger would set the float tag bit
-        else # a.height::Float32, b.height::Float32
-            afloat = reinterpret(Float32, a.height & (typemax(UInt32) >> 1))
-            bfloat = reinterpret(Float32, b.height)
-            reinterpret(UInt32, max(afloat * bfloat, -floatmax(Float32))) # Negative from `b`'s tag bit; -Inf is unset
-        end
-        FaceDef(mergeattr(a.font, b.font),
-                mergeattr(a.foreground, b.foreground),
-                mergeattr(a.background, b.background),
-                mergeattr(a.underline, b.underline),
-                abheight,
-                mergeattr(a.weight, b.weight),
-                mergeattr(a.slant, b.slant),
-                mergeattr(a.underline_style, b.underline_style),
-                mergeattr(a.strikethrough, b.strikethrough),
-                mergeattr(a.inverse, b.inverse),
-                a.inherit)
-    else
-        b_noinherit = FaceDef(
-            b.font, b.foreground, b.background, b.underline, b.height,
-            b.weight, b.slant, b.underline_style, b.strikethrough, b.inverse, Face[])
-        # A loop rather than a fold: passing `merge` to `mapfoldl` makes the recursion
-        # uninferrable, which breaks trimming.
-        inherited = EMPTY_FACE.f
-        for face in Iterators.reverse(b.inherit)
-            inherited = merge(inherited, get(FACES.current[], face, face).f)
-        end
-        merge(a, merge(inherited, b_noinherit))
+    for face in Iterators.reverse(b.inherit)
+        a = merge(a, get(FACES.current[], face, face).f)
     end
+    mergeattr(va, vb) = if isnothingflavour(vb) va else vb end
+    abheight = if isnothingflavour(b.height)
+        a.height
+    elseif isnothingflavour(a.height)
+        b.height
+    elseif iszero(b.height & ~(typemax(UInt32) >> 1)) # b.height::Int
+        b.height
+    elseif iszero(a.height & ~(typemax(UInt32) >> 1)) # a.height::Int
+        aint = reinterpret(UInt32, a.height)
+        bfloat = reinterpret(Float32, b.height & (typemax(UInt32) >> 1))
+        round(UInt32, min(aint * Float64(bfloat), typemax(Int32))) # Larger would set the float tag bit
+    else # a.height::Float32, b.height::Float32
+        afloat = reinterpret(Float32, a.height & (typemax(UInt32) >> 1))
+        bfloat = reinterpret(Float32, b.height)
+        reinterpret(UInt32, max(afloat * bfloat, -floatmax(Float32))) # Negative from `b`'s tag bit; -Inf is unset
+    end
+    FaceDef(mergeattr(a.font, b.font),
+            mergeattr(a.foreground, b.foreground),
+            mergeattr(a.background, b.background),
+            mergeattr(a.underline, b.underline),
+            abheight,
+            mergeattr(a.weight, b.weight),
+            mergeattr(a.slant, b.slant),
+            mergeattr(a.underline_style, b.underline_style),
+            mergeattr(a.strikethrough, b.strikethrough),
+            mergeattr(a.inverse, b.inverse),
+            a.inherit)
 end
