@@ -593,7 +593,7 @@ end
 For each face specified in `Dict`, load it to `FACES``.current`.
 """
 function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing, theme::Symbol = :base)
-    theme == :base && prefix ∈ map(String, setdiff(keys(FACES.themes), (:base,))) &&
+    theme == :base && prefix ∈ map(String, keys(FACES.themes)) &&
         return loaduserfaces!(faces, nothing, Symbol(prefix))
     for (name, spec) in faces
         spec isa Dict{String, Any} || continue
@@ -625,24 +625,16 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
         color = tryparse(SimpleColor, str)
         if isnothing(color) WeakNothing() else color.value end
     end
-    function safeget(spc::Dict{String, Any}, ::Type{T}, keys::String...) where {T}
+    # The first of `keys` in `spec`, a `V` that `parse` reads into the form `T` takes
+    function field(parse, ::Type{V}, ::Type{T}, keys::String...) where {V, T}
         val = nothing
-        for key in keys
-            val = get(spc, key, nothing)
-            !isnothing(val) && break
+        for key in keys # Not `findfirst`, whose tuple method does not specialise on its predicate
+            haskey(spec, key) && (val = spec[key]; break)
         end
-        if isnothing(val)
-            weaknothing(T)
-        elseif val isa String && val == "inherit"
+        if val isa String && val == "inherit"
             strongnothing(T)
-        elseif T == SimpleColor && val isa String
-            colorvalue(val)
-        elseif T != SimpleColor && val isa T
-            if T == Bool
-                UInt8(val)
-            else
-                val
-            end
+        elseif val isa V
+            something(parse(val), weaknothing(T))
         else
             weaknothing(T)
         end
@@ -658,22 +650,12 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
             weaknothing(UInt8)
         end
     end
-    font = safeget(spec, String, "font")
-    height = let h = get(spec, "height", nothing)
-        if isnothing(h)
-            weaknothing(UInt32)
-        elseif h isa String && h == "inherit"
-            strongnothing(UInt32)
-        elseif h isa Union{Int, Float64}
-            something(heightbits(h), weaknothing(UInt32))
-        else
-            weaknothing(UInt32)
-        end
-    end
+    font = field(identity, String, String, "font")
+    height = field(heightbits, Union{Int, Float64}, UInt32, "height")
     weight = namedbyte(:weight, "weight", "bold", :bold)
     slant = namedbyte(:slant, "slant", "italic", :italic)
-    foreground = safeget(spec, SimpleColor, "foreground", "fg")
-    background = safeget(spec, SimpleColor, "background", "bg")
+    foreground = field(colorvalue, String, SimpleColor, "foreground", "fg")
+    background = field(colorvalue, String, SimpleColor, "background", "bg")
     ul, ulstyle = if !haskey(spec, "underline")
         WeakNothing(), weaknothing(UInt8)
     elseif spec["underline"] === true
@@ -693,8 +675,8 @@ function Base.convert(::Type{Face}, spec::Dict{String,Any})
     else
         WeakNothing(), weaknothing(UInt8)
     end
-    strikethrough = safeget(spec, Bool, "strikethrough")
-    inverse = safeget(spec, Bool, "inverse")
+    strikethrough = field(UInt8, Bool, Bool, "strikethrough")
+    inverse = field(UInt8, Bool, Bool, "inverse")
     inherit = if !haskey(spec, "inherit")
         Face[]
     elseif spec["inherit"] isa String
