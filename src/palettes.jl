@@ -362,7 +362,7 @@ macro defpalette(pargs::Any...)
     end
     # Topologically sort declarations
     faceorder = Symbol[]
-    revdeps = Dict(name => Symbol[] for ((; name, theme), _) in parsed if theme == :base)
+    revdeps = Dict(name => Symbol[] for name in allnames)
     for (label, info) in parsed
         label.theme == :base || continue
         if isempty(info.deps)
@@ -374,26 +374,21 @@ macro defpalette(pargs::Any...)
         end
     end
     sort!(faceorder, by = x -> parsed[(; name = x, theme = :base)].i)
-    hoistfaces = Dict{Symbol, Symbol}()
     for name in faceorder, rdep in revdeps[name]
-        get!(() -> gensym("$(name)_face"), hoistfaces, name)
         depfaces = parsed[(; name = rdep, theme = :base)].deps
         ind = findfirst(==(name), depfaces)::Int
         isempty(deleteat!(depfaces, ind)) && push!(faceorder, rdep)
     end
     length(faceorder) == length(allnames) ||
         throw(ArgumentError("Cyclic face dependencies detected in @defpalette declaration: $(join(setdiff(allnames, faceorder), ", "))."))
-    # Faces a theme variant refers to must be hoisted too
-    for ((; theme), (; deps)) in parsed
-        theme == :base && continue
-        foreach(dep -> get!(() -> gensym("$(dep)_face"), hoistfaces, dep), deps)
-    end
+    # Each base face is bound to a variable in turn, for the faces after it to refer to
+    facevars = Dict(name => gensym("$(name)_face") for name in allnames)
     # Rewrite arguments
     function faceorlookup(f) # A single method, so the binding is not boxed
         if f === :nothing
             nothing
         elseif f isa Symbol
-            ref = @something(get(hoistfaces, f, nothing), faceref(__module__, f), Some(nothing))
+            ref = @something(get(facevars, f, nothing), faceref(__module__, f), Some(nothing))
             # A palette is built while precompiling, where a face only the registry holds is a copy
             ref isa Union{Symbol, Face} || throw(UnknownFaceError(__module__, f))
             ref
@@ -411,10 +406,8 @@ macro defpalette(pargs::Any...)
     end
     for (; args) in values(parsed)
         for (i, (arg, value)) in enumerate(args)
-            args[i] = if arg == :foreground
-                :foreground => faceorlookup(value)
-            elseif arg == :background
-                :background => faceorlookup(value)
+            args[i] = if arg ∈ (:foreground, :background)
+                arg => faceorlookup(value)
             elseif arg == :inherit
                 :inherit => if Meta.isexpr(value, :vect)
                     Expr(:ref, Face, map(faceorlookup, value.args)...)
@@ -436,14 +429,6 @@ macro defpalette(pargs::Any...)
             end
         end
     end
-    # Create an ordered version of `parsed`
-    orderlookup = Dict(name => i for (i, name) in enumerate(faceorder))
-    parsedordered = Vector{eltype(parsed)}()
-    for (k, v) in parsed
-        v = Base.setindex(v, get(orderlookup, k.name, v.i + length(parsed)), :i)
-        push!(parsedordered, k => v)
-    end
-    sort!(parsedordered; by = ((_, v),) -> v.i)
     # Construct final expression
     decls = (base = Union{Expr, LineNumberNode}[],
              light = Union{Expr, LineNumberNode}[],
@@ -451,27 +436,22 @@ macro defpalette(pargs::Any...)
     # Copied, as `Face()` is shared and each palette face must be distinct
     newface(args) = Expr(:call, copy, Expr(:call, Face, Expr(:parameters, (Expr(:kw, k, v) for (k, v) in args)...)))
     basefaces = gensym("prior")
-    baseface(name, args) = Expr(:call, redefine!, basefaces, QuoteNode(name), newface(args))
-    for ((; name, theme), (; args)) in parsedordered
-        hoistname = get(hoistfaces, name, nothing)
-        if theme == :base
-            push!(decls.base, Expr(:kw, name, @something(hoistname, baseface(name, args))))
-        elseif name ∉ allnames
-            throw(ArgumentError("A $theme variant of face '$name' is declared, without a base variant. Consider adding `$name = Face()` to the palette."))
-        else
-            push!(decls[theme], Expr(:kw, name, newface(args)))
-        end
+    fhoist = Expr[]
+    for name in faceorder
+        newbase = Expr(:call, redefine!, basefaces, QuoteNode(name), newface(parsed[(; name, theme = :base)].args))
+        push!(fhoist, Expr(:(=), facevars[name], newbase))
+        push!(decls.base, Expr(:kw, name, facevars[name]))
+    end
+    for ((; name, theme), (; args)) in sort!(collect(parsed), by = p -> last(p).i)
+        theme == :base && continue
+        name ∈ allnames || throw(ArgumentError("A $theme variant of face '$name' is declared, without a base variant. Consider adding `$name = Face()` to the palette."))
+        push!(decls[theme], Expr(:kw, name, newface(args)))
     end
     declsnt = Expr(:parameters, Expr(:kw, :namespace, namespace))
     for (theme, body) in pairs(decls)
         push!(declsnt.args, Expr(:kw, theme, Expr(:tuple, Expr(:parameters, body...))))
     end
     declsnt = Expr(:tuple, declsnt)
-    fhoist = Expr[]
-    for ((; name, theme), (; args)) in parsedordered
-        theme == :base && haskey(hoistfaces, name) || continue
-        push!(fhoist, Expr(:(=), hoistfaces[name], baseface(name, args)))
-    end
     holder = if isnothing(varname) __module__ else Expr(:if, :($isdefined($__module__, $(QuoteNode(varname)))), varname) end
     declsnt = Expr(:let, Expr(:(=), basefaces, :($definedpalette($holder))), Expr(:block, fhoist..., declsnt))
     definition, palette = if isnothing(varname)
