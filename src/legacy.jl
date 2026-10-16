@@ -6,7 +6,7 @@
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, FACES, Face, @face_str, setface!, face!, AnnotatedString, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, ANSI_4BIT_COLORS, FACES, Face, @face_str, setface!, face!, AnnotatedString, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -65,17 +65,6 @@ const ANSI_256_COLORS =
 legacy_color(color256::Int) = get(ANSI_256_COLORS, color256+1, nothing)
 
 """
-A list of all named colors recognised, including both the old `light_*` and new
-`bright_*` named colors.
-"""
-const NAMED_COLORS =
-    (:black, :red, :green, :yellow, :blue, :magenta, :cyan, :white,
-     :bright_black, :grey, :gray, :bright_red, :bright_green, :bright_yellow,
-     :bright_blue, :bright_magenta, :bright_cyan, :bright_white, :light_black,
-     :light_red, :light_green, :light_yellow, :light_blue, :light_magenta,
-     :light_cyan, :light_white)
-
-"""
 A mapping from old named colours to the new names, specifically from `light_*`
 to `bright_*`.
 """
@@ -90,21 +79,13 @@ const RENAMED_COLORS = Dict{Symbol, Symbol}(
     :light_white   => :bright_white)
 
 function legacy_color(color::Symbol)
-    if color in NAMED_COLORS
-        name = get(RENAMED_COLORS, color, color)
-        SimpleColor(FACES.pool[name])
-    end
+    face = get(FACES.pool, get(RENAMED_COLORS, color, color), nothing)
+    if !isnothing(face) && haskey(ANSI_4BIT_COLORS, face) SimpleColor(face) end
 end
 
 function legacy_color(color::String)
-    namedcolours = map(String, NAMED_COLORS)
-    if color in namedcolours
-        legacy_color(Symbol(color))
-    elseif 0 <= (color256 = something(tryparse(Int, color), -1)) <= 255
-        legacy_color(color256)
-    else
-        nothing
-    end
+    color256 = tryparse(Int, color)
+    if isnothing(color256) legacy_color(Symbol(color)) else legacy_color(color256) end
 end
 
 """

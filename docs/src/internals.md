@@ -12,7 +12,6 @@ StyledStrings.FACES
 StyledStrings.MAX_COLOR_FORWARDS
 StyledStrings.UNRESOLVED_COLOR_FALLBACK
 StyledStrings.Legacy.ANSI_256_COLORS
-StyledStrings.Legacy.NAMED_COLORS
 StyledStrings.Legacy.RENAMED_COLORS
 StyledStrings.Legacy.legacy_color
 StyledStrings.Legacy.load_env_colors!
