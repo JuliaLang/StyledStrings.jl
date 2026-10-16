@@ -27,10 +27,6 @@ const ANSI_4BIT_COLORS = IdDict{Face, UInt8}(
     face"bright_cyan"    => 14,
     face"bright_white"   => 15)
 
-const FGBG_FACES =
-    (foreground = FACES.pool[:foreground],
-     background = FACES.pool[:background])
-
 # The low `nb` bytes of `word`, in memory order, in one call
 function writebytes(io::IO, word::UInt64, nb::Integer)
     bytes = Ref(htol(word))
@@ -136,14 +132,14 @@ termcolor(io::IO, ::Union{WeakNothing, StrongNothing}, category::Char) = termcol
 
 function termcolor(io::IO, value::Union{Face, RGBTuple}, category::Char)
     if category == '4' # Background
-        if value === FGBG_FACES.background
+        if value === BASE_FACES.background
             return termcolor(io, nothing, '4')
-        elseif value === FGBG_FACES.foreground
+        elseif value === BASE_FACES.foreground
             return print(io, "\e[47m") # Technically not quite[1], but close enough
         end
-    elseif value === FGBG_FACES.foreground
+    elseif value === BASE_FACES.foreground
         return termcolor(io, nothing, category)
-    elseif category == '3' && value === FGBG_FACES.background
+    elseif category == '3' && value === BASE_FACES.background
         return print(io, "\e[30m") # Technically not quite[1], but close enough
     end
     # [1]: There is no true way to selectively set the fg/bg in the terminal to the
@@ -247,37 +243,35 @@ function AnnotatedDisplay.transition(io::IO, ::MIME"text/plain", lastface::FaceD
                          ANSI_STYLE_CODES.end_reverse))
 end
 
+isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+
 """
-    safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
+    safeuri(uri::String)
 
 Percent-encode `uri` as necessary to ensure it is a valid URI.
 """
-function safeuri(uri::String, uribytes::AbstractVector{UInt8}, allowedspecials::NTuple{N, UInt8}) where {N}
-    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
+function safeuri(uri::String)
     nib2hex(n::UInt8) = UInt8('0') + n + (((n + 0x6) >> 4) * 0x7)
-    escbytes = 0
-    for b in uribytes
-        if !isalphnum(b) && b ∉ allowedspecials
+    bytes = codeunits(uri)
+    escbytes = 0 # Counted in a loop, which runs twice as fast as `count`
+    for b in bytes
+        if !isalphnum(b) && b ∉ URI_SPECIAL_CHARS
             escbytes += 1
         end
     end
-    if iszero(escbytes)
-        uri
-    else
-        off, buf = 0, Base.StringMemory(length(uribytes) + 2 * escbytes)
-        for (i, b) in enumerate(uribytes)
-            b = uribytes[i]
-            if isalphnum(b) || b ∈ allowedspecials
-                buf[i+off] = b
-            else
-                buf[i+off] = UInt8('%')
-                buf[i+off+1] = nib2hex(b >> 4)
-                buf[i+off+2] = nib2hex(b & 0xf)
-                off += 2
-            end
+    iszero(escbytes) && return uri
+    off, buf = 0, Base.StringMemory(length(bytes) + 2 * escbytes)
+    for (i, b) in enumerate(bytes)
+        if isalphnum(b) || b ∈ URI_SPECIAL_CHARS
+            buf[i+off] = b
+        else
+            buf[i+off] = UInt8('%')
+            buf[i+off+1] = nib2hex(b >> 4)
+            buf[i+off+2] = nib2hex(b & 0xf)
+            off += 2
         end
-        Base.unsafe_takestring(buf)
     end
+    Base.unsafe_takestring(buf)
 end
 
 # The characters other than letters and digits that a URI may hold as they are
@@ -294,14 +288,13 @@ prefix, it is treated as a file path and converted to a `file://` URI.
 Otherwise, the link is percent-encoded as necessary to ensure it is a valid URI.
 """
 function uriformat(link::String)
-    isalphnum(c::UInt8) = (c ∈ UInt8('a'):UInt8('z')) || (c ∈ UInt8('A'):UInt8('Z')) || (c ∈ UInt8('0'):UInt8('9'))
     i, bytes = 1, codeunits(link)
     while i <= length(bytes)
         b = bytes[i]
         if isalphnum(b) || b ∈ map(UInt8, ('+', '-', '.'))
             i += 1
         elseif b == UInt8(':') && (i > 2 || get(bytes, i+1, 0x00) ∉ (UInt8('\\'), UInt8('/'))) # Skip Windows drive letters
-            return safeuri(link, bytes, URI_SPECIAL_CHARS)
+            return safeuri(link)
         else
             break
         end
@@ -370,16 +363,16 @@ const HTML_FGBG = (
 
 function htmlcolor(io::IO, color::SimpleColor, background::Bool = false)
     default = resolvedef(STANDARD_FACES.default)
-    if color.value === FGBG_FACES.background || color.value == default.background
+    if color.value === BASE_FACES.background || color.value == default.background
         if background
             return print(io, "initial")
-        elseif default.background === FGBG_FACES.background
+        elseif default.background === BASE_FACES.background
             return print(io, HTML_FGBG.background)
         end
-    elseif color.value === FGBG_FACES.foreground || color.value == default.foreground
+    elseif color.value === BASE_FACES.foreground || color.value == default.foreground
         if !background
             return print(io, "initial")
-        elseif default.foreground === FGBG_FACES.foreground
+        elseif default.foreground === BASE_FACES.foreground
             return print(io, HTML_FGBG.foreground)
         end
     end
@@ -410,7 +403,7 @@ function AnnotatedDisplay.reduction(::MIME"text/html", ::Type{Face}, cache, anno
     end
     ul = if face.underline_style >= NO_UNDERLINE
         WeakNothing()
-    elseif face.underline === FGBG_FACES.foreground
+    elseif face.underline === BASE_FACES.foreground
         fg
     else
         face.underline
@@ -490,7 +483,7 @@ end
 
 function AnnotatedDisplay.transition(io::IO, ::MIME"text/html", ::Link, to::Link)
     print(io, "<a href=\"")
-    writeescaped(io, safeuri(to.uri, codeunits(to.uri), URI_SPECIAL_CHARS), HTML_ESCAPES)
+    writeescaped(io, safeuri(to.uri), HTML_ESCAPES)
     print(io, "\">")
 end
 AnnotatedDisplay.transition(io::IO, ::MIME"text/html", ::Link, ::Nothing) = print(io, "</a>")

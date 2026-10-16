@@ -29,11 +29,8 @@ function Base.show(io::ShowBuffer, ::MIME"text/plain", color::SimpleColor)
         print(io, strface("■", Face(foreground=color)), ' ')
     end
     if color.value isa RGBTuple
-        (; r, g, b) = color.value
-        print(io, '#',
-              lpad(string(r, base=16), 2, '0'),
-              lpad(string(g, base=16), 2, '0'),
-              lpad(string(b, base=16), 2, '0'))
+        print(io, '#')
+        bytes2hex(io, color.value)
     else
         name = get(FACES.names, color.value, nothing)
         if !isnothing(name)
@@ -50,11 +47,8 @@ function Base.show(io::ShowBuffer, color::SimpleColor)
     showplain(io, SimpleColor)
     print(io, '(')
     if color.value isa RGBTuple
-        (; r, g, b) = color.value
-        print(io, "0x",
-              lpad(string(r, base=16), 2, '0'),
-              lpad(string(g, base=16), 2, '0'),
-              lpad(string(b, base=16), 2, '0'))
+        print(io, "0x")
+        bytes2hex(io, color.value)
     else
         show(io, color.value)
     end
@@ -69,10 +63,8 @@ function Base.show(io::ShowBuffer, ::MIME"text/plain", face::Face)
         if value isa SimpleColor
             color = value.value
             if color isa RGBTuple
-                print(io, "0x",
-                      lpad(string(color.r, base=16), 2, '0'),
-                      lpad(string(color.g, base=16), 2, '0'),
-                      lpad(string(color.b, base=16), 2, '0'))
+                print(io, "0x")
+                bytes2hex(io, color)
             else
                 show(io, color)
             end

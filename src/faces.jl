@@ -181,12 +181,8 @@ end
 An analogue of `tryparse(SimpleColor, rgb::AbstractString)` (which see),
 that raises an error instead of returning `nothing`.
 """
-function Base.parse(::Type{SimpleColor}, rgb::AbstractString)
-    color = tryparse(SimpleColor, rgb)
-    !isnothing(color) ||
-        throw(ArgumentError("invalid color \"$rgb\""))
-    color
-end
+Base.parse(::Type{SimpleColor}, rgb::AbstractString) =
+    @something(tryparse(SimpleColor, rgb), throw(ArgumentError("invalid color \"$rgb\"")))
 
 weaknothing(::Type{N}) where {N <: Unsigned} = -(0x2 * one(N))
 weaknothing(::Type{Bool}) = weaknothing(UInt8)
