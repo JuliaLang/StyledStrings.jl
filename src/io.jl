@@ -176,7 +176,6 @@ termcolor(io::IO, ::Nothing, category::Char) = # "\e[<category>9m" as one word
 
 const ANSI_STYLE_CODES = (
     bold_weight = "\e[1m",
-    dim_weight = "\e[2m", # Unused
     normal_weight = "\e[22m",
     start_italics = "\e[3m",
     end_italics = "\e[23m",
@@ -246,17 +245,6 @@ function AnnotatedDisplay.transition(io::IO, ::MIME"text/plain", lastface::FaceD
         print(io, ifelse(face.inverse == 0x1,
                          ANSI_STYLE_CODES.start_reverse,
                          ANSI_STYLE_CODES.end_reverse))
-end
-
-@static if isdefined(Base, :unannotate)
-    # This function uses SubString and AnnotatedString internals, but for current
-    # and future versions, Base.unannotate is defined, and so this cannot break
-    # in the future.
-    const unannotate = Base.unannotate
-else
-    function unannotate(s::SubString{AnnotatedString{S}}) where S
-        SubString{S}(s.string.string, s.offset, s.ncodeunits, Val(:noshift))
-    end
 end
 
 """

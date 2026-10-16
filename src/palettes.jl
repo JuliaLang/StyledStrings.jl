@@ -288,15 +288,11 @@ macro defpalette(pargs::Any...)
         decls = decls[1].args
     end
     # Parse declarations
-    parsed = Dict{@NamedTuple{name::Symbol, theme::Symbol}, @NamedTuple{i::Int, args::Vector{Pair{Symbol, Any}}, deps::Vector{Symbol}, line::Union{LineNumberNode, Nothing}}}()
-    lastline = nothing
+    parsed = Dict{@NamedTuple{name::Symbol, theme::Symbol}, @NamedTuple{i::Int, args::Vector{Pair{Symbol, Any}}, deps::Vector{Symbol}}}()
     isname(x) = x isa Symbol && x !== :nothing
     isliteral(x) = x === :nothing || x isa Unsigned || x isa AbstractString
     for (i, decl) in enumerate(decls)
-        if decl isa LineNumberNode
-            lastline = decl
-            continue
-        end
+        decl isa LineNumberNode && continue
         Meta.isexpr(decl, :(=), 2) || throw(ArgumentError("Invalid @defpalette argument `$decl`, should be of the form `name = Face(...)`."))
         name, theme = if decl.args[1] isa Symbol
             decl.args[1], :base
@@ -357,7 +353,7 @@ macro defpalette(pargs::Any...)
         if theme != :base && name in deps
             throw(ArgumentError("The $theme variant of face '$name' refers to '$name'. A variant is layered over its base face, so it cannot refer to it."))
         end
-        parsed[(; name, theme)] = (; i, args = faceargs, deps, line = lastline)
+        parsed[(; name, theme)] = (; i, args = faceargs, deps)
     end
     # Find all defined base faces, and prune dependencies to only those
     allnames = Set(name for (; name, theme) in keys(parsed) if theme == :base)
@@ -457,7 +453,6 @@ macro defpalette(pargs::Any...)
     basefaces = gensym("prior")
     baseface(name, args) = Expr(:call, redefine!, basefaces, QuoteNode(name), newface(args))
     for ((; name, theme), (; args)) in parsedordered
-        # isnothing(line) || push!(decls[theme], line)
         hoistname = get(hoistfaces, name, nothing)
         if theme == :base
             push!(decls.base, Expr(:kw, name, @something(hoistname, baseface(name, args))))

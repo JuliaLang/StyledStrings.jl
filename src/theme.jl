@@ -876,12 +876,6 @@ function finalcolours(face::FaceDef, default::FaceDef)
     FaceDef(font, fg, bg, ul, height, weight, slant, underline_style, strikethrough, inverse, inherit)
 end
 
-function finalcolor(color::SimpleColor)
-    value = color.value
-    value isa RGBTuple && return value
-    finalcolor(value)
-end
-
 """
     rgbcolor(color::Union{Symbol, Face, SimpleColor})
 

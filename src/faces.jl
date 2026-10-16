@@ -191,7 +191,6 @@ end
 weaknothing(::Type{N}) where {N <: Unsigned} = -(0x2 * one(N))
 weaknothing(::Type{Bool}) = weaknothing(UInt8)
 weaknothing(::Type) = WeakNothing()
-weaknothing(x) = weaknothing(typeof(x))
 
 isweaknothing(::WeakNothing) = true
 isweaknothing(u::Unsigned) = u == weaknothing(typeof(u))
@@ -201,7 +200,6 @@ isweaknothing(::Any) = false
 strongnothing(::Type{N}) where {N <: Unsigned} = -one(N)
 strongnothing(::Type{Bool}) = strongnothing(UInt8)
 strongnothing(::Type) = StrongNothing()
-strongnothing(x) = strongnothing(typeof(x))
 
 isstrongnothing(::StrongNothing) = true
 isstrongnothing(u::Unsigned) = u == strongnothing(typeof(u))
