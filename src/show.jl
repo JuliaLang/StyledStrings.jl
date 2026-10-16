@@ -82,6 +82,12 @@ function Base.show(io::ShowBuffer, ::MIME"text/plain", face::Face)
     end
     showcolor(io, color) = show(IOContext(io, :typeinfo => SimpleColor),
                                 MIME("text/plain"), color)
+    function showinherit(io::IO, faces)
+        for (i, iface) in enumerate(faces)
+            i > 1 && print(io, ", ")
+            print(io, something(facename(mod, iface), "(unregistered)"), '(', strface("*", iface), ')')
+        end
+    end
     function showunderlineval(io::IO, ul, ulstyle::UInt8, iscompact::Bool)
         showulfn = if iscompact showval else showcolor end
         showstyle = if iscompact showplain else print end
@@ -103,16 +109,15 @@ function Base.show(io::ShowBuffer, ::MIME"text/plain", face::Face)
             iscompact && print(io, ')')
         end
     end
-    function printfield(io::IO, origface::Face, curface::Face, field::Symbol, valdisplay::F) where {F <: Function}
-        oval, cval = getproperty(origface, field), getproperty(curface, field)
-        all(isnothing, (oval, cval)) && return
+    function printfield(io::IO, field::Symbol, oval, cval; isunset::Function = isnothing, valdisplay::Function = print)
+        isunset(oval) && isunset(cval) && return
         print(io, '\n', lpad(String(field), 14, ' '), ": ")
-        if isnothing(cval)
+        if isunset(cval)
             print(io, styled"{light:unset}")
         else
             valdisplay(io, cval)
         end
-        if isnothing(oval)
+        if isunset(oval)
             print(io, styled" {light,grey:(default unset)}")
         elseif oval != cval
             if valdisplay == print
@@ -166,57 +171,18 @@ function Base.show(io::ShowBuffer, ::MIME"text/plain", face::Face)
             print(io, strface(String(name), Face(weight=:bold)))
         end
         print(io, " (", strface("sample", face), ")")
-        fieldnamepad = 14
-        for field in (:font, :height, :weight, :slant)
-            printfield(io, face, cface, field, print)
-        end
-        for field in (:foreground, :background)
-            printfield(io, face, cface, field, showcolor)
-        end
-        if !isnothingflavour(face.f.underline_style) || !isnothingflavour(cface.f.underline_style)
-            oul, osty, cul, csty = face.f.underline, face.f.underline_style, cface.f.underline, cface.f.underline_style
-            print(io, '\n', lpad("underline", fieldnamepad, ' '), ": ")
-            if isnothingflavour(csty)
-                print(io, styled"{light:unset}")
-            else
-                showunderlineval(io, cul, csty, false)
-            end
-            if isnothingflavour(osty)
-                print(io, styled" {light,grey:(default unset)}")
-            elseif oul !== cul || osty != csty
-                print(io, styled" {light:(default: }")
-                showunderlineval(io, oul, osty, false)
-                print(io, styled"{light:)}")
-            end
-        end
-        for field in (:strikethrough, :inverse)
-            printfield(io, face, cface, field, print)
-        end
-        if !all(isempty, (face.inherit, cface.inherit))
-            print(io, '\n', lpad("inherit", fieldnamepad, ' '), ": ")
-            if isempty(cface.inherit)
-                print(io, styled"{light:unset}")
-            else
-                isfirst = true
-                for iface in cface.inherit
-                    if isfirst; isfirst = false else print(io, ", ") end
-                    iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', strface("*", iface), ')')
-                end
-            end
-            if isempty(face.inherit)
-                print(io, styled" {light,grey:(default unset)}")
-            elseif face.inherit != cface.inherit
-                print(io, styled" {light:(default: }")
-                isfirst = true
-                for iface in face.inherit
-                    if isfirst; isfirst = false else print(io, ", ") end
-                    iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', strface("*", iface), ')')
-                end
-                print(io, styled"{light:)}")
-            end
-        end
+        printfield(io, :font, face.font, cface.font)
+        printfield(io, :height, face.height, cface.height)
+        printfield(io, :weight, face.weight, cface.weight)
+        printfield(io, :slant, face.slant, cface.slant)
+        printfield(io, :foreground, face.foreground, cface.foreground, valdisplay = showcolor)
+        printfield(io, :background, face.background, cface.background, valdisplay = showcolor)
+        underline(f::Face) = (f.f.underline, f.f.underline_style)
+        printfield(io, :underline, underline(face), underline(cface), isunset = isnothingflavour ∘ last,
+                   valdisplay = (io, (ul, ulstyle)) -> showunderlineval(io, ul, ulstyle, false))
+        printfield(io, :strikethrough, face.strikethrough, cface.strikethrough)
+        printfield(io, :inverse, face.inverse, cface.inverse)
+        printfield(io, :inherit, face.inherit, cface.inherit, isunset = isempty, valdisplay = showinherit)
     end
 end
 
