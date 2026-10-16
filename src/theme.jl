@@ -347,8 +347,6 @@ red and blue mixed make purple
 ```
 """
 function withfaces(f, keyvals_itr)
-    # Before modifying the current `FACES`, we should ensure
-    # that we've loaded the user's customisations.
     load_customisations!()
     eltype(keyvals_itr) <: Pair{<:Union{Face, Symbol}} ||
         throw(MethodError(withfaces, (f, keyvals_itr)))
@@ -389,7 +387,6 @@ withfaces(f) = f()
 
 ## Getting the combined face from a set of properties ##
 
-# Putting these inside `getface` causes the julia compiler to box it
 _mergedface(face::Face) = get(FACES.current[], face, face)
 _mergedface(face::Symbol) = _mergedface(lookmakeface(face))
 _mergedface(faces::Vector) = mapfoldl(_mergedface, merge, Iterators.reverse(faces))
@@ -519,7 +516,7 @@ face!(s::Union{<:AnnotatedString, <:SubString{<:AnnotatedString}}, range::UnitRa
     annotate!(s, range, lookmakeface(face))
 
 
-## Reading face definitions from a dictionary ##
+## Changing faces ##
 
 """
     setface!(original::Face => update::Face, [theme::Symbol = :base]) -> Union{Face, Nothing}
@@ -587,10 +584,13 @@ function loadface!((name, _)::Pair{Symbol, Nothing})
     resetfaces!(name)
 end
 
+## Reading face definitions from a dictionary ##
+
 """
     loaduserfaces!(faces::Dict{String, Any})
 
-For each face specified in `Dict`, load it to `FACES``.current`.
+Apply each face in `faces` with `setface!`. The faces in a table named `light` or `dark`
+apply to that theme.
 """
 function loaduserfaces!(faces::Dict{String, Any}, prefix::Union{String, Nothing}=nothing, theme::Symbol = :base)
     theme == :base && prefix ∈ map(String, keys(FACES.themes)) &&
@@ -802,18 +802,8 @@ end
 
 ## Color utils ##
 
-"""
-    UNRESOLVED_COLOR_FALLBACK
-
-The fallback `RGBTuple` used when asking for a color that is not defined.
-"""
 const UNRESOLVED_COLOR_FALLBACK = (r = 0xff, g = 0x00, b = 0xff) # Pink
 
-"""
-    MAX_COLOR_FORWARDS
-
-The maximum number of times to follow color references when resolving a color.
-"""
 const MAX_COLOR_FORWARDS = 12
 
 """
@@ -828,7 +818,7 @@ function finalcolor(face::Face, stamina::Int = MAX_COLOR_FORWARDS)
     original = face
     face = get(current, original, original)
     face.f.foreground === original && return original # A base colour already, the usual case
-    for s in stamina:-1:1 # Do this instead of a while loop to prevent cyclic lookups
+    for s in stamina:-1:1 # Bounded, as colours can refer to each other in a cycle
         fg = face.f.foreground
         if isnothingflavour(fg)
             for iface in face.f.inherit

@@ -70,7 +70,7 @@ invocation. Its fields are as follows:
   escape characters.
 - `s::Iterators.Stateful`, an `(index, char)` iterator of `content`
 - `strict::Bool`, whether faces must be known ahead of time, as in a module with a palette
-- `offset::Int`, a record of the between the `content` index and the index in the resulting
+- `offset::Int`, the difference between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
 - `point::Int`, the current index in `content`.
 - `activestyles::Vector{@NamedTuple{source::Int, inds::Vector{Int}}}`, the styled regions
@@ -164,12 +164,6 @@ isnextchar(state::State, c::Char) =
 isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
     !isempty(state.s) && last(peek(state.s)) ∈ cs
 
-"""
-    ismacro(state::State) -> Bool
-
-Check whether `state` is indicated to come from a macro invocation,
-according to its output type.
-"""
 ismacro(::State{O}) where {O} = O == MacroOutput
 
 """
@@ -313,11 +307,6 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
     expr, nextpos
 end
 
-"""
-    skipwhitespace!(state::State)
-
-Skip forwards all space, tab, and newline characters in `state.s`
-"""
 function skipwhitespace!(state::State)
     while isnextchar(state, (' ', '\t', '\n', '\r'))
         popfirst!(state.s)
@@ -332,27 +321,13 @@ Read `state` until `f(::Char)` is `false`.
 Given a `Stateful` that iterates `(_, char::Char)` pairs, and a predicate
 `f(::Char)::Bool`, return `(str, lastchar)`, where `str::String` contains all the
 `char` for which `f(char) == true`, and `lastchar` the last `char` element seen,
-or the input `lastchar` there are no elements of `state`.
+or the input `lastchar` if there are no elements of `state`.
 
 # Examples
 
 ```julia-repl
-julia> s = Base.Stateful(pairs("abc"));
-
-julia> read_while!(isnumeric, s, 'w')
-("", 'a')
-
-julia> first(s) # s is mutated
-2 => 'b'
-
 julia> read_while!(isascii, Base.Stateful(pairs("123Σω")), 'k')
 ("123", 'Σ')
-
-julia> read_while!(isascii, Base.Stateful(pairs("abcde")), 'α')
-("abcde", 'e')
-
-julia> read_while!(isascii , Base.Stateful(pairs("")), 'k')
-("", 'k')
 ```
 """
 function read_while!(f::Function, state::Base.Stateful, lastchar::Char)
@@ -562,7 +537,6 @@ function read_inlineface!(state::State, i::Int)
                 isempty(state.s) && break
                 nextchar = last(peek(state.s))
                 if nextchar == ':'
-                    # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
                     popfirst!(state.s)
                 elseif nextchar == ']'
                     popfirst!(state.s)
@@ -586,7 +560,6 @@ function read_inlineface!(state::State, i::Int)
             inherit
         end, lastchar
     end
-    # Tentatively initiate the parsing
     popfirst!(state.s)
     lastchar = '('
     skipwhitespace!(state)
@@ -595,11 +568,9 @@ function read_inlineface!(state::State, i::Int)
         skipwhitespace!(state)
         keypos = if isempty(state.s) lastindex(state.content) else prevind(state.content, first(peek(state.s))) end
         str_key, lastchar = readalph!(state, lastchar)
-        # If we have actually reached the end but there is a trailing
-        # comma/whitespace, we find out here and abort.
+        # A trailing comma or whitespace before ')'
         isempty(str_key) && lastchar == ')' && break
         key = Symbol(str_key)
-        # Check for '=', and skip over surrounding whitespace
         if lastchar != '='
             skipwhitespace!(state)
             if isempty(state.s) || last(peek(state.s)) != '='
@@ -610,10 +581,8 @@ function read_inlineface!(state::State, i::Int)
         end
         skipwhitespace!(state)
         isempty(state.s) && break
-        # Aliases
         key == :fg && (key = :foreground)
         key == :bg && (key = :background)
-        # Parse value
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             isempty(state.s) || (lastchar = last(popfirst!(state.s)))
@@ -670,9 +639,7 @@ function read_inlineface!(state::State, i::Int)
             inherit, lastchar = read_inherit!(state, lastchar)
             inherit
         elseif key in LIKELY_FUTURE_FACE_ATTRS
-            # Do nothing so that if the face keys are populated in the future,
-            # they only soft-error (i.e. do nothing). This is somewhat
-            # consistent with the way the `Faces(...)` constructor works.
+            # Keys a later version may add are ignored, not rejected
         else
             styerr!(state, AnnotatedString(
                 "Uses unrecognised face key '$key'. Recognised keys are: $(join(FACE_KEYWORDS, ", ", ", and "))",
@@ -774,7 +741,7 @@ add it to `state.out`.
 """
 function read_face_or_keyval!(state::State, i::Int)
     function read_curlywrapped!(state)
-        popfirst!(state.s) # first '{'
+        popfirst!(state.s)
         buffer = Char[]
         escaped = false
         while !isempty(state.s)
@@ -1249,8 +1216,7 @@ struct MalformedStylingMacro <: Exception
 end
 
 function Base.showerror(io::IO, err::MalformedStylingMacro)
-    # We would do "{error:┌ ERROR\:} MalformedStylingMacro" but this is already going
-    # to be prefixed with "ERROR: LoadError", so it's better not to.
+    # Not styled as an error, as it is already prefixed by "ERROR: LoadError"
     println(io, "MalformedStylingMacro")
     for (; message, position, hint) in err.problems
         infowidth = displaysize(stderr)[2] ÷ 3

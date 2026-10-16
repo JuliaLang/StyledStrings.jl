@@ -9,8 +9,6 @@ opening a pull request or issue to discuss making them part of the public API.
 StyledStrings.ANSI_4BIT_COLORS
 StyledStrings.BASE_FACES
 StyledStrings.FACES
-StyledStrings.MAX_COLOR_FORWARDS
-StyledStrings.UNRESOLVED_COLOR_FALLBACK
 StyledStrings.Legacy.ANSI_256_COLORS
 StyledStrings.Legacy.RENAMED_COLORS
 StyledStrings.Legacy.legacy_color
@@ -57,13 +55,11 @@ should provide some insight though.
 StyledStrings.StyledMarkup
 StyledStrings.StyledMarkup.State
 StyledStrings.StyledMarkup.isnextchar
-StyledStrings.StyledMarkup.ismacro
 StyledStrings.StyledMarkup.annotpromote!
 StyledStrings.StyledMarkup.styerr!
 StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!
-StyledStrings.StyledMarkup.skipwhitespace!
 StyledStrings.StyledMarkup.read_while!
 StyledStrings.StyledMarkup.begin_style!
 StyledStrings.StyledMarkup.end_style!

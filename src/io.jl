@@ -1,13 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# This isn't so much type piracy as type privateering 😉
-
 """
-A mapping between ANSI named colours and indices in the standard 256-color
-table. The standard colors are 0-7, and high intensity colors 8-15.
-
-The high intensity colors are prefixed by "bright_". The "bright_black" color is
-given two aliases: "grey" and "gray".
+The SGR indices of the base colour faces: 0–7, and 8–15 for the bright ones.
 """
 const ANSI_4BIT_COLORS = IdDict{Face, UInt8}(
     face"black"          => 0,
@@ -83,9 +77,7 @@ function termcolor8bit(io::IO, (; r, g, b)::RGBTuple, category::Char)
     colorcode = if r == rnear && g == gnear && b == bnear
         from6cube(r6cube, g6cube, b6cube)
     else
-        # There aren't many greys in the 6x6x6 colour cube, so the remaining
-        # space in the 256-colour range not taken up by the 16 "named" 4-bit
-        # colours and the 6 colour cube is used for 24 shades of grey (`8:10:238`).
+        # Indices 232–255 are 24 greys, `8:10:238`
         # `cdistsq` weights green, so the grey nearest the mean may not be the nearest
         mean_level = min(23, (sum(Int, (r, g, b)) ÷ 3 - 3) ÷ 10)
         grey_level = argmin(l -> cdistsq(8 + 10l, 8 + 10l, 8 + 10l), max(0, mean_level - 1):min(23, mean_level + 1))
@@ -162,12 +154,7 @@ function termcolor(io::IO, value::Union{Face, RGBTuple}, category::Char)
     end
 end
 
-"""
-    termcolor(io::IO, ::Nothing, category::Char)
-
-Print to `io` the SGR code to reset the color for `category`.
-"""
-termcolor(io::IO, ::Nothing, category::Char) = # "\e[<category>9m" as one word
+termcolor(io::IO, ::Nothing, category::Char) = # The reset "\e[<category>9m", as one word
     writebytes(io, UInt64(0x5b1b) | UInt64(UInt8(category)) << 16 | UInt64(0x6d39) << 24, 5)
 
 const ANSI_STYLE_CODES = (

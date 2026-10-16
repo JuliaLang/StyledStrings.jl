@@ -1,8 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# StyledStrings provides a new way of handling colored output, however the
-# ~decade of colored printing in Julia before now has left us with a legacy,
-# and we should try to maintain compatibility as much as reasonable possible.
+# Compatibility with the colored printing that predates StyledStrings
 
 module Legacy
 

@@ -285,7 +285,7 @@ function Face(; font::Union{Nothing, String} = nothing,
               strikethrough::Union{Nothing, Bool} = nothing,
               inverse::Union{Nothing, Bool} = nothing,
               inherit::Union{Nothing, Face, Vector{Face}, Symbol, Vector{Symbol}} = nothing,
-              _...) # Simply ignore unrecognised keyword arguments.
+              _...)
     (font, height, weight, slant, foreground, background, underline, strikethrough, inverse, inherit) ===
         ntuple(Returns(nothing), 10) && return EMPTY_FACE
     inheritlist = if isnothing(inherit)
