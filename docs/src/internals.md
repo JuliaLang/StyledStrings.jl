@@ -58,10 +58,8 @@ StyledStrings.StyledMarkup
 StyledStrings.StyledMarkup.State
 StyledStrings.StyledMarkup.isnextchar
 StyledStrings.StyledMarkup.ismacro
-StyledStrings.StyledMarkup.offadd!
 StyledStrings.StyledMarkup.annotpromote!
 StyledStrings.StyledMarkup.styerr!
-StyledStrings.StyledMarkup.hygienic_eval
 StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!

@@ -47,7 +47,7 @@ module StyledMarkup
 
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor, Link, StyledValue,
-    ATTRIBUTES,
+    ATTRIBUTES, FACE_KEYWORDS,
     lookupface, lookmakeface, faceref, pathface, similarface, isambiguous, registrykey, heightbits,
     UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
@@ -73,7 +73,6 @@ invocation. Its fields are as follows:
 - `offset::Int`, a record of the between the `content` index and the index in the resulting
   styled string, as markup structures are absorbed.
 - `point::Int`, the current index in `content`.
-- `escape::Bool`, whether the last character seen was an escape character.
 - `activestyles::Vector{@NamedTuple{source::Int, inds::Vector{Int}}}`, the styled regions
   that are still open: the position of each region's markup, and the indices in `out` of
   its annotations.
@@ -93,7 +92,6 @@ mutable struct State{O}
     # State
     offset::Int
     point::Int
-    escape::Bool
     # Output
     const activestyles::Vector{@NamedTuple{
         source::Int,
@@ -119,7 +117,7 @@ mutable struct MacroOutput
         annotidx::Int,
         var::Symbol}}
     dynoff::Union{Symbol, Nothing}
-    avtype::Union{Symbol, Nothing}
+    avtype::Union{Symbol, Type}
 end
 
 struct FnOutput
@@ -127,36 +125,26 @@ struct FnOutput
     annots::Vector{@NamedTuple{
         region::UnitRange{Int},
         value::StyledValue}}
-    rfaces::Dict{String, Face}
     skipothers::Bool # Skip `key=value` annotations other than faces and links, rather than reject them
 end
 
-State(content::AbstractString, mod::Union{Module, Nothing}=nothing; skipothers::Bool = false) =
-    State(String(content), mod; skipothers)
-function State(content::String, mod::Union{Module, Nothing}=nothing; skipothers::Bool = false)
-    strict = if mod isa Module
-        isdefined(mod, MAGIC_DEFPALETTE_VARNAME) ||
-            isdefined(mod, MAGIC_USEPALETTE_VARNAME)
-    else
-        false
-    end
+function State(content::AbstractString, mod::Union{Module, Nothing}=nothing; skipothers::Bool = false)
+    str = String(content)
+    strict = !isnothing(mod) && (isdefined(mod, MAGIC_DEFPALETTE_VARNAME) || isdefined(mod, MAGIC_USEPALETTE_VARNAME))
     output = if isnothing(mod)
-        FnOutput([], [], Dict(), skipothers)
+        FnOutput([], [], skipothers)
     else
-        MacroOutput(mod, [], [], [], Dict(), [], [], nothing, nothing)
+        MacroOutput(mod, [], [], [], Dict(), [], [], nothing, StyledValue)
     end
-    State(content, Vector{UInt8}(content), # content, bytes
-          Iterators.Stateful(pairs(content)), strict, # s, strict
-          0, 1, false, # offset, point, escape
+    State(str, Vector{UInt8}(str), # content, bytes
+          Iterators.Stateful(pairs(str)), strict, # s, strict
+          0, 1, # offset, point
           @NamedTuple{source::Int, inds::Vector{Int}}[], # activestyles
           output, # out
           NamedTuple{(:message, :position, :hint), # errors
-                     Tuple{AnnotatedString{String, StyledValue}, <:Union{Int, Nothing}, String}}[])
+                     Tuple{AnnotatedString{String, StyledValue}, Int, String}}[])
 end
 
-const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
-                          "height", "weight", "slant", "underline",
-                          "strikethrough", "inverse", "inherit")
 const LIKELY_FUTURE_FACE_ATTRS = (:shape, :style, :variant, :features, :alpha)
 const VALID_WEIGHTS = map(String, ATTRIBUTES.weights)
 const VALID_SLANTS = map(String, ATTRIBUTES.slants)
@@ -181,25 +169,8 @@ isnextchar(state::State, cs::NTuple{N, Char}) where {N} =
 
 Check whether `state` is indicated to come from a macro invocation,
 according to its output type.
-
-While this function is rather trivial, it clarifies the intent when used.
 """
 ismacro(::State{O}) where {O} = O == MacroOutput
-
-"""
-    offadd!(state::State{MacroOutput}, delta::Union{Int, Symbol, Expr})
-
-Adjust the dynamic offset in `state.out.dynoff` by `delta`.
-"""
-function offadd!(state::State{MacroOutput}, delta::Union{Int, Symbol, Expr})
-    newoff = gensym(:offset)
-    push!(state.out.lets, if isnothing(state.out.dynoff)
-              :($newoff = $delta)
-          else
-              :($newoff = $(state.out.dynoff) + $delta)
-          end)
-    state.out.dynoff = newoff
-end
 
 """
     annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr, Type})
@@ -208,19 +179,19 @@ Promote the annotation value type in `state.out` to include `newvaltype`.
 """
 function annotpromote!(state::State{MacroOutput}, newvaltype::Union{Symbol, Expr, Type})
     newavtype = gensym(:avtype)
-    push!(state.out.lets, :($newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), $newvaltype)))
+    push!(state.out.lets, :($newavtype = promote_type_4u($(state.out.avtype), $newvaltype)))
     state.out.avtype = newavtype
 end
 
 """
-    styerr!(state::State, message::AbstractString, position::Union{Nothing, Int}=nothing, hint::String="around here")
+    styerr!(state::State, message::AbstractString, position::Int, hint::String="around here")
 
 Register an error in `state` based on erroneous content at or around `position`
-(if known, and with a certain `hint` as to the location), with the nature of the
-error given by `message`.
+(with a certain `hint` as to the location), with the nature of the error given
+by `message`.
 """
-function styerr!(state::State, message::AbstractString, position::Union{Nothing, Int}=nothing, hint::String="around here")
-    if !isnothing(position) && position < 0
+function styerr!(state::State, message::AbstractString, position::Int, hint::String="around here")
+    if position < 0
         position = prevind(
             state.content,
             if !isempty(state.s)
@@ -233,17 +204,6 @@ function styerr!(state::State, message::AbstractString, position::Union{Nothing,
     push!(state.errors, (; message=AnnotatedString{String, StyledValue}(message), position, hint))
     nothing
 end
-
-"""
-    hygienic_eval(state::State, expr)
-
-Evaluate `expr` within the scope of `state`'s module.
-This replicates part of the behind-the-scenes behaviour of macro expansion, we
-just need to manually invoke it due to the particularities around dealing with
-code from a foreign module that we parse ourselves.
-"""
-hygienic_eval(state::State{MacroOutput}, expr) =
-    Core.eval(state.out.mod, Expr(:var"hygienic-scope", expr, @__MODULE__))
 
 """
     escaped!(state::State, i::Int, char::Char)
@@ -267,16 +227,14 @@ function escaped!(state::State, i::Int, char::Char)
         deleteat!(state.bytes, i+state.offset-1:i+skipped+state.offset)
         state.offset -= skipped + ncodeunits("\\\n")
     end
-    state.escape = false
 end
 
 """
-    interpolated!(state::State, i::Int, _)
+    interpolated!(state::State, i::Int)
 
 Interpolate the expression starting at `i`, and add it as a part to `state`.
 """
-function interpolated!(state::State{MacroOutput}, i::Int, _)
-    # Add any preceding content
+function interpolated!(state::State{MacroOutput}, i::Int)
     if state.point < i + state.offset
         cstr = String(state.bytes[state.point:i+state.offset-1])
         push!(state.out.strs, cstr)
@@ -286,17 +244,12 @@ function interpolated!(state::State{MacroOutput}, i::Int, _)
     deleteat!(state.bytes, (i + state.offset):(nexti + state.offset - 1))
     state.offset -= nexti - i
     state.point = nexti + state.offset
-    ivar = if expr isa Symbol
-        expr
+    ivar, reref = if expr isa Symbol
+        expr, any(interp -> interp.var === expr, state.out.interpolations)
     else
         isym = gensym(:interp)
         push!(state.out.binds, esc(isym) => esc(expr))
-        isym
-    end
-    reref = if expr isa Symbol
-        any(==(expr), Iterators.map(((; var),) -> var, state.out.interpolations))
-    else
-        false
+        isym, false
     end
     istr = Symbol("$(ivar)_str")
     # `string` is the identity on an `AnnotatedString`
@@ -307,7 +260,14 @@ function interpolated!(state::State{MacroOutput}, i::Int, _)
              startoff = state.out.dynoff,
              annotidx = lastindex(state.out.annots) + 1,
              var = ivar))
-    offadd!(state, :(ncodeunits($istr)))
+    # Each interpolation shifts the regions after it by its length, only known when the string is built
+    newoff = gensym(:offset)
+    push!(state.out.lets, if isnothing(state.out.dynoff)
+              :($newoff = ncodeunits($istr))
+          else
+              :($newoff = $(state.out.dynoff) + ncodeunits($istr))
+          end)
+    state.out.dynoff = newoff
 end
 
 # Bind the user's `expr` in the bindings of the generated `let`, rather than its body, so that
@@ -405,21 +365,19 @@ function read_while!(f::Function, state::Base.Stateful, lastchar::Char)
             break
         end
     end
-    if isempty(v) "" else String(v) end, lastchar
+    String(v), lastchar
 end
 
 """
-    begin_style!(state::State, i::Int, char::Char)
+    begin_style!(state::State, i::Int)
 
-Parse the style declaration beginning at `i` (`char`) with `read_annotation!`,
+Parse the style declaration beginning at `i` with `read_annotation!`,
 and register it in the active styles list.
 """
-function begin_style!(state::State, i::Int, char::Char)
+function begin_style!(state::State, i::Int)
     push!(state.activestyles, (source = i, inds = Int[]))
-    while read_annotation!(state, i, char) end
-    # Adjust bytes/offset based on how much the index
-    # has been incremented in the processing of the
-    # style declaration(s).
+    while read_annotation!(state, i) end
+    # Drop the markup from the output
     if !isempty(state.s)
         nexti = first(peek(state.s))
         deleteat!(state.bytes, i+state.offset:nexti+state.offset-1)
@@ -428,11 +386,11 @@ function begin_style!(state::State, i::Int, char::Char)
 end
 
 """
-    end_style!(state::State, i::Int, char::Char)
+    end_style!(state::State, i::Int)
 
 Close of the most recent active style in `state`, making it a pending style.
 """
-function end_style!(state::State, i::Int, char::Char)
+function end_style!(state::State, i::Int)
     if isempty(state.activestyles)
         styerr!(state, "Contains extraneous style terminations", prevind(state.content, i), "right here")
         return
@@ -452,9 +410,9 @@ function end_style!(state::State, i::Int, char::Char)
 end
 
 """
-    read_annotation!(state::State, i::Int, char::Char) -> Bool
+    read_annotation!(state::State, i::Int) -> Bool
 
-Read the annotations at `i` (`char`), and add them to `state.out`.
+Read the annotations at `i`, and add them to `state.out`.
 
 This skips whitespace and checks what the next character in `state.s` is,
 detects the form of the annotation, and parses it using the appropriate
@@ -466,7 +424,7 @@ specialised function like so:
 After parsing the annotation, returns a boolean value signifying whether there
 is an immediately subsequent annotation to be read.
 """
-function read_annotation!(state::State, i::Int, char::Char)
+function read_annotation!(state::State, i::Int)
     skipwhitespace!(state)
     isempty(state.s) && return false
     nextchar = last(peek(state.s))
@@ -474,9 +432,9 @@ function read_annotation!(state::State, i::Int, char::Char)
         popfirst!(state.s)
         return false
     elseif nextchar == '('
-        read_inlineface!(state, i, char)
+        read_inlineface!(state, i)
     else
-        read_face_or_keyval!(state, i, char)
+        read_face_or_keyval!(state, i)
     end
     skipwhitespace!(state)
     isempty(state.s) && return false
@@ -492,16 +450,16 @@ function read_annotation!(state::State, i::Int, char::Char)
     end
 end
 
-islazylookup(x) = x isa Expr && (x.head === :call && x.args[1] === lookmakeface || any(islazylookup, x.args))
+# Whether generated code holds a value known only when the string is built: an interpolation or a lookup
+isruntime(x) = x isa Symbol || x isa Expr && (x.head === :escape || x.head === :call && x.args[1] === lookmakeface || any(isruntime, x.args))
 
 """
-    read_inlineface!(state::State, i::Int, char::Char)
+    read_inlineface!(state::State, i::Int)
 
-Read an inline face declaration from `state`, at position `i` (`char`), and add
+Read an inline face declaration from `state`, at position `i`, and add
 it to `state.out`.
 """
-function read_inlineface!(state::State, i::Int, _char::Char)
-    # Substructure parsing helper functions
+function read_inlineface!(state::State, i::Int)
     readalph!(state, lastchar) = read_while!(c -> 'a' <= c <= 'z', state.s, lastchar)
     readsymbol!(state, lastchar) = read_while!(∉((' ', '\t', '\n', '\r', ',', ')')), state.s, lastchar)
     function parsecolor(color::String)
@@ -514,13 +472,22 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             resolveface(state, color)
         end
     end
+    # The highlights follow the length of the "Invalid $what '" prefix
+    function invalidchoice!(what::String, word::String, choices)
+        valid = join(choices, ", ", ", or ")
+        pre, n = ncodeunits("Invalid $what '"), ncodeunits(word)
+        styerr!(state, AnnotatedString("Invalid $what '$word' (should be $valid)",
+                                       [(pre+1:pre+n, FACES.pool[:warning]),
+                                        (pre+n+3:pre+n+14+ncodeunits(valid), FACES.pool[:light])]),
+                -length(word) - 2)
+    end
     function nextnonwhitespace!(state, lastchar)
         lastchar ∈ (' ', '\t', '\n', '\r') || return lastchar
         skipwhitespace!(state)
         isempty(state.s) && return lastchar
         last(popfirst!(state.s))
     end
-    function read_underline!(state, lastchar, needseval)
+    function read_underline!(state, lastchar)
         if isnextchar(state, '(')
             ustart, _ = popfirst!(state.s)
             skipwhitespace!(state)
@@ -529,9 +496,8 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 nothing
             elseif isnextchar(state, '$') && ismacro(state)
                 expr, _ = readexpr!(state)
-                isempty(state.s) && return nothing, lastchar, needseval
+                isempty(state.s) && return nothing, lastchar
                 lastchar = last(popfirst!(state.s))
-                needseval = true
                 :($interpattr($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             else
                 word, lastchar = readsymbol!(state, lastchar)
@@ -539,35 +505,26 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             end
             lastchar = nextnonwhitespace!(state, lastchar)
             ustyle = QuoteNode(:straight)
-            if !isempty(state.s) && lastchar == ','
+            wellformed = !isempty(state.s) && lastchar == ','
+            if wellformed
                 skipwhitespace!(state)
                 if isnextchar(state, '$') && ismacro(state)
                     expr, _ = readexpr!(state)
-                    isempty(state.s) && return nothing, lastchar, needseval
+                    isempty(state.s) && return nothing, lastchar
                     lastchar = last(popfirst!(state.s))
-                    needseval = true
                     ustyle = bindexpr!(state, expr)
                 else
                     ustyle_word, lastchar = readalph!(state, lastchar)
-                    if ustyle_word ∉ VALID_UNDERLINE_STYLES
-                        valid_options = join(VALID_UNDERLINE_STYLES, ", ", ", or ")
-                        styerr!(state,
-                                AnnotatedString("Invalid underline style '$ustyle_word' (should be $valid_options)",
-                                                [(26:25+ncodeunits(ustyle_word), FACES.pool[:warning])
-                                                 (28+ncodeunits(ustyle_word):39+ncodeunits(ustyle_word)+ncodeunits(valid_options),
-                                                  FACES.pool[:light])]),
-                                -length(ustyle_word) - 2)
-                    end
+                    ustyle_word ∈ VALID_UNDERLINE_STYLES ||
+                        invalidchoice!("underline style", ustyle_word, VALID_UNDERLINE_STYLES)
                     ustyle = QuoteNode(Symbol(ustyle_word))
                     lastchar = nextnonwhitespace!(state, lastchar)
                 end
-                if lastchar == ')'
-                    isempty(state.s) && return nothing, lastchar, needseval
-                    lastchar = last(popfirst!(state.s))
-                else
-                    styerr!(state, "Malformed underline value, should be (<color>, <style>)",
-                            -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
-                end
+                wellformed = lastchar == ')'
+            end
+            if wellformed
+                isempty(state.s) && return nothing, lastchar
+                lastchar = last(popfirst!(state.s))
             else
                 styerr!(state, "Malformed underline value, should be (<color>, <style>)",
                         -first(something(peek(state.s), (ustart+2, '.'))) + ustart - 1)
@@ -589,7 +546,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             else
                 parsecolor(word)
             end
-        end, lastchar, needseval
+        end, lastchar
     end
     function read_inherit!(state, lastchar)
         inherit = if ismacro(state)
@@ -597,12 +554,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         else
             Face[]
         end
-        if isnextchar(state, ':')
-            popfirst!(state.s)
-            facename, lastchar = readsymbol!(state, lastchar)
-            # Base.depwarn("Using symbols to refer to faces is deprecated as of v1.14. Use direct names and palettes instead.", Symbol("@styled_str"))
-            push!(inherit, resolveface(state, facename))
-        elseif isnextchar(state, '[')
+        if isnextchar(state, '[')
             popfirst!(state.s)
             readvec = true
             while readvec
@@ -624,6 +576,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 end
             end
         else
+            isnextchar(state, ':') && popfirst!(state.s)
             facename, lastchar = read_while!(∉((',', ']', ')')), state.s, lastchar)
             push!(inherit, resolveface(state, String(rstrip(facename))))
         end
@@ -637,9 +590,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     popfirst!(state.s)
     lastchar = '('
     skipwhitespace!(state)
-    # Get on with the parsing now
-    kwargs = if ismacro(state) Expr[] else Pair{Symbol, Any}[] end
-    needseval = false
+    kwargs = Pair{Symbol, Any}[]
     while !isempty(state.s) && lastchar != ')'
         skipwhitespace!(state)
         keypos = if isempty(state.s) lastindex(state.content) else prevind(state.content, first(peek(state.s))) end
@@ -666,7 +617,6 @@ function read_inlineface!(state::State, i::Int, _char::Char)
         val = if ismacro(state) && isnextchar(state, '$')
             expr, _ = readexpr!(state)
             isempty(state.s) || (lastchar = last(popfirst!(state.s)))
-            needseval = true
             if key ∈ (:foreground, :background) # Look up face names as written ones are
                 :($interpattr($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
             elseif key == :inherit
@@ -698,21 +648,8 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             end
         elseif key ∈ (:weight, :slant)
             v, lastchar = readalph!(state, lastchar)
-            if key == :weight && v ∉ VALID_WEIGHTS
-                valid_options = join(VALID_WEIGHTS, ", ", ", or ")
-                styerr!(state, AnnotatedString("Invalid weight '$v' (should be $valid_options)",
-                                                [(17:16+ncodeunits(v), FACES.pool[:warning]),
-                                                 (19+ncodeunits(v):30+ncodeunits(v)+ncodeunits(valid_options),
-                                                  FACES.pool[:light])]),
-                        -length(v) - 2)
-            elseif key == :slant && v ∉ VALID_SLANTS
-                valid_options = join(VALID_SLANTS, ", ", ", or ")
-                styerr!(state, AnnotatedString("Invalid slant '$v' (should be $valid_options)",
-                                                [(16:15+ncodeunits(v), FACES.pool[:warning]),
-                                                 (18+ncodeunits(v):29+ncodeunits(v)+ncodeunits(valid_options),
-                                                  FACES.pool[:light])]),
-                        -length(v) - 2)
-            end
+            choices = if key == :weight VALID_WEIGHTS else VALID_SLANTS end
+            v ∈ choices || invalidchoice!(str_key, v, choices)
             Symbol(v) |> if ismacro(state) QuoteNode else identity end
         elseif key ∈ (:foreground, :background)
             color, lastchar = readsymbol!(state, lastchar)
@@ -727,7 +664,7 @@ function read_inlineface!(state::State, i::Int, _char::Char)
                 styerr!(state, "Invalid $key value '$flag', should be true or false", -length(flag) - 2)
             end
         elseif key == :underline
-            ul, lastchar, needseval = read_underline!(state, lastchar, needseval)
+            ul, lastchar = read_underline!(state, lastchar)
             ul
         elseif key == :inherit
             inherit, lastchar = read_inherit!(state, lastchar)
@@ -738,20 +675,16 @@ function read_inlineface!(state::State, i::Int, _char::Char)
             # consistent with the way the `Faces(...)` constructor works.
         else
             styerr!(state, AnnotatedString(
-                "Uses unrecognised face key '$key'. Recognised keys are: $(join(VALID_FACE_ATTRS, ", ", ", and "))",
+                "Uses unrecognised face key '$key'. Recognised keys are: $(join(FACE_KEYWORDS, ", ", ", and "))",
                 [(29:28+ncodeunits(String(key)), FACES.pool[:warning])]),
                     -length(str_key) - 2)
         end
-        let key = key # Avoid boxing from closure capture
-            if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
-                push!(kwargs, Expr(:kw, key, val))
-            elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
-                push!(kwargs, key => val)
-            else
-                styerr!(state, AnnotatedString("Contains repeated face key '$key'",
-                                                [(29:28+ncodeunits(String(key)), FACES.pool[:warning])]),
-                        keypos)
-            end
+        if any(==(key) ∘ first, kwargs)
+            styerr!(state, AnnotatedString("Contains repeated face key '$key'",
+                                            [(29:28+ncodeunits(String(key)), FACES.pool[:warning])]),
+                    keypos)
+        else
+            push!(kwargs, key => val)
         end
         isempty(state.s) && styerr!(state, "Incomplete inline face declaration", -1)
         skipwhitespace!(state)
@@ -765,14 +698,14 @@ function read_inlineface!(state::State, i::Int, _char::Char)
     faceval = if !isempty(state.errors)
         Face() # Already reported; constructing it could throw first
     elseif ismacro(state)
-        faceex = Expr(:call, Face, kwargs...)
-        if needseval || any(islazylookup, kwargs) # Names unknown now are looked up when the string is built
+        faceex = Expr(:call, Face, (Expr(:kw, k, v) for (k, v) in kwargs)...)
+        if any(isruntime ∘ last, kwargs)
             faceex
-        else
-            hygienic_eval(state, faceex)
+        else # As a macro's result would be evaluated, in the caller's module
+            Core.eval(state.out.mod, Expr(:var"hygienic-scope", faceex, @__MODULE__))
         end
     else
-        Face(; NamedTuple(kwargs)...)
+        Face(; kwargs...)
     end
     addannot!(state, i, faceval)
 end
@@ -828,27 +761,25 @@ takes precedence over it.
 """
 function addannot!(state::State, i::Int, value)
     region = (i + state.offset):typemax(Int)
-    styannot = if ismacro(state)
+    annots = state.out.annots
+    styannot = eltype(annots)(if ismacro(state) # As stored, so that one comparison serves every value
         (; region, loff = state.out.dynoff, roff = nothing, value)
     else
         (; region, value)
-    end
-    prev = if isempty(state.out.annots) nothing else last(state.out.annots) end
-    if prev == styannot && (!(prev.value isa Face) || prev.value === styannot.value)
-        push!(state.activestyles[end].inds, lastindex(state.out.annots))
-        return
-    end
-    push!(state.out.annots, styannot)
-    push!(state.activestyles[end].inds, lastindex(state.out.annots))
+    end)
+    isreused = !isempty(annots) && last(annots) == styannot &&
+        (!(styannot.value isa Face) || last(annots).value === styannot.value)
+    isreused || push!(annots, styannot)
+    push!(state.activestyles[end].inds, lastindex(annots))
 end
 
 """
-    read_face_or_keyval!(state::State, i::Int, char::Char)
+    read_face_or_keyval!(state::State, i::Int)
 
-Read an inline face or key-value pair from `state` at position `i` (`char`), and
+Read an inline face or key-value pair from `state` at position `i`, and
 add it to `state.out`.
 """
-function read_face_or_keyval!(state::State, i::Int, _char::Char)
+function read_face_or_keyval!(state::State, i::Int)
     function read_curlywrapped!(state)
         popfirst!(state.s) # first '{'
         buffer = Char[]
@@ -871,23 +802,19 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         end
         String(buffer)
     end
-    keystart = if !isempty(state.s) first(peek(state.s)) end
-    # this isn't the 'last' char yet, but it will be
-    key = if ismacro(state) && last(peek(state.s)) == '$'
-        expr, _ = readexpr!(state)
-        needseval = true
-        if expr isa Symbol
-            esc(expr)
-        else
-            bindexpr!(state, expr)
-        end
-    else
+    function readuntil!(stops)
         chars = Char[]
-        while (next = peek(state.s)) |> !isnothing && last(next) ∉ (',', '=', ':', ' ', '\t', '\n', '\r')
+        while (next = peek(state.s)) |> !isnothing && last(next) ∉ stops
             popfirst!(state.s)
             push!(chars, last(next))
         end
         String(chars)
+    end
+    keystart = first(peek(state.s)) # Called with input left to read
+    key = if ismacro(state) && isnextchar(state, '$')
+        bindexpr!(state, first(readexpr!(state)))
+    else
+        readuntil!((',', '=', ':', ' ', '\t', '\n', '\r'))
     end
     skipwhitespace!(state)
     if isempty(state.s)
@@ -895,30 +822,21 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         key isa String && isempty(key) && styerr!(state, "Missing key before '='", prevind(state.content, first(peek(state.s))), "right here")
         popfirst!(state.s)
         skipwhitespace!(state)
-        nextchar = if !isempty(state.s) last(peek(state.s)) else '\0' end
         value = if isempty(state.s)
             "" # An error will be raised later for an incomplete declaration
-        elseif ismacro(state) && nextchar == '$'
-            expr, _ = readexpr!(state)
-            needseval = true
+        elseif ismacro(state) && isnextchar(state, '$')
+            bound = bindexpr!(state, first(readexpr!(state)))
             if key == "face"
-                :($interpfaceannot($(bindexpr!(state, expr)), $(state.out.mod), $(state.strict)))
+                :($interpfaceannot($bound, $(state.out.mod), $(state.strict)))
             elseif key == "link"
-                :($convert($Link, $(bindexpr!(state, expr))))
-            elseif expr isa Symbol
-                esc(expr)
+                :($convert($Link, $bound))
             else
-                bindexpr!(state, expr)
+                bound
             end
-        elseif nextchar == '{'
+        elseif isnextchar(state, '{')
             read_curlywrapped!(state)
         else
-            chars = Char[]
-            while (next = peek(state.s)) |> !isnothing && last(next) ∉ (',', ':')
-                popfirst!(state.s)
-                push!(chars, last(next))
-            end
-            String(chars)
+            readuntil!((',', ':'))
         end
         if key == "face" && value isa String
             return styerr!(state, "A face is written by name, as in {red:…}, or interpolated, as in {face=\$f:…}",
@@ -946,9 +864,7 @@ function read_face_or_keyval!(state::State, i::Int, _char::Char)
         addannot!(state, i, value)
     elseif key !== ""
         face = if !ismacro(state)
-            get!(state.out.rfaces, key) do
-                resolveface(state, key)
-            end
+            resolveface(state, key)
         elseif haskey(state.out.rfaces, Symbol(key))
             state.out.rfaces[Symbol(key)]
         else
@@ -1043,17 +959,19 @@ populated (along with `state.errors`).
 """
 function run_state_machine!(state::State)
     # Run the state machine
+    escape = false
     for (i, char) in state.s
-        if state.escape
+        if escape
             escaped!(state, i, char)
+            escape = false
         elseif char == '\\'
-            state.escape = true
+            escape = true
         elseif ismacro(state) && char == '$'
-            interpolated!(state, i, char)
+            interpolated!(state, i)
         elseif char == '{'
-            begin_style!(state, i, char)
+            begin_style!(state, i)
         elseif char == '}'
-            end_style!(state, i, char)
+            end_style!(state, i)
         end
     end
     # Ensure that any trailing content is added
@@ -1079,21 +997,15 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     newavar = :interp_annots
     isempty(interps) && return avar
     push!(state.out.lets, :(interp_annot_count = 0))
-    avars = Symbol[]
-    varinstances = Dict{Symbol, Vector{Int}}()
-    for (i, (; var)) in enumerate(interps)
-        push!(get!(() -> Int[], varinstances, var), i)
-    end
-    for (i, (; annotidx, var)) in enumerate(interps)
-        iavar = Symbol(var, "_anns") # Distinct suffixes keep derived names apart from each other and fixed ones
-        push!(avars, iavar)
-        insts = varinstances[var]
-        i == first(insts) || continue
+    annsof(var) = Symbol(var, "_anns") # Distinct suffixes keep derived names apart from each other and fixed ones
+    for var in unique(interp.var for interp in interps)
+        iavar = annsof(var)
+        ninsts = count(interp -> interp.var === var, interps)
         newavtype = Symbol(var, "_avtype")
-        annlen = if length(insts) == 1
+        annlen = if ninsts == 1
             :(length($iavar))
         else
-            :($(length(insts)) * length($iavar))
+            :($ninsts * length($iavar))
         end
         append!(state.out.lets,
                 (quote
@@ -1101,31 +1013,29 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                     if $(esc(var)) isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
                         $iavar = annotations(if $(esc(var)) isa AnnotatedChar annotatedstring($(esc(var))) else $(esc(var)) end)
                         interp_annot_count = interp_annot_count + $annlen
-                        $newavtype = promote_type_4u($(something(state.out.avtype, StyledValue)), typeofval(eltype($iavar)))
+                        $newavtype = promote_type_4u($(state.out.avtype), fieldtype(eltype($iavar), :value))
                     else
                         $iavar = $(@NamedTuple{region::UnitRange{Int}, value::Face}[])
-                        $newavtype = $(something(state.out.avtype, StyledValue))
+                        $newavtype = $(state.out.avtype)
                     end
                 end).args)
         state.out.avtype = newavtype
     end
     iexprs = Union{Expr, LineNumberNode}[]
-    avtype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(something(state.out.avtype, StyledValue))}})
+    avtype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(state.out.avtype)}})
     # Special case: a single interpolation that starts at position 1
     if length(interps) == 1 && first(interps).startpos == 1 && first(interps).annotidx == lastindex(state.out.annots) + 1
         append!(state.out.lets,
                 (quote
                      $newavar = convert(Vector{$avtype}, $avar)
                      iszero(interp_annot_count) ||
-                         append!($newavar, $(first(avars)))
+                         append!($newavar, $(annsof(first(interps).var)))
                  end).args)
     else
         # We now know we need to adjust the annotation regions / deal with multiple annotations
         push!(iexprs, :($newavar = Vector{$avtype}(undef, length($avar) + interp_annot_count)))
         push!(iexprs, :(annot_offset = 0))
-        if first(interps).annotidx == 2
-            push!(iexprs, :($newavar[1] = $avar[1]))
-        elseif first(interps).annotidx > 1
+        if first(interps).annotidx > 1
             push!(iexprs,
                   :(copyto!($newavar,
                             1,
@@ -1134,17 +1044,15 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                             $(first(interps).annotidx - 1))))
         end
         lastannotidx = first(interps).annotidx
-        for ((; startpos, startoff, annotidx, var), annots) in zip(interps, avars)
+        for (; startpos, startoff, annotidx, var) in interps
+            annots = annsof(var)
             if lastannotidx != annotidx
-                push!(iexprs, if annotidx - lastannotidx == 1
-                          :($newavar[$lastannotidx + annot_offset] = $avar[$(annotidx - 1)])
-                      else
-                          :(copyto!($newavar,
-                                    $lastannotidx + annot_offset,
-                                    $avar,
-                                    $lastannotidx,
-                                    $(annotidx - lastannotidx)))
-                      end)
+                push!(iexprs,
+                      :(copyto!($newavar,
+                                $lastannotidx + annot_offset,
+                                $avar,
+                                $lastannotidx,
+                                $(annotidx - lastannotidx))))
             end
             push!(iexprs,
                   :(if !isempty($annots)
@@ -1180,8 +1088,6 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     end
     newavar
 end
-
-typeofval(::Type{@NamedTuple{region::UnitRange{Int}, value::T}}) where {T} = T
 
 """
     @styled_str -> AnnotatedString
@@ -1298,7 +1204,7 @@ macro styled_str(raw_content::String)
         end
         Expr(:tuple, Expr(:call, :(:), start, stop), value) # Converted to `atype` as the vector is built
     end
-    atype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(something(state.out.avtype, StyledValue))}})
+    atype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(state.out.avtype)}})
     avec = :($atype[$(annots...)])
     aexp = :($AnnotatedString($astr, $avec))
     if !isempty(state.out.interpolations)
@@ -1346,7 +1252,7 @@ end
 
 struct MalformedStylingMacro <: Exception
     raw::String
-    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String, StyledValue}, <:Union{Int, Nothing}, String}}}
+    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String, StyledValue}, Int, String}}}
 end
 
 function Base.showerror(io::IO, err::MalformedStylingMacro)
@@ -1354,26 +1260,22 @@ function Base.showerror(io::IO, err::MalformedStylingMacro)
     # to be prefixed with "ERROR: LoadError", so it's better not to.
     println(io, "MalformedStylingMacro")
     for (; message, position, hint) in err.problems
-        posinfo = if isnothing(position)
-            println(io, styled"{error:│} $message.")
-        else
-            infowidth = displaysize(stderr)[2] ÷ 3
-            j = clamp(12 * round(Int, position / 12),
-                        firstindex(err.raw):lastindex(err.raw))
-            start = if j <= infowidth firstindex(err.raw) else
-                max(prevind(err.raw, j, infowidth), firstindex(err.raw))
-            end
-            stop = if ncodeunits(err.raw) - j <= infowidth lastindex(err.raw) else
-                min(nextind(err.raw, j, infowidth), lastindex(err.raw))
-            end
-            window = Base.escape_string(err.raw[start:stop])
-            begin_ellipsis = ifelse(start == firstindex(err.raw), "", "…")
-            end_ellipsis = ifelse(stop == lastindex(err.raw), "", "…")
-            npre = textwidth(Base.escape_string(err.raw[start:position]))
-            println(io, styled"{error:│} $message:\n\
-                           {error:│}  {bright_green:\"{shadow:$begin_ellipsis}$window{shadow:$end_ellipsis}\"}\n\
-                           {error:│}  $(' '^(1+textwidth(begin_ellipsis)+npre)){info:╰─╴$hint}")
+        infowidth = displaysize(stderr)[2] ÷ 3
+        j = clamp(12 * round(Int, position / 12),
+                    firstindex(err.raw):lastindex(err.raw))
+        start = if j <= infowidth firstindex(err.raw) else
+            max(prevind(err.raw, j, infowidth), firstindex(err.raw))
         end
+        stop = if ncodeunits(err.raw) - j <= infowidth lastindex(err.raw) else
+            min(nextind(err.raw, j, infowidth), lastindex(err.raw))
+        end
+        window = Base.escape_string(err.raw[start:stop])
+        begin_ellipsis = ifelse(start == firstindex(err.raw), "", "…")
+        end_ellipsis = ifelse(stop == lastindex(err.raw), "", "…")
+        npre = textwidth(Base.escape_string(err.raw[start:position]))
+        println(io, styled"{error:│} $message:\n\
+                       {error:│}  {bright_green:\"{shadow:$begin_ellipsis}$window{shadow:$end_ellipsis}\"}\n\
+                       {error:│}  $(' '^(1+textwidth(begin_ellipsis)+npre)){info:╰─╴$hint}")
     end
     pluralissues = length(err.problems) > 1
     println(io, styled"{error:┕} {light,italic:$(length(err.problems)) $(ifelse(pluralissues, \"issues\", \"issue\"))}")
