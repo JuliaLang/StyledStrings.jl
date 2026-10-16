@@ -97,6 +97,15 @@ function faceref(mod::Module, name::Symbol)
     end
 end
 
+# For a macro to emit, the face `name` refers to in `mod`, or the exception to report. When
+# not `strict`, an unknown name is looked up when the code runs.
+function nameface(mod::Module, name::String, strict::Bool)
+    '.' in name && return pathface(mod, name)
+    sym = Symbol(name)
+    @something(faceref(mod, sym),
+               if strict UnknownFaceError(mod, sym) else Expr(:call, lookmakeface, mod, QuoteNode(sym)) end)
+end
+
 function pathface(mod::Module, path::String)
     used = Symbol(path) # A name of a used palette, as `Name.face` or `namespace.face`
     face = paletteface(mod, used)
@@ -198,11 +207,7 @@ defined with [`@defpalette`](@ref), which take their place where they share a na
 """
 macro face_str(name::String)
     isempty(name) && return Face()
-    face = if '.' in name
-        pathface(__module__, name)
-    else
-        @something(faceref(__module__, Symbol(name)), UnknownFaceError(__module__, Symbol(name)))
-    end
+    face = nameface(__module__, name, true)
     face isa Exception && throw(face)
     face
 end
@@ -387,15 +392,12 @@ macro defpalette(pargs::Any...)
     function faceorlookup(f) # A single method, so the binding is not boxed
         if f === :nothing
             nothing
-        elseif f isa Symbol
-            ref = @something(get(facevars, f, nothing), faceref(__module__, f), Some(nothing))
+        elseif f isa Symbol || Meta.isexpr(f, :., 2)
+            ref = @something(get(facevars, f, nothing), nameface(__module__, string(f), true))
+            ref isa Exception && throw(ref)
             # A palette is built while precompiling, where a face only the registry holds is a copy
-            ref isa Union{Symbol, Face} || throw(UnknownFaceError(__module__, f))
+            ref isa Expr && throw(UnknownFaceError(__module__, f))
             ref
-        elseif Meta.isexpr(f, :., 2)
-            face = pathface(__module__, string(f))
-            face isa Exception && throw(face)
-            face
         elseif Meta.isexpr(f, :$, 1)
             f.args[1]
         elseif f isa Unsigned || f isa AbstractString

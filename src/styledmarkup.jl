@@ -48,7 +48,7 @@ module StyledMarkup
 using Base: AnnotatedString, AnnotatedChar, annotations, annotatedstring
 using ..StyledStrings: FACES, Face, SimpleColor, Link, StyledValue,
     ATTRIBUTES, FACE_KEYWORDS,
-    lookupface, lookmakeface, faceref, pathface, similarface, isambiguous, registrykey, heightbits,
+    lookupface, lookmakeface, nameface, similarface, isambiguous, registrykey, heightbits,
     UnknownFaceError, UNDEF_CUSTOM_HEIGHT_FLAG, UNDEF_INUSE_HEIGHT_FLAG,
     MAGIC_DEFPALETTE_VARNAME, MAGIC_USEPALETTE_VARNAME
 
@@ -732,17 +732,10 @@ function resolveface(state::State, facename::String)
     all(Base.isidentifier, eachsplit(facename, '.')) ||
         return nameerror!(if isempty(facename) "Missing face name" else "Invalid face name '$facename'" end)
     ismacro(state) || return lookmakeface(registrykey(facename))
-    name = Symbol(facename)
-    face = if '.' in facename
-        pathface(state.out.mod, facename)
-    elseif state.strict
-        @something(faceref(state.out.mod, name), UnknownFaceError(state.out.mod, name))
-    else
-        @something(faceref(state.out.mod, name), Expr(:call, lookmakeface, state.out.mod, QuoteNode(name)))
-    end
+    face = nameface(state.out.mod, facename, state.strict)
     face isa Exception || return face
     nameerror!(if face isa UnknownFaceError && !isambiguous(state.out.mod, face.name)
-        suggestion = similarface(state.out.mod, name)
+        suggestion = similarface(state.out.mod, face.name)
         hint = if isnothing(suggestion) "" else " (did you mean '$suggestion'?)" end
         "Unknown face '$facename'$hint"
     else
