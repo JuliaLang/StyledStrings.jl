@@ -3,9 +3,27 @@
 strface(text::String, face::Face) =
     AnnotatedString{String, StyledValue}(text, @NamedTuple{region::UnitRange{Int}, value::StyledValue}[(1:ncodeunits(text), face)])
 
-function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
+# Through a buffer, so the methods below compile once rather than for each type of `io`
+const ShowBuffer = IOContext{AnnotatedIOBuffer{StyledValue}}
+
+# Base's printing of types and symbols is in the sysimage for `IOContext{IOBuffer}`, not `ShowBuffer`
+showplain(io::ShowBuffer, x) = print(io, sprint(show, x; context = io))
+
+function Base.show(io::IO, mime::MIME"text/plain", x::Union{Face, SimpleColor})
+    buf = IOContext(AnnotatedIOBuffer{StyledValue}(), io)
+    show(buf, mime, x)
+    print(io, read(seekstart(buf.io), AnnotatedString))
+end
+
+function Base.show(io::IO, x::Union{Face, SimpleColor})
+    buf = IOContext(AnnotatedIOBuffer{StyledValue}(), io)
+    show(buf, x)
+    print(io, read(seekstart(buf.io), AnnotatedString))
+end
+
+function Base.show(io::ShowBuffer, ::MIME"text/plain", color::SimpleColor)
     skiptype = get(io, :typeinfo, nothing) === SimpleColor
-    skiptype || show(io, SimpleColor)
+    skiptype || showplain(io, SimpleColor)
     skiptype || print(io, '(')
     if get(io, :color, false)::Bool
         print(io, strface("■", Face(foreground=color)), ' ')
@@ -28,8 +46,8 @@ function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     nothing
 end
 
-function Base.show(io::IO, color::SimpleColor)
-    show(io, SimpleColor)
+function Base.show(io::ShowBuffer, color::SimpleColor)
+    showplain(io, SimpleColor)
     print(io, '(')
     if color.value isa RGBTuple
         (; r, g, b) = color.value
@@ -43,7 +61,7 @@ function Base.show(io::IO, color::SimpleColor)
     print(io, ')')
 end
 
-function Base.show(io::IO, ::MIME"text/plain", face::Face)
+function Base.show(io::ShowBuffer, ::MIME"text/plain", face::Face)
     mod = get(io, :module, Main)
     name = facename(mod, face)
     cface = get(FACES.current[], face, face)
@@ -59,14 +77,14 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 show(io, color)
             end
         else
-            show(io, value)
+            showplain(io, value)
         end
     end
     showcolor(io, color) = show(IOContext(io, :typeinfo => SimpleColor),
                                 MIME("text/plain"), color)
     function showunderlineval(io::IO, ul, ulstyle::UInt8, iscompact::Bool)
         showulfn = if iscompact showval else showcolor end
-        showstyle = if iscompact show else print end
+        showstyle = if iscompact showplain else print end
         if ulstyle == NO_UNDERLINE
             print(io, "false")
         elseif isweaknothing(ul) && ulstyle == attrbyte(:underline, :straight)
@@ -110,26 +128,29 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         if !isnothing(name)
             show(io, face)
         else
-            show(io, Face)
+            showplain(io, Face)
             print(io, '(')
-            isfirst = true
-            for attr in setdiff(propertynames(face), (:inherit,))
-                if attr == :underline
-                    ul, ulstyle = face.f.underline, face.f.underline_style
-                    if isnothingflavour(ul) && isnothingflavour(ulstyle)
-                        continue
-                    else
-                        if isfirst; isfirst = false else print(io, ", ") end
-                        print(io, "underline = ")
-                    end
-                    showunderlineval(io, ul, ulstyle, true)
-                else
-                    value = getproperty(face, attr)
-                    isnothing(value) && continue
-                    if isfirst; isfirst = false else print(io, ", ") end
-                    print(io, attr, " = ")
-                    showval(io, value)
-                end
+            function showattr(isfirst::Bool, attr::Symbol, value)
+                isnothing(value) && return isfirst
+                isfirst || print(io, ", ")
+                print(io, attr, " = ")
+                showval(io, value)
+                false
+            end
+            # Each property is read by a constant name, so its type is known
+            isfirst = showattr(true, :font, face.font)
+            isfirst = showattr(isfirst, :height, face.height)
+            isfirst = showattr(isfirst, :strikethrough, face.strikethrough)
+            isfirst = showattr(isfirst, :inverse, face.inverse)
+            isfirst = showattr(isfirst, :weight, face.weight)
+            isfirst = showattr(isfirst, :slant, face.slant)
+            isfirst = showattr(isfirst, :foreground, face.foreground)
+            isfirst = showattr(isfirst, :background, face.background)
+            ul, ulstyle = face.f.underline, face.f.underline_style
+            if !(isnothingflavour(ul) && isnothingflavour(ulstyle))
+                if isfirst; isfirst = false else print(io, ", ") end
+                print(io, "underline = ")
+                showunderlineval(io, ul, ulstyle, true)
             end
             if !isempty(face.inherit)
                 if isfirst; isfirst = false else print(io, ", ") end
@@ -139,7 +160,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
             print(io, ')')
         end
     else
-        show(io, Face)
+        showplain(io, Face)
         if !isnothing(name)
             print(io, ' ')
             print(io, strface(String(name), Face(weight=:bold)))
@@ -199,7 +220,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
     end
 end
 
-function Base.show(io::IO, face::Face)
+function Base.show(io::ShowBuffer, face::Face)
     mod = get(io, :module, Main)
     name = facename(mod, face)
     if isnothing(name)

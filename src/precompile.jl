@@ -2,24 +2,22 @@
 function workload()
     colorio = IOContext(IOBuffer(), :color => true)
 
-    print(colorio, styled"just a string")
+    print(colorio, styled("{red:a} {(fg=blue):b} {link={https://x}:c}"))
     Base.escape_string(colorio, styled"just a string")
-    print(colorio, styled"{red:with color}")
     print(colorio, styled"{face=$(Face(foreground=face\"red\")):with color}")
-    print(colorio, styled"{(foreground=red):with color}")
     show(colorio, MIME("text/plain"), styled"{red:with color}")
-    show(colorio, MIME("text/html"), styled"{red:with color}")
     print(colorio, styled"{red:with color}"[1])
     print(colorio, styled"{(underline=(blue,curly)):more styling}")
-    print(colorio, styled"{link={https://julialang.org}:a link} with {red:color}")
+    print(colorio, styled"{(fg=#102030):rgb colour}")
     show(colorio, MIME("text/html"), styled"{link={https://julialang.org}:a link} with {red:color}")
     print(colorio, SubString(styled"{red:with color}", 1, 4))
-
-    convert(StyledStrings.SimpleColor, (r = 0x01, g = 0x02, b = 0x03))
-    convert(StyledStrings.SimpleColor, 0x010203)
-    convert(StyledStrings.SimpleColor, face"blue")
-    tryparse(StyledStrings.SimpleColor, "blue")
-    parse(StyledStrings.SimpleColor, "#010203")
+    # Strings that hold any values display through code compiled once, as a logged message does
+    anyvalued = Base.AnnotatedString{String, Any}(styled"{red:with color} and {link={https://julialang.org}:a link}")
+    print(colorio, anyvalued)
+    show(colorio, MIME("text/html"), anyvalued)
+    Base.CoreLogging.with_logger(Base.CoreLogging.ConsoleLogger(colorio)) do
+        @info styled"{red:with color}"
+    end
 
     StyledStrings.Face()
     StyledStrings.Face(height=2)
@@ -28,6 +26,7 @@ function workload()
 
     show(colorio, MIME("text/plain"), StyledStrings.Face(foreground=face"green"))
     show(colorio, StyledStrings.Face(foreground=face"green"))
+    show(colorio, StyledStrings.SimpleColor(face"green"))
 
     StyledStrings.getface()
     StyledStrings.getface(face"red")
