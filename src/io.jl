@@ -468,7 +468,7 @@ AnnotatedDisplay.transition(io::IO, ::MIME"text/html", ::FaceDef, ::Nothing) = p
 
 # Links, where `Link("")` is no link
 
-function AnnotatedDisplay.reduction(::MIME, ::Type{Link}, _, annotations)
+function AnnotatedDisplay.reduction(::MIME, ::Type{Link}, annotations)
     link = Link("")
     for value in annotations
         value isa Link && (link = value)
