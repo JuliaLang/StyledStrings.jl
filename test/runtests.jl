@@ -1164,6 +1164,9 @@ end
         @test only(annotations(styled"{$face=$red:y}")).value === face"red"
         @test only(annotations(styled"{$note=a:y}")).value == (:note => "a")
     end
+    # An old link, held as a string, stands for a `Link`
+    @test Base.labelled_value(Val(:link), "https://x") === StyledStrings.Link("https://x")
+    @test Base.labelled_value(Val(:face), :red) == (:face => :red) # Face names stay unstyled
     # Deleting by the labels that Base deprecates removes faces and links
     let s = styled"{red,link={https://x},n=$(1):a}"
         Base.annotate!(s, 1:1, :face, nothing)
