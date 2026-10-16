@@ -483,7 +483,7 @@ getface() = getface(STANDARD_FACES.default)
 
 Get the merged [`Face`](@ref) that applies to `s` at index `i`.
 """
-getface(s::AnnotatedString, i::Integer) = Face(resolvedef([a.value for a in annotations(s, i)], FACES.cache[]))
+getface(s::AnnotatedString{S, V}, i::Integer) where {S, V} = Face(resolvedef(V[a.value for a in annotations(s, i)], FACES.cache[]))
 
 """
     getface(c::AnnotatedChar)

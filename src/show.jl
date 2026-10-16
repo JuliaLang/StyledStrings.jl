@@ -1,11 +1,14 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+strface(text::String, face::Face) =
+    AnnotatedString{String, StyledValue}(text, @NamedTuple{region::UnitRange{Int}, value::StyledValue}[(1:ncodeunits(text), face)])
+
 function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
     skiptype = get(io, :typeinfo, nothing) === SimpleColor
     skiptype || show(io, SimpleColor)
     skiptype || print(io, '(')
     if get(io, :color, false)::Bool
-        print(io, AnnotatedString("■", [(1:1, Face(foreground=color))]), ' ')
+        print(io, strface("■", Face(foreground=color)), ' ')
     end
     if color.value isa RGBTuple
         (; r, g, b) = color.value
@@ -18,7 +21,7 @@ function Base.show(io::IO, ::MIME"text/plain", color::SimpleColor)
         if !isnothing(name)
             print(io, name)
         else
-            print(io, AnnotatedString("(unregistered)", [(1:14, face"grey")]))
+            print(io, strface("(unregistered)", face"grey"))
         end
     end
     skiptype || print(io, ')')
@@ -139,9 +142,9 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
         show(io, Face)
         if !isnothing(name)
             print(io, ' ')
-            print(io, AnnotatedString(String(name), [(1:ncodeunits(String(name)), Face(weight=:bold))]))
+            print(io, strface(String(name), Face(weight=:bold)))
         end
-        print(io, AnnotatedString(" (sample)", [(3:8, face)]))
+        print(io, " (", strface("sample", face), ")")
         fieldnamepad = 14
         for field in (:font, :height, :weight, :slant)
             printfield(io, face, cface, field, print)
@@ -177,7 +180,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 for iface in cface.inherit
                     if isfirst; isfirst = false else print(io, ", ") end
                     iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', AnnotatedString("*", [(1:1, iface)]), ')')
+                    print(io, iname, '(', strface("*", iface), ')')
                 end
             end
             if isempty(face.inherit)
@@ -188,7 +191,7 @@ function Base.show(io::IO, ::MIME"text/plain", face::Face)
                 for iface in face.inherit
                     if isfirst; isfirst = false else print(io, ", ") end
                     iname = something(facename(mod, iface), "(unregistered)")
-                    print(io, iname, '(', AnnotatedString("*", [(1:1, iface)]), ')')
+                    print(io, iname, '(', strface("*", iface), ')')
                 end
                 print(io, styled"{light:)}")
             end
@@ -209,8 +212,8 @@ function Base.show(io::IO, face::Face)
             strmac = String(facemacro)
             print(io, @view(strmac[2:thisind(strmac, end - 4)]), '"')
         end
-        face = get(FACES.current[], face, face) # Get customised face
-        print(io, AnnotatedString(String(name), [(1:ncodeunits(String(name)), face)]))
+        face = get(FACES.current[], face, face)
+        print(io, strface(String(name), face))
         print(io, '"')
     end
 end

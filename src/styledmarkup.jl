@@ -151,7 +151,7 @@ function State(content::String, mod::Union{Module, Nothing}=nothing; skipothers:
           @NamedTuple{source::Int, inds::Vector{Int}}[], # activestyles
           output, # out
           NamedTuple{(:message, :position, :hint), # errors
-                     Tuple{AnnotatedString{String, Face}, <:Union{Int, Nothing}, String}}[])
+                     Tuple{AnnotatedString{String, StyledValue}, <:Union{Int, Nothing}, String}}[])
 end
 
 const VALID_FACE_ATTRS = ("font", "foreground", "fg", "background", "bg",
@@ -230,7 +230,7 @@ function styerr!(state::State, message::AbstractString, position::Union{Nothing,
             end,
             -position)
     end
-    push!(state.errors, (; message=AnnotatedString{String, Face}(message), position, hint))
+    push!(state.errors, (; message=AnnotatedString{String, StyledValue}(message), position, hint))
     nothing
 end
 
@@ -1346,7 +1346,7 @@ end
 
 struct MalformedStylingMacro <: Exception
     raw::String
-    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String, Face}, <:Union{Int, Nothing}, String}}}
+    problems::Vector{NamedTuple{(:message, :position, :hint), Tuple{AnnotatedString{String, StyledValue}, <:Union{Int, Nothing}, String}}}
 end
 
 function Base.showerror(io::IO, err::MalformedStylingMacro)
