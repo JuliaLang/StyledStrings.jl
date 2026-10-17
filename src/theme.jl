@@ -692,7 +692,7 @@ end
 
 ## Recolouring ##
 
-const recolor_hooks = Function[]
+const RECOLOR_HOOKS = Function[]
 const RECOLORING = ScopedValue(false) # Whether `setface!` is called from a recolor hook
 
 # Recolours outlast any `withfaces` scope, so hooks see and set the global faces
@@ -716,7 +716,7 @@ function recolor(f::F) where {F <: Function} # Specialised, so a hook registered
     @lock FACES.lock begin
         load_customisations!() # Were the hook to load them, they would be filed as its recolours
         recoloring(f)
-        push!(recolor_hooks, f)
+        push!(RECOLOR_HOOKS, f)
     end
     nothing
 end
@@ -788,7 +788,7 @@ function setcolors!(colors::Vector{Pair{Symbol, RGBTuple}})
         empty!(FACES.recolors)
         relayer!()
         recoloring() do
-            for hook in recolor_hooks
+            for hook in RECOLOR_HOOKS
                 try
                     Base.invokelatest(hook)
                 catch err

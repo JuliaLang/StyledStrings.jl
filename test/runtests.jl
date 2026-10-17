@@ -1713,7 +1713,7 @@ end
                    end
     end
     @testset "Theme change" begin
-        hooks = copy(StyledStrings.recolor_hooks) # Restored at the end, so no hook outlives the testset
+        hooks = copy(StyledStrings.RECOLOR_HOOKS) # Restored at the end, so no hook outlives the testset
         lightfbg = [:foreground => (r = 0x00, g = 0x00, b = 0x00),
                     :background => (r = 0xff, g = 0xff, b = 0xff),
                     :yellow     => (r = 0xfc, g = 0xce, b = 0x7b)]
@@ -1847,7 +1847,7 @@ end
         # A hook's variant for another theme is not applied
         recolor(() -> setface!(face"region" => Face(font = "dark only"), :dark))
         @test FACES.current_theme[] === :light && getface(face"region").font != "dark only"
-        pop!(StyledStrings.recolor_hooks)
+        pop!(StyledStrings.RECOLOR_HOOKS)
         # A hook registered or run within a scope sees and sets the global faces
         hookfont() = something(getface(face"red").font, "unset") * " hook"
         withfaces(face"red" => Face(font = "scoped")) do
@@ -1855,11 +1855,11 @@ end
             setcolors!(lightfbg)
         end
         @test getface(face"region").font == hookfont()
-        pop!(StyledStrings.recolor_hooks)
+        pop!(StyledStrings.RECOLOR_HOOKS)
         # A hook that fails at once is not registered
-        nhooks = length(StyledStrings.recolor_hooks)
+        nhooks = length(StyledStrings.RECOLOR_HOOKS)
         @test_throws ErrorException recolor(() -> error("at once"))
-        @test length(StyledStrings.recolor_hooks) == nhooks
+        @test length(StyledStrings.RECOLOR_HOOKS) == nhooks
         # A hook that fails later is logged, and the hooks after it still run
         failing = Ref(false)
         recolor(() -> if failing[] error("later") end)
@@ -1868,7 +1868,7 @@ end
         failing[] = true
         @test_logs (:error, "Recolor hook failed") setcolors!(darkfbg)
         @test ran[] == 2 && FACES.current_theme[] === :dark
-        deleteat!(StyledStrings.recolor_hooks, nhooks+1:nhooks+2)
+        deleteat!(StyledStrings.RECOLOR_HOOKS, nhooks+1:nhooks+2)
         # A hook defined after the task that changes the colours still runs
         late, go = Ref(0), Channel{Nothing}(1)
         changer = @async (take!(go); setcolors!(darkfbg))
@@ -1876,7 +1876,7 @@ end
         put!(go, nothing)
         wait(changer)
         @test late[] == 2
-        pop!(StyledStrings.recolor_hooks)
+        pop!(StyledStrings.RECOLOR_HOOKS)
         # Customisations first loaded by a hook as it is registered are not taken for its recolours
         tomlface = hacky_addface!(:tomlface, copy(Face()))
         mktempdir() do depot
@@ -1889,11 +1889,11 @@ end
                 setcolors!(darkfbg)
                 @test getface(tomlface).font == "customised"
             finally
-                pop!(StyledStrings.recolor_hooks)
+                pop!(StyledStrings.RECOLOR_HOOKS)
                 popfirst!(DEPOT_PATH)
             end
         end
-        copy!(StyledStrings.recolor_hooks, hooks)
+        copy!(StyledStrings.RECOLOR_HOOKS, hooks)
         resetfaces!()
         cleanup_hacky_faces!()
     end
