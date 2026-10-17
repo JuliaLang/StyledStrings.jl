@@ -1085,7 +1085,7 @@ escaped = '\\\\', specialchar ;
 
 interpolated = '\$', ? expr ? | '\$(', ? expr ?, ')' ;
 
-styled = '{', ws, annotations, ':', content, '}' ;
+styled = '{', ws, annotations, ws, ':', content, '}' ;
 content = { interpolated | plain | escaped | styled } ;
 annotations = annotation | annotations, ws, ',', ws, annotation ;
 annotation = face | inlineface | keyvalue ;
@@ -1095,7 +1095,7 @@ face = facename | interpolated ;
 facename = name, { '.', name } ;
 name = ? identifier ? ;
 
-inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
+inlineface = '(', ws, [ faceprop ], { ws, ',', ws, faceprop }, ws, ')' ;
 faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
 
 keyvalue = ( 'face', ws, '=', ws, interpolated ) | ( key, ws, '=', ws, value ) ;

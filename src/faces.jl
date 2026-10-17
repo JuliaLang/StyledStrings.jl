@@ -79,7 +79,8 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
   - a `SimpleColor`: The text should be underlined with this color.\\
   - a `Symbol`: The underline style alone, one of `:straight`, `:double`,
     `:curly`, `:dotted`, or `:dashed`. Any underline colour from inherited
-    or enclosing faces is kept.\\
+    or enclosing faces is kept. Any other symbol names a colour, as in Julia 1.13
+    and earlier, so a misspelt style such as `:wavy` gives an unregistered colour.\\
   - a `Tuple{Nothing, Symbol}`: The text should be underlined using the style
     set by the Symbol, as a plain underline with no colour.\\
   - a `Tuple{SimpleColor, Symbol}`: The text should be underlined in the specified

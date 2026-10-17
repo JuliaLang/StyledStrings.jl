@@ -194,13 +194,13 @@ override(base::Face, mods::Face) = Face(override(base.f, mods.f))
 """
     addface!(name::Symbol => default::Face, theme::Symbol = :base)
 
-Create a new face by the name `name`. So long as no face already exists by this
-name, `default` is added to both `FACES.themes[theme]` and (a copy of) to
-`FACES.current`, with the current value returned.
+Register `default` as the face named `name`, and return its current definition.
+With a `theme` of `:light` or `:dark`, `default` is instead that theme's variant of
+the face `name`.
 
-The `theme` should be either `:base`, `:light`, or `:dark`.
-
-Should the face `name` already exist, `nothing` is returned.
+Should the face `name` (or its variant for `theme`) already exist, nothing changes
+and `nothing` is returned. An `ArgumentError` is thrown when `default` is already
+registered under another name.
 
 !!! warning "Deprecated"
     `addface!` is deprecated and will be removed in a future release. Please
