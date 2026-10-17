@@ -840,6 +840,32 @@ function read_face_or_keyval!(state::State, i::Int)
     end
 end
 
+# The annotations of an interpolated value, and the value type once they join annotations of type `V`.
+# These are methods, not branches, so that a value of unknown type is dispatched on by its actual type,
+# and separate, so that a value type stays known when a value of a known union of types is split.
+# The fallbacks are not specialised, so that a new type of value compiles nothing.
+interpannots(s::Union{AnnotatedString, SubString{<:AnnotatedString}}) = annotations(s)
+interpannots(c::AnnotatedChar) = annotations(annotatedstring(c))
+interpannots(@nospecialize(_)) = ()
+
+interpvaltype(::Type{V}, ::Union{AnnotatedString{<:Any, W}, SubString{<:AnnotatedString{<:Any, W}}, AnnotatedChar{<:Any, W}}) where {V, W} =
+    promote_type_4u(V, W)
+interpvaltype(::Type{V}, @nospecialize(_)) where {V} = V
+
+# Function barriers, as `V` is only known at run time when an interpolated value's type is not
+typedannots(::Type{V}, annots::Vector) where {V} =
+    convert(Vector{@NamedTuple{region::UnitRange{Int}, value::V}}, annots)
+typedannots(::Type{V}, n::Int) where {V} = Vector{@NamedTuple{region::UnitRange{Int}, value::V}}(undef, n)
+
+# Write `annots` into `dest` after index `at`, their regions shifted by `shift`.
+# Not inlined, so that each function with a `styled"…"` does not compile the loop again.
+@noinline function shiftannots!(dest::Vector, at::Int, annots::Vector, shift::Int)
+    for (i, (; region, value)) in enumerate(annots)
+        dest[at + i] = (; region = (first(region) + shift):(last(region) + shift), value)
+    end
+    dest
+end
+
 function promote_type_4u(A::Type, B::Type)
     AB = promote_type(A, B)
     if AB == Any
@@ -956,33 +982,24 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     for (; var) in interps
         iavar = annsof(var)
         newavtype = Symbol(var, "_avtype")
-        append!(state.out.lets,
-                (quote
-                    local $iavar, $newavtype
-                    if $var isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
-                        $iavar = annotations(if $var isa AnnotatedChar annotatedstring($var) else $var end)
-                        interp_annot_count = interp_annot_count + length($iavar)
-                        $newavtype = promote_type_4u($(state.out.avtype), fieldtype(eltype($iavar), :value))
-                    else
-                        $iavar = $(@NamedTuple{region::UnitRange{Int}, value::Face}[])
-                        $newavtype = $(state.out.avtype)
-                    end
-                end).args)
+        push!(state.out.lets,
+              :($iavar = $interpannots($var)),
+              :($newavtype = $interpvaltype($(state.out.avtype), $var)),
+              :(interp_annot_count = interp_annot_count + length($iavar)))
         state.out.avtype = newavtype
     end
     iexprs = Union{Expr, LineNumberNode}[]
-    avtype = :(NamedTuple{(:region, :value), Tuple{UnitRange{Int}, $(state.out.avtype)}})
     # Special case: a single interpolation that starts at position 1
     if length(interps) == 1 && first(interps).startpos == 1 && first(interps).annotidx == lastindex(state.out.annots) + 1
         append!(state.out.lets,
                 (quote
-                     $newavar = convert(Vector{$avtype}, $avar)
+                     $newavar = $typedannots($(state.out.avtype), $avar)
                      iszero(interp_annot_count) ||
                          append!($newavar, $(annsof(first(interps).var)))
                  end).args)
     else
         # We now know we need to adjust the annotation regions / deal with multiple annotations
-        push!(iexprs, :($newavar = Vector{$avtype}(undef, length($avar) + interp_annot_count)))
+        push!(iexprs, :($newavar = $typedannots($(state.out.avtype), length($avar) + interp_annot_count)))
         push!(iexprs, :(annot_offset = 0))
         if first(interps).annotidx > 1
             push!(iexprs,
@@ -1010,12 +1027,7 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
                                    else
                                        :($(startpos - 1) + $startoff)
                                    end)
-                        for i in eachindex($annots)
-                            anni = $annots[i]
-                            $newavar[$(annotidx - 1) + annot_offset + i] =
-                                (; region = (first(anni.region) + ioffset):(last(anni.region) + ioffset),
-                                   value = anni.value)
-                        end
+                        $shiftannots!($newavar, $(annotidx - 1) + annot_offset, $annots, ioffset)
                         annot_offset = annot_offset + length($annots)
                     end))
             lastannotidx = annotidx
@@ -1032,7 +1044,7 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
               :(if !iszero(interp_annot_count)
                     $(iexprs...)
                 else
-                    $newavar = convert(Vector{$avtype}, $avar)
+                    $newavar = $typedannots($(state.out.avtype), $avar)
                 end))
     end
     newavar

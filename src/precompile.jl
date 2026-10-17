@@ -11,6 +11,10 @@ function workload()
     print(colorio, styled"{(fg=#102030):rgb colour}")
     show(colorio, MIME("text/html"), styled"{link={https://julialang.org}:a link} with {red:color}")
     print(colorio, SubString(styled"{red:with color}", 1, 4))
+    # A value of unknown type is interpolated through calls dispatched on its type, as in Markdown
+    untyped = Any[styled"{red:x}", "y"]
+    print(colorio, styled"$(untyped[1])")
+    print(colorio, styled"{bold:a $(untyped[1])} b $(untyped[2])")
     # Strings that hold any values display through code compiled once, as a logged message does
     anyvalued = Base.AnnotatedString{String, Any}(styled"{red:with color} and {link={https://julialang.org}:a link}")
     print(colorio, anyvalued)

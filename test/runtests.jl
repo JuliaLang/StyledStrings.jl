@@ -1053,7 +1053,7 @@ end
               _!annots = _[]
               _!interp_annot_count = 0
               _...
-              _!interp_annots = convert(Vector{_}, _!annots)
+              _!interp_annots = typedannots(_, _!annots)
               _...
               AnnotatedString(_s, _!interp_annots)
           end),
