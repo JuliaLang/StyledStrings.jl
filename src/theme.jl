@@ -152,9 +152,11 @@ end
 ## Adding and resetting faces ##
 
 # Throw when `def`, as the definition of `face`, inherits from `face` by way of the faces in
-# `current`, or as they would be under the theme `current` names.
+# `current`, or as they would be under the theme `current` names, or when `face` is the default.
 # A loop rather than `any`, as recursing through a closure is uninferrable, which breaks trimming.
 function checkinherit(current::Union{IdDict{Face, Face}, Symbol}, face::Face, def::Face)
+    face === STANDARD_FACES.default && !isempty(def.f.inherit) &&
+        throw(ArgumentError("The default face cannot inherit from other faces, as they all inherit from it"))
     for parent in def.f.inherit
         parent === face && throw(ArgumentError( # By name, as showing a face does not trim
             "Face '$(get(FACES.names, face, :unnamed))' cannot inherit from itself, directly or through other faces"))
@@ -454,7 +456,9 @@ end
 @noinline function resolvemiss(face::Face, cache::FaceCache, i::Int, j::Int, prefer_i::Bool)
     current = FACES.current[]
     def = if face === STANDARD_FACES.default
-        finalcolours(get(current, face, face).f, face.f)
+        # Resets become unset, to fall back on the standard default without scaling a relative height
+        custom = merge(EMPTY_FACE.f, get(current, face, face).f)
+        finalcolours(override(face.f, custom), face.f)
     else
         default = resolvedef(STANDARD_FACES.default, cache)
         finalcolours(merge(default, get(current, face, face).f), default)

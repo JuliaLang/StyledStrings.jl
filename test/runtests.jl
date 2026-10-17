@@ -327,6 +327,13 @@ end
     @test getface().background == SimpleColor(face"background")
     resetfaces!(face"default")
     @test getface() === face"default"
+    # As is any other attribute, while the default face inherits nothing
+    setface!(face"default" => convert(Face, Dict{String, Any}("weight" => "inherit", "slant" => "inherit")))
+    @test getface().weight === :normal && getface(face"red").slant === :normal
+    resetfaces!(face"default")
+    @test_throws ArgumentError setface!(face"default" => Face(inherit = face"italic"))
+    @test_throws ArgumentError StyledStrings.loaduserfaces!(Dict{String, Any}("default" => Dict{String, Any}("inherit" => "italic")))
+    @test getface() === face"default"
     with_terminfo(vt100) do
         setface!(face"default" => Face(weight=:bold)) # The terminal's look, which display starts and ends at
         @test sprint(print, styled"x{(weight=normal):y}", context = :color => true) == "x\e[22my\e[1m"

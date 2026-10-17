@@ -88,7 +88,7 @@ All attributes can be set via the keyword constructor, and default to `nothing`.
 - `inverse` (a `Bool`): Whether the foreground and background colors should
   be swapped.
 - `inherit` (a `Vector{Face}`, read back as a copy): Faces to inherit from, with earlier faces
-  taking priority. All faces inherit from the `default` face.
+  taking priority. All faces inherit from the `default` face, which inherits nothing.
 
 # Examples
 
