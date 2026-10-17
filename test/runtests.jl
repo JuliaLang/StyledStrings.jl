@@ -125,6 +125,10 @@ function astmatch(template::Expr, expr::Expr, path::String, bindings::Dict{Symbo
         end
     end
     template.head == expr.head || return false
+    # A `let` written with one binding parses without the block that expansion gives it
+    if template.head == :let && !Meta.isexpr(template.args[1], :block)
+        template = Expr(:let, Expr(:block, template.args[1]), template.args[2:end]...)
+    end
     targs = filter(e -> !(e isa LineNumberNode), template.args)
     eargs = filter(e -> !(e isa LineNumberNode), expr.args)
     isempty(targs) && isempty(eargs) && return true
@@ -1036,36 +1040,36 @@ end
     @test astmatch(:(let ; AnnotatedString("val", _[]) end), @macroexpand styled"val")
     # Interpolation
     @test astmatch(
-        :(let ;
-              _!val_str = String(string(val))
-              _!offset = ncodeunits(_!val_str)
+        :(let (_i,) = (begin val end,)
+              _s = String(string(_i))
+              _!offset = ncodeunits(_s)
               _!annots = _[]
               _!interp_annot_count = 0
               _...
               _!interp_annots = convert(Vector{_}, _!annots)
               _...
-              AnnotatedString(_!val_str, _!interp_annots)
+              AnnotatedString(_s, _!interp_annots)
           end),
         @macroexpand styled"$val")
     @test astmatch(
-        :(let ;
+        :(let (_i,) = (begin val end,)
               _...
-              AnnotatedString(string("a", _!val_str), _!interp_annots)
+              AnnotatedString(string("a", _s), _!interp_annots)
           end),
         @macroexpand styled"a$val")
     @test astmatch(
-        :(let ;
+        :(let (_i,) = (begin val end,)
               _...
-              AnnotatedString(string("a", _!val_str, "b"), _!interp_annots)
+              AnnotatedString(string("a", _s, "b"), _!interp_annots)
           end),
         @macroexpand styled"a$(val)b")
     @test astmatch(
-        :(let ;
-              _!val_str = String(string(val))
-              _!offset = ncodeunits(_!val_str)
+        :(let (_i,) = (begin val end,)
+              _s = String(string(_i))
+              _!offset = ncodeunits(_s)
               _!annots = _[(1:0 + _!offset, $(face"red"))]
               _...
-              AnnotatedString(_!val_str, _!interp_annots)
+              AnnotatedString(_s, _!interp_annots)
           end),
         @macroexpand styled"{red:$val}")
     @test astmatch(
@@ -1075,35 +1079,35 @@ end
           end),
         @macroexpand styled"{nonexistent_face:x}")
     @test astmatch(
-        :(let ;
-              _f = interpfaceannot(face, _, false)
+        :(let (_i,) = (begin face end,)
+              _f = interpfaceannot(_i, _, false)
               AnnotatedString("val", _[(1:3, _f)])
           end),
         @macroexpand styled"{$face:val}")
     @test astmatch(
-        :(let ;
-              _f1 = interpfaceannot(f1, _, false)
-              _f2 = interpfaceannot(f2, _, false)
+        :(let (_i1, _i2) = (begin f1 end, begin f2 end)
+              _f1 = interpfaceannot(_i1, _, false)
+              _f2 = interpfaceannot(_i2, _, false)
               AnnotatedString("v1v2", _[(1:2, _f1), (3:4, _f2)])
           end),
         @macroexpand styled"{$f1:v1}{$f2:v2}")
     @test astmatch(
-        :(let ;
-              _v = interpkeyvalue(key, "val", _, false)
+        :(let (_k,) = (begin key end,)
+              _v = interpkeyvalue(_k, "val", _, false)
               _...
               AnnotatedString("text", _[(1:4, _v)])
           end),
         @macroexpand styled"{$key=val:text}")
     @test astmatch(
-        :(let ;
-              _v = interpkeyvalue(key, val, _, false)
+        :(let (_k, _i) = (begin key end, begin val end)
+              _v = interpkeyvalue(_k, _i, _, false)
               _...
               AnnotatedString("text", _[(1:4, _v)])
           end),
         @macroexpand styled"{$key=$val:text}")
     @test astmatch(
-        :(let ;
-              AnnotatedString("val", _[(1:3, Face(foreground = interpattr(color, _, false)))])
+        :(let (_i,) = (begin color end,)
+              AnnotatedString("val", _[(1:3, Face(foreground = interpattr(_i, _, false)))])
           end),
         @macroexpand styled"{(foreground=$color):val}"
     )
@@ -1134,6 +1138,11 @@ end
     # Assignments within interpolations reach the caller, as they would outside the macro
     assigns() = (styled"$(q = 7){(fg=$(c = 0xff0000)):x}{key=$(v = 1):y}"; (q, c, v))
     @test assigns() == (7, 0xff0000, 1)
+    # Interpolations are read in order, as in a plain string
+    reads() = (x = 1; styled"$x$(x += 1)$x")
+    @test reads() == "122"
+    facereads() = (f = :red; styled"{$f:a}$(f = :bold){$f:b}")
+    @test facereads() == AnnotatedString("aboldb", [(1:1, face"red"), (6:6, face"bold")])
     # Interpolated variables cannot clash with the macro's own names for them
     lineof(offset, name) = styled"line $offset: $name"
     @test lineof(styled"{red:1}", styled"{bold:x}") ==

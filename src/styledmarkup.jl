@@ -238,16 +238,10 @@ function interpolated!(state::State{MacroOutput}, i::Int)
     deleteat!(state.bytes, (i + state.offset):(nexti + state.offset - 1))
     state.offset -= nexti - i
     state.point = nexti + state.offset
-    ivar, reref = if expr isa Symbol
-        expr, any(interp -> interp.var === expr, state.out.interpolations)
-    else
-        isym = gensym(:interp)
-        push!(state.out.binds, esc(isym) => esc(expr))
-        isym, false
-    end
+    ivar = bindexpr!(state, expr)
     istr = Symbol("$(ivar)_str")
     # `string` is the identity on an `AnnotatedString`
-    reref || push!(state.out.lets, :($istr = String(string($(esc(ivar))))))
+    push!(state.out.lets, :($istr = String(string($ivar))))
     push!(state.out.strs, istr)
     push!(state.out.interpolations,
           (; startpos = startpos,
@@ -265,9 +259,8 @@ function interpolated!(state::State{MacroOutput}, i::Int)
 end
 
 # Bind the user's `expr` in the bindings of the generated `let`, rather than its body, so that
-# assignments within it reach the caller as they would outside the macro
+# assignments within it reach the caller as they would outside the macro, and each is read in order
 function bindexpr!(state::State, expr)
-    expr isa Symbol && return esc(expr) # A variable, with nothing to evaluate
     var = gensym(:interp)
     push!(state.out.binds, var => esc(expr))
     var
@@ -960,21 +953,15 @@ function spliceinterps!(state::State{MacroOutput}, avar::Symbol)
     isempty(interps) && return avar
     push!(state.out.lets, :(interp_annot_count = 0))
     annsof(var) = Symbol(var, "_anns") # Distinct suffixes keep derived names apart from each other and fixed ones
-    for var in unique(interp.var for interp in interps)
+    for (; var) in interps
         iavar = annsof(var)
-        ninsts = count(interp -> interp.var === var, interps)
         newavtype = Symbol(var, "_avtype")
-        annlen = if ninsts == 1
-            :(length($iavar))
-        else
-            :($ninsts * length($iavar))
-        end
         append!(state.out.lets,
                 (quote
                     local $iavar, $newavtype
-                    if $(esc(var)) isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
-                        $iavar = annotations(if $(esc(var)) isa AnnotatedChar annotatedstring($(esc(var))) else $(esc(var)) end)
-                        interp_annot_count = interp_annot_count + $annlen
+                    if $var isa Union{AnnotatedString, SubString{<:AnnotatedString}, AnnotatedChar}
+                        $iavar = annotations(if $var isa AnnotatedChar annotatedstring($var) else $var end)
+                        interp_annot_count = interp_annot_count + length($iavar)
                         $newavtype = promote_type_4u($(state.out.avtype), fieldtype(eltype($iavar), :value))
                     else
                         $iavar = $(@NamedTuple{region::UnitRange{Int}, value::Face}[])
