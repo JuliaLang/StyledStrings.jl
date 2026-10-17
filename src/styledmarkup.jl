@@ -774,12 +774,14 @@ function read_face_or_keyval!(state::State, i::Int)
     key = if ismacro(state) && isnextchar(state, '$')
         bindexpr!(state, first(readexpr!(state)))
     else
-        readuntil!((',', '=', ':', ' ', '\t', '\n', '\r'))
+        readuntil!((',', '=', ':', '}', ' ', '\t', '\n', '\r'))
     end
     skipwhitespace!(state)
     if isempty(state.s)
     elseif last(peek(state.s)) == '='
-        key isa String && isempty(key) && styerr!(state, "Missing key before '='", prevind(state.content, first(peek(state.s))), "right here")
+        key isa String && !Base.isidentifier(key) &&
+            styerr!(state, if isempty(key) "Missing key before '='" else "Invalid key '$key'" end,
+                    prevind(state.content, keystart), "right here")
         popfirst!(state.s)
         skipwhitespace!(state)
         value = if isempty(state.s)
@@ -796,7 +798,7 @@ function read_face_or_keyval!(state::State, i::Int)
         elseif isnextchar(state, '{')
             read_curlywrapped!(state)
         else
-            readuntil!((',', ':'))
+            readuntil!((',', ':', '}'))
         end
         if key == "face" && value isa String
             return styerr!(state, "A face is written by name, as in {red:…}, or interpolated, as in {face=\$f:…}",
@@ -1098,10 +1100,10 @@ inlineface = '(', ws, [ faceprop ], { ws, ',', faceprop }, ws, ')' ;
 faceprop = [a-z]+, ws, '=', ws, ( [^,)]+ | interpolated) ;
 
 keyvalue = ( 'face', ws, '=', ws, interpolated ) | ( key, ws, '=', ws, value ) ;
-key = ( [^\\0\${}=,:], [^\\0=,:]* ) | interpolated ;
+key = name | interpolated ;
 value = simplevalue | curlybraced | interpolated ;
 curlybraced = '{' { escaped | plain } '}' ;
-simplevalue = [^\${},:], [^,:]* ;
+simplevalue = [^\${},:], [^,:}]* ;
 ```
 
 An extra stipulation not encoded in the above grammar is that `plain` should be

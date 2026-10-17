@@ -1280,6 +1280,10 @@ end
         @test only(err.problems).position == 5 && occursin("Expected ',' or ':'", String(only(err.problems).message))
     end
     @test length(markuperror(() -> styled("{red")).problems) == 1
+    @test_throws MalformedStylingMacro styled("{red{(fg=red):x}"; skipothers = true)
+    let err = markuperror(() -> macroexpand(@__MODULE__, :(styled"{my-key=v:x}")))
+        @test only(err.problems).position == 1 && occursin("Invalid key 'my-key'", String(only(err.problems).message))
+    end
     @test annotations(styled("{red , bold :x}")) == annotations(styled("{red,bold:x}"))
     let err = markuperror(() -> macroexpand(@__MODULE__, Meta.parse("styled\"{red:\$}\"")))
         @test only(err.problems).position == 6 && occursin("unexpected `}`", String(only(err.problems).message))

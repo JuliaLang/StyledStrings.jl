@@ -122,11 +122,7 @@ const interpolated = Data.OneOf(
 const facename = identifier
 const face = facename #| interpolated
 
-const key = (@composed function k(
-                 start=filter(c -> !(c in "\0\${},: \t\n\r"), anychar),
-                 next=Data.Text(filter(c -> !(c in "\0=,: \t\n\r"), anychar); max_len=20))
-                 start*next
-             end) #| interpolated
+const key = identifier #| interpolated
 
 const curlybraced = map(Data.Vectors(escaped | plain; max_size=10)) do str
     '{' * join(str) * '}'
@@ -134,7 +130,7 @@ end
 
 const simplevalue =
     @composed (pre=filter(c -> c ∉ "\${},:", anychar),
-               post=Data.Text(filter(c -> !(c in ",:"), anychar); max_len=20)) ->
+               post=Data.Text(filter(c -> !(c in ",:}"), anychar); max_len=20)) ->
     pre*post
 
 const value = simplevalue | curlybraced #| interpolated
