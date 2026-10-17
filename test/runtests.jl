@@ -781,6 +781,9 @@ end
     @testset "Declaration errors" begin
         declerror(decl) = macroexpand(TestPalette, :(@defpalette $decl))
         @test_throws r"Cyclic face dependencies" declerror(:(begin a = Face(inherit = b); b = Face(foreground = a) end))
+        # Through a variant, as its references join those of its base face under its theme
+        @test_throws r"Cyclic face dependencies.*dark" declerror(:(begin a = Face(); b = Face(inherit = a); a.dark = Face(inherit = b) end))
+        @test macroexpand(TestPalette, :(@defpalette begin a = Face(); b = Face(inherit = a); a.dark = Face(foreground = c); c = Face() end)) isa Expr
         @test_throws r"theme must be light or dark" declerror(:(begin a = Face(); a.blue = Face() end))
         @test_throws r"Duplicate" declerror(:(begin a = Face(); a = Face() end))
         @test_throws r"cannot refer to it" declerror(:(begin a = Face(); a.dark = Face(inherit = a) end))

@@ -231,8 +231,9 @@ Every face referred to must be known when the palette is defined: defined in the
 palette, pulled in with `@usepalette`, or a standard face. Faces of other
 palettes can also be referred to by their module path, as `Module.name`.
 
-Cyclic dependencies between faces (e.g. two faces inheriting from each other)
-are not possible, but the order of declaration is automatically determined.
+Cyclic dependencies between faces (e.g. two faces inheriting from each other),
+including through a variant, are not possible, but the order of declaration is
+automatically determined.
 
 Evaluating a palette again, as Revise.jl does when it is edited, redefines its faces
 in place. Code that already refers to them, in any module, sees the change.
@@ -365,27 +366,27 @@ macro defpalette(pargs::Any...)
     for (_, info) in parsed
         filter!(dep -> dep in allnames, info.deps)
     end
-    # Topologically sort declarations
-    faceorder = Symbol[]
-    revdeps = Dict(name => Symbol[] for name in allnames)
-    for (label, info) in parsed
-        label.theme == :base || continue
-        if isempty(info.deps)
-            push!(faceorder, label.name)
-        else
-            for dep in info.deps
-                push!(revdeps[dep], label.name)
-            end
+    # Topologically sort the faces by what they refer to, consuming `deps`
+    function depsorted(deps::Dict{Symbol, Vector{Symbol}}, under::String)
+        order = sort!([name for (name, refs) in deps if isempty(refs)], by = name -> parsed[(; name, theme = :base)].i)
+        revdeps = Dict(name => Symbol[] for name in keys(deps))
+        for (name, refs) in deps, ref in refs
+            push!(revdeps[ref], name)
         end
+        for name in order, rdep in revdeps[name]
+            refs = deps[rdep]
+            isempty(deleteat!(refs, findfirst(==(name), refs)::Int)) && push!(order, rdep)
+        end
+        length(order) == length(deps) ||
+            throw(ArgumentError("Cyclic face dependencies detected in @defpalette declaration$under: $(join(setdiff(keys(deps), order), ", "))."))
+        order
     end
-    sort!(faceorder, by = x -> parsed[(; name = x, theme = :base)].i)
-    for name in faceorder, rdep in revdeps[name]
-        depfaces = parsed[(; name = rdep, theme = :base)].deps
-        ind = findfirst(==(name), depfaces)::Int
-        isempty(deleteat!(depfaces, ind)) && push!(faceorder, rdep)
+    basedeps = Dict(name => parsed[(; name, theme = :base)].deps for name in allnames)
+    # A variant is layered over its base face, so under its theme a face refers to what either does
+    for theme in (:light, :dark)
+        depsorted(Dict(name => union(deps, get(parsed, (; name, theme), (; deps = ())).deps) for (name, deps) in basedeps), " ($theme variants)")
     end
-    length(faceorder) == length(allnames) ||
-        throw(ArgumentError("Cyclic face dependencies detected in @defpalette declaration: $(join(setdiff(allnames, faceorder), ", "))."))
+    faceorder = depsorted(basedeps, "")
     # Each base face is bound to a variable in turn, for the faces after it to refer to
     facevars = Dict(name => gensym("$(name)_face") for name in allnames)
     # Rewrite arguments
