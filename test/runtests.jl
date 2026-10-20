@@ -729,6 +729,9 @@ end
     # Unknown faces in markup are reported where they are written
     unknownmarkup = try Core.eval(TestPalette, :(styled"{headng:x} {(weight=bolder):y}")) catch err sprint(showerror, err) end
     @test occursin("Unknown face 'headng' (did you mean 'heading'?)", unknownmarkup)
+    for (typo, name) in (("rde", "red"), ("BOLD", "bold"), ("Itlaic", "italic"))
+        @test occursin("Did you mean '$name'?", try Core.eval(TestPalette, :(@face_str $typo)) catch err sprint(showerror, err) end)
+    end
     @test occursin("Invalid weight", unknownmarkup)
     # Dotted names are module paths, resolved when the macro is expanded
     @test only(annotations(Core.eval(TestPaletteUser, :(styled"{TestPalette.heading:x}")))).value === heading

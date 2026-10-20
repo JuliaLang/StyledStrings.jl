@@ -132,22 +132,27 @@ function definedpalette(holder)
 end
 
 function similarface(mod::Module, name::Symbol)
-    function editdistance(a::String, b::String)
-        row = collect(0:length(b))
-        for (i, ca) in enumerate(a)
-            diag, row[1] = row[1], i
-            for (j, cb) in enumerate(b)
-                diag, row[j+1] = row[j+1], min(row[j+1] + 1, row[j] + 1, diag + (ca != cb))
+    function editdistance(a::String, b::String) # Optimal string alignment
+        a, b = collect(a), collect(b)
+        prev2, prev, row = zeros(Int, length(b) + 1), collect(0:length(b)), zeros(Int, length(b) + 1)
+        for i in eachindex(a)
+            row[1] = i
+            for j in eachindex(b)
+                row[j+1] = min(prev[j+1] + 1, row[j] + 1, prev[j] + (a[i] != b[j]))
+                if i > 1 && j > 1 && a[i] == b[j-1] && a[i-1] == b[j] # A swap of neighbours is one edit
+                    row[j+1] = min(row[j+1], prev2[j-1] + 1)
+                end
             end
+            prev2, prev, row = prev, row, prev2
         end
-        last(row)
+        last(prev)
     end
     candidates = collect(Symbol, keys(STANDARD_FACES))
     isdefined(mod, MAGIC_DEFPALETTE_VARNAME) && append!(candidates, keys(getglobal(mod, MAGIC_DEFPALETTE_VARNAME).base))
     isdefined(mod, MAGIC_USEPALETTE_VARNAME) && # Not those that are ambiguous
         append!(candidates, (name for (name, face) in getglobal(mod, MAGIC_USEPALETTE_VARNAME).faces if !isnothing(face)))
-    target = String(name)
-    distance, best = minimum(c -> (editdistance(String(c), target), c), candidates)
+    target = lowercase(String(name))
+    distance, best = minimum(c -> (editdistance(lowercase(String(c)), target), c), candidates)
     if distance <= max(1, length(target) ÷ 3) best end
 end
 
