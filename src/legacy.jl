@@ -1,12 +1,10 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# StyledStrings provides a new way of handling colored output, however the
-# ~decade of colored printing in Julia before now has left us with a legacy,
-# and we should try to maintain compatibility as much as reasonable possible.
+# Compatibility with the colored printing that predates StyledStrings
 
 module Legacy
 
-using ..StyledStrings: SimpleColor, Face, loadface!, face!, AnnotatedIOBuffer, annotatedstring
+using ..StyledStrings: SimpleColor, ANSI_4BIT_COLORS, FACES, Face, @face_str, setface!, face!, AnnotatedString, AnnotatedIOBuffer, annotatedstring
 
 """
     legacy_color(color::Union{String, Symbol, Int})
@@ -18,13 +16,15 @@ When this is not possible, `nothing` is returned.
 function legacy_color end
 
 """
-A mapping from 256-color codes indicies to 8-bit colours.
+A mapping from 256-color codes to colours. The first 16 are the base colours,
+which take their values from the terminal, and the rest are fixed 8-bit colours.
 """
 const ANSI_256_COLORS =
     map(SimpleColor,
-        [0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080,
-         0xc0c0c0, 0x808080, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff,
-         0x00ffff, 0xffffff, 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
+        [face"black", face"red", face"green", face"yellow", face"blue", face"magenta",
+         face"cyan", face"white", face"bright_black", face"bright_red", face"bright_green",
+         face"bright_yellow", face"bright_blue", face"bright_magenta", face"bright_cyan",
+         face"bright_white", 0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7,
          0x0000ff, 0x005f00, 0x005f5f, 0x005f87, 0x005faf, 0x005fd7, 0x005fff,
          0x008700, 0x00875f, 0x008787, 0x0087af, 0x0087d7, 0x0087ff, 0x00af00,
          0x00af5f, 0x00af87, 0x00afaf, 0x00afd7, 0x00afff, 0x00d700, 0x00d75f,
@@ -63,17 +63,6 @@ const ANSI_256_COLORS =
 legacy_color(color256::Int) = get(ANSI_256_COLORS, color256+1, nothing)
 
 """
-A list of all named colors recognised, including both the old `light_*` and new
-`bright_*` named colors.
-"""
-const NAMED_COLORS =
-    (:black, :red, :green, :yellow, :blue, :magenta, :cyan, :white,
-     :bright_black, :grey, :gray, :bright_red, :bright_green, :bright_yellow,
-     :bright_blue, :bright_magenta, :bright_cyan, :bright_white, :light_black,
-     :light_red, :light_green, :light_yellow, :light_blue, :light_magenta,
-     :light_cyan, :light_white)
-
-"""
 A mapping from old named colours to the new names, specifically from `light_*`
 to `bright_*`.
 """
@@ -87,20 +76,14 @@ const RENAMED_COLORS = Dict{Symbol, Symbol}(
     :light_cyan    => :bright_cyan,
     :light_white   => :bright_white)
 
-legacy_color(color::Symbol) =
-    if color in NAMED_COLORS
-        SimpleColor(get(RENAMED_COLORS, color, color))
-    end
+function legacy_color(color::Symbol)
+    face = get(FACES.pool, get(RENAMED_COLORS, color, color), nothing)
+    if !isnothing(face) && haskey(ANSI_4BIT_COLORS, face) SimpleColor(face) end
+end
 
 function legacy_color(color::String)
-    namedcolours = map(String, NAMED_COLORS)
-    if color in namedcolours
-        legacy_color(Symbol(color))
-    elseif 0 <= (color256 = something(tryparse(Int, color), -1)) <= 255
-        legacy_color(color256)
-    else
-        nothing
-    end
+    color256 = tryparse(Int, color)
+    if isnothing(color256) legacy_color(Symbol(color)) else legacy_color(color256) end
 end
 
 """
@@ -110,14 +93,14 @@ Try to emulate the effect of the various `*_color()` functions of `Base`, by
 loading any specified colours as foregrounds of the relevant faces.
 """
 function load_env_colors!()
-    for (fname, envkey) in ((:error,     "JULIA_ERROR_COLOR"),
-                            (:warn,      "JULIA_WARN_COLOR"),
-                            (:info,      "JULIA_INFO_COLOR"),
-                            (:log_debug, "JULIA_DEBUG_COLOR"))
+    for (face, envkey) in ((face"error",     "JULIA_ERROR_COLOR"),
+                           (face"warn",      "JULIA_WARN_COLOR"),
+                           (face"info",      "JULIA_INFO_COLOR"),
+                           (face"log_debug", "JULIA_DEBUG_COLOR"))
         if haskey(ENV, envkey)
             ecolor = legacy_color(ENV[envkey])
             if !isnothing(ecolor)
-                loadface!(fname => Face(foreground = ecolor))
+                setface!(face => Face(foreground = ecolor))
             end
         end
     end
@@ -125,12 +108,13 @@ end
 
 # Part of the inference barrier around `Base.printstyled`
 function Base.AnnotatedDisplay.styled_print(io::AnnotatedIOBuffer, @nospecialize(msg::Tuple), @nospecialize(kwargs::Base.Pairs))
-    str = annotatedstring(msg...)
+    widenface(s::AnnotatedString{S, V}) where {S, V} = AnnotatedString{S, Union{V, Face}}(s) # A copy, as `s` may be the caller's
+    str = widenface(annotatedstring(msg...))
     for attr in (:bold, :italic, :underline)
         get(kwargs, attr, false)::Bool && face!(str, attr)
     end
     get(kwargs, :reverse, false)::Bool && face!(str, :inverse)
-    color = get(kwargs, :color, :normal)::Symbol
+    color = get(kwargs, :color, :normal)::Union{Symbol, Int}
     color !== :normal && face!(str, Face(foreground=legacy_color(color)))
     write(io, str)
     nothing
