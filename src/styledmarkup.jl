@@ -87,7 +87,7 @@ mutable struct State{O}
     # Input
     const content::String
     const bytes::Vector{UInt8}
-    const s::Iterators.Stateful
+    const s::typeof(Iterators.Stateful(pairs(""))) # Concrete, so that what it gives is known to inference
     const strict::Bool
     # State
     offset::Int
@@ -132,9 +132,10 @@ function State(content::AbstractString, mod::Union{Module, Nothing}=nothing; ski
     str = String(content)
     strict = !isnothing(mod) && (isdefined(mod, MAGIC_DEFPALETTE_VARNAME) || isdefined(mod, MAGIC_USEPALETTE_VARNAME))
     output = if isnothing(mod)
-        FnOutput([], [], skipothers)
+        FnOutput(String[], fieldtype(FnOutput, :annots)(), skipothers)
     else
-        MacroOutput(mod, [], [], [], Dict(), [], [], nothing, StyledValue)
+        MacroOutput(mod, map(f -> fieldtype(MacroOutput, f)(), (:lets, :binds, :strs, :rfaces, :annots, :interpolations))...,
+                    nothing, StyledValue)
     end
     State(str, Vector{UInt8}(str), # content, bytes
           Iterators.Stateful(pairs(str)), strict, # s, strict
@@ -280,7 +281,8 @@ function readexpr!(state::State, pos::Int = first(popfirst!(state.s)) + 1)
                 -1, "right here")
         return "", pos
     end
-    expr, nextpos = Meta.parseatom(state.content, pos)
+    # Behind a barrier, as packages' methods can invalidate Base's parser
+    expr, nextpos = Base.inferencebarrier(Meta.parseatom)(state.content, pos)::Tuple{Any, Int}
     if Meta.isexpr(expr, (:error, :incomplete))
         detail = expr.args[1].detail
         after = if state.content[prevind(state.content, pos)] == '$' " after \$" else "" end # Not for `font=` or `height=`
@@ -364,14 +366,15 @@ function end_style!(state::State, i::Int)
         return
     end
     _, inds = pop!(state.activestyles)
+    annots = state.out.annots
     for ind in inds
-        annot = state.out.annots[ind]
-        start = first(annot.region)
-        annot = Base.setindex(annot, start:(i + state.offset - 1), :region)
-        if state.out isa MacroOutput
-            annot = Base.setindex(annot, state.out.dynoff, :roff)
+        annot = annots[ind]
+        region = first(annot.region):(i + state.offset - 1)
+        annots[ind] = if state.out isa MacroOutput
+            eltype(annots)((region, annot.loff, state.out.dynoff, annot.value))
+        else
+            eltype(annots)((region, annot.value))
         end
-        state.out.annots[ind] = annot
     end
     deleteat!(state.bytes, i + state.offset)
     state.offset -= ncodeunits('}')
@@ -599,7 +602,7 @@ function read_inlineface!(state::State, i::Int)
             start = first(peek(state.s))
             num = if isnextchar(state, ('.', '0':'9'...)) first(readexpr!(state, start)) end
             rest, lastchar = readsymbol!(state, lastchar) # Empty after a well-formed number
-            if isempty(rest) && num isa Real && !isnothing(heightbits(num))
+            if isempty(rest) && num isa Union{Int, Float64} && !isnothing(heightbits(num))
                 num
             else
                 stop = if isempty(state.s) lastindex(state.content) + 1 else first(peek(state.s)) end
@@ -664,8 +667,8 @@ function read_inlineface!(state::State, i::Int)
         else # As a macro's result would be evaluated, in the caller's module
             Core.eval(state.out.mod, Expr(:var"hygienic-scope", faceex, @__MODULE__))
         end
-    else
-        Face(; kwargs...)
+    else # The barrier keeps inference from depending on how a `NamedTuple` of `Any` converts
+        Base.inferencebarrier(Face)(; kwargs...)
     end
     addannot!(state, i, faceval)
 end
