@@ -50,6 +50,9 @@ using ..StyledStrings: Face, SimpleColor
 
 export @styled_str, styled
 
+# The type of `State`'s `s`, so that what it gives is known to inference.
+const StatefulChars = typeof(Iterators.Stateful(pairs("")))
+
 """
     State
 
@@ -92,7 +95,7 @@ Its fields are as follows:
 mutable struct State
     const content::String
     const bytes::Vector{UInt8}
-    const s::Iterators.Stateful
+    const s::StatefulChars
     const mod::Union{Module, Nothing}
     const parts::Vector{Any}
     const active_styles::Vector{Vector{Tuple{Int, Int, Union{Symbol, Expr, Tuple{Symbol, Any}}}}}
@@ -105,6 +108,7 @@ mutable struct State
 end
 
 function State(content::AbstractString, mod::Union{Module, Nothing}=nothing)
+    content = String(content)
     State(content, Vector{UInt8}(content), # content, bytes
           Iterators.Stateful(pairs(content)), mod, # s, eval
           Any[], # parts
@@ -197,16 +201,16 @@ function addpart!(state::State, stop::Int)
     end
     str = String(state.bytes[
         state.point:stop+state.offset+ncodeunits(state.content[stop])-1])
-    sty_type, tupl = if ismacro(state)
-        Expr, (r, lv) -> :(merge((; region=$r), NamedTuple{(:label, :value), Tuple{Symbol, Any}}($lv)))
+    tupl = if ismacro(state)
+        (r, lv) -> :(merge((; region=$r), NamedTuple{(:label, :value), Tuple{Symbol, Any}}($lv)))
     else
-        @NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}, (r, (l, v)) -> (; region=r, label=l, value=v)
+        (r, (l, v)) -> (; region=r, label=l, value=v)
     end
     push!(state.parts,
             if isempty(state.pending_styles) && isempty(state.active_styles)
                 str
             else
-                styles = sty_type[]
+                styles = ismacro(state) ? Expr[] : @NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}[]
                 # Turn active styles into pending styles
                 relevant_styles = Iterators.filter(
                     (_, start, _)::Tuple -> start <= stop + state.offset + 1,
@@ -249,13 +253,11 @@ function addpart!(state::State, start::Int, expr, stop::Int)
     else
         str = gensym("str")
         len = gensym("len")
-        annots = Expr(:vect, [
-            :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, Any}}(
-                (1:$len, $annot...)))
-            for annot in
-                map(last,
-                    (Iterators.flatten(
-                        map(reverse, state.active_styles))))]...)
+        annots = Expr(:vect)
+        for batch in state.active_styles, (_, _, annot) in Iterators.reverse(batch)
+            push!(annots.args, :(NamedTuple{(:region, :label, :value), Tuple{UnitRange{Int}, Symbol, Any}}(
+                (1:$len, $annot...))))
+        end
         if isempty(annots.args)
             push!(state.parts, :(AnnotatedString(string($expr))))
         else
@@ -708,9 +710,9 @@ function read_inlineface!(state::State, i::Int, char::Char, newstyles)
                     -length(str_key) - 2)
         end
         let key = key # Avoid boxing from closure capture
-            if ismacro(state) && !any(k -> first(k.args) == key, kwargs)
+            if ismacro(state) && !any(k -> first(k.args) === key, kwargs)
                 push!(kwargs, Expr(:kw, key, val))
-            elseif !ismacro(state) && !any(kw -> first(kw) == key, kwargs)
+            elseif !ismacro(state) && !any(kw -> first(kw) === key, kwargs)
                 push!(kwargs, key => val)
             else
                 styerr!(state, AnnotatedString("Contains repeated face key '$key'",
