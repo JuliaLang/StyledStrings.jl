@@ -26,15 +26,18 @@ const namecolor = identifier
 const whitespace = Data.Text(Data.SampledFrom(collect(" \t\n")), max_len=3)
 
 const integer = Data.Text(Data.SampledFrom('0':'9'), min_len=1, max_len=5)
-const decimalND = @composed (n=emptystr | integer, d=emptystr | integer) ->
-    n * '.' * d
+const decimalND = @composed (n=integer, d=integer) -> n * '.' * d
 const decimalN = @composed (n=integer) -> n * '.'
 const decimalD = @composed (d=integer) -> '.' * d
 const decimal = decimalND | decimalN | decimalD
 const pmsign = Data.SampledFrom(["+", "-"])
-const exponent = @composed (s1=emptystr | pmsign, frac=decimal, s2=emptystr | pmsign, exp=integer) ->
-    s1 * frac * 'e' * s2 * exp
+const smallint = @composed (i=Data.Integers(0, 20)) -> string(i)
+const exponent = @composed (frac=decimal, sign=emptystr | pmsign, exp=smallint) ->
+    frac * 'e' * sign * exp
 const number = integer | decimal | exponent
+const positive = @composed (n=number) ->
+    if all(c -> c ∉ '1':'9', view(n, 1:something(findfirst(==('e'), n), lastindex(n))))
+        "1" else n end
 
 # Inline face syntax (from EBNF)
 
@@ -57,7 +60,7 @@ const faceprop_font =
     @composed (ws0=whitespace, ws1=whitespace, ws2=whitespace, val=identifier, ws3=whitespace) ->
     ws0 * "font" * ws1 * '=' * ws2 * val * ws3
 const faceprop_height =
-    @composed (ws0=whitespace, ws1=whitespace, ws2=whitespace, val=integer|decimal, ws3=whitespace) ->
+    @composed (ws0=whitespace, ws1=whitespace, ws2=whitespace, val=positive, ws3=whitespace) ->
     ws0 * "height" * ws1 * '=' * ws2 * val * ws3
 const faceprop_weightvals = Data.SampledFrom(VALID_WEIGHTS)
 const faceprop_weight =
@@ -116,25 +119,21 @@ const interpolated = Data.OneOf(
     map(s -> "\$("*s*")", identifier)
 )
 
-const facename = Data.Text(Data.SampledFrom(alphanum); min_len=1, max_len=20)
+const facename = identifier
 const face = facename #| interpolated
 
-const key = (@composed function k(
-                 start=filter(c -> !(c in "\0\${},:"), anychar),
-                 next=Data.Text(filter(c -> !(c in "\0=,:"), anychar); max_len=20))
-                 start*next
-             end) #| interpolated
+const key = identifier #| interpolated
 
 const curlybraced = map(Data.Vectors(escaped | plain; max_size=10)) do str
-    join('{', str, '}')
+    '{' * join(str) * '}'
 end
 
 const simplevalue =
     @composed (pre=filter(c -> c ∉ "\${},:", anychar),
-               post=Data.Text(filter(c -> !(c in ",:"), anychar); max_len=20)) ->
+               post=Data.Text(filter(c -> !(c in ",:}"), anychar); max_len=20)) ->
     pre*post
 
-const value = simplevalue #| curlybraced #| interpolated
+const value = simplevalue | curlybraced #| interpolated
 
 const keyvalue =
     @composed (k=key,ws1=whitespace,ws2=whitespace,v=value) ->

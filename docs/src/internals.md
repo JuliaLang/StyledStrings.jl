@@ -7,29 +7,38 @@ opening a pull request or issue to discuss making them part of the public API.
 
 ```@docs
 StyledStrings.ANSI_4BIT_COLORS
+StyledStrings.BASE_FACES
 StyledStrings.FACES
-StyledStrings.MAX_COLOR_FORWARDS
-StyledStrings.UNRESOLVED_COLOR_FALLBACK
 StyledStrings.Legacy.ANSI_256_COLORS
-StyledStrings.Legacy.NAMED_COLORS
 StyledStrings.Legacy.RENAMED_COLORS
 StyledStrings.Legacy.legacy_color
 StyledStrings.Legacy.load_env_colors!
 StyledStrings.ansi_4bit
 StyledStrings.setcolors!
 StyledStrings.face!
-StyledStrings.foreignface
+StyledStrings.override
+StyledStrings.relayer!
 StyledStrings.getface
+StyledStrings.resolvedef
 StyledStrings.load_customisations!
 StyledStrings.loadface!
 StyledStrings.loaduserfaces!
 StyledStrings.resetfaces!
+StyledStrings.finalcolor
 StyledStrings.rgbcolor
 StyledStrings.termcolor
 StyledStrings.termcolor24bit
 StyledStrings.termcolor8bit
-StyledStrings.try_rgbcolor
+StyledStrings.safeuri
+StyledStrings.uriformat
 ```
+
+## Display
+
+Faces and links display through Base's interface for annotated display, documented in
+[`Base.AnnotatedDisplay`](@ref): `context` reads the cache of resolved faces once per display,
+each region's `reduction` merges its faces into a `FaceDef` and takes its innermost `Link`, and
+`transition` writes the change between two of them, as terminal codes or as HTML.
 
 ## Styled Markup parsing
 
@@ -46,20 +55,20 @@ should provide some insight though.
 StyledStrings.StyledMarkup
 StyledStrings.StyledMarkup.State
 StyledStrings.StyledMarkup.isnextchar
-StyledStrings.StyledMarkup.ismacro
+StyledStrings.StyledMarkup.annotpromote!
 StyledStrings.StyledMarkup.styerr!
-StyledStrings.StyledMarkup.hygienic_eval
-StyledStrings.StyledMarkup.addpart!
 StyledStrings.StyledMarkup.escaped!
 StyledStrings.StyledMarkup.interpolated!
 StyledStrings.StyledMarkup.readexpr!
-StyledStrings.StyledMarkup.skipwhitespace!
 StyledStrings.StyledMarkup.read_while!
 StyledStrings.StyledMarkup.begin_style!
 StyledStrings.StyledMarkup.end_style!
 StyledStrings.StyledMarkup.read_annotation!
 StyledStrings.StyledMarkup.read_inlineface!
+StyledStrings.StyledMarkup.addannot!
 StyledStrings.StyledMarkup.read_face_or_keyval!
+StyledStrings.StyledMarkup.resolveface
+StyledStrings.StyledMarkup.interpface
+StyledStrings.StyledMarkup.spliceinterps!
 StyledStrings.StyledMarkup.run_state_machine!
-StyledStrings.StyledMarkup.annotatedstring_optimize!
 ```
